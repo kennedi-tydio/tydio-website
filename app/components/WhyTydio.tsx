@@ -6,7 +6,7 @@ const features = [
       </svg>
     ),
     title: "Vetted professionals",
-    description: "Every cleaner is background-checked and rated by real customers before joining Tydio.",
+    description: "Every cleaner is background-checked and rated by real customers.",
   },
   {
     icon: (
