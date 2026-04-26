@@ -1,15 +1,15 @@
 "use client";
 
-import Script from "next/script";
+import { useEffect } from "react";
 
 export default function ChatbaseScript() {
-  return (
-    <Script
-      id="chatbase"
-      src="https://www.chatbase.co/embed.min.js"
-      data-chatbot-id="QomQSlDJ4Kefzg0EAu8o8"
-      data-domain="www.chatbase.co"
-      strategy="lazyOnload"
-    />
-  );
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://www.chatbase.co/embed.min.js";
+    script.id = "QomQSlDJ4Kefzg0EAu8o8";
+    (script as any).domain = "www.chatbase.co";
+    document.body.appendChild(script);
+  }, []);
+
+  return null;
 }
