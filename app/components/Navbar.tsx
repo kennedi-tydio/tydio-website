@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
 
 const links = [
   { label: "How It Works", href: "#how-it-works" },
@@ -47,15 +48,24 @@ export default function Navbar() {
           ))}
         </ul>
 
-        {/* CTA */}
-        <a
-          href="https://tally.so/r/3XANPz"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden md:inline-flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-5 py-2.5 rounded-full transition-colors shadow-sm shadow-sky-200"
-        >
-          Join Waitlist
-        </a>
+        {/* Desktop CTAs */}
+        <div className="hidden md:flex items-center gap-3">
+          <Link
+            href="/signup"
+            className="inline-flex items-center gap-1.5 border border-sky-400 text-sky-600 hover:bg-sky-50 text-sm font-semibold px-4 py-2 rounded-full transition-colors"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+            Try Tydio Lite
+          </Link>
+          <a
+            href="https://tally.so/r/3XANPz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-5 py-2.5 rounded-full transition-colors shadow-sm shadow-sky-200"
+          >
+            Join Waitlist
+          </a>
+        </div>
 
         {/* Mobile hamburger */}
         <button
@@ -91,6 +101,16 @@ export default function Navbar() {
               </li>
             ))}
             <li className="pt-2">
+              <Link
+                href="/signup"
+                onClick={() => setOpen(false)}
+                className="flex items-center justify-center gap-1.5 w-full border border-sky-400 text-sky-600 text-sm font-semibold px-5 py-2.5 rounded-full transition-colors"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                Try Tydio Lite
+              </Link>
+            </li>
+            <li className="pt-1">
               <a
                 href="https://tally.so/r/3XANPz"
                 target="_blank"

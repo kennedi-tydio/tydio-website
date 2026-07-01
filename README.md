@@ -29,6 +29,16 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Before Deploying
+
+- [ ] **Email logo** — `lib/email.ts` currently uses text "Tydio" in the email header because `localhost` URLs don't load in email clients. Once the site is live, replace the text header with the actual logo image:
+  ```html
+  <img src="https://tydioapp.com/Tydio Logo No Bkg.png" alt="Tydio" width="120" height="44" style="display:block;border:0;" />
+  ```
+- [ ] Set `NEXT_PUBLIC_SITE_URL` to the production domain in env vars
+- [ ] Rotate `JWT_SECRET` and `ADMIN_SECRET` to strong random values
+- [ ] Remove the `/api/test-email` route (dev only)
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
