@@ -5,6 +5,7 @@ import { useFormStatus } from 'react-dom'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { signupAction, type SignupState } from './actions'
+import type { FormEvent } from 'react'
 
 function SubmitButton({ isPro }: { isPro: boolean }) {
   const { pending } = useFormStatus()
@@ -27,7 +28,7 @@ function CustomCheckbox({ checked, onChange }: { checked: boolean; onChange: () 
       type="button"
       role="checkbox"
       aria-checked={checked}
-      onClick={onChange}
+      onClick={e => { e.stopPropagation(); onChange() }}
       className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
         checked ? 'bg-sky-500 border-sky-500' : 'border-slate-300'
       }`}
@@ -46,6 +47,20 @@ export default function SignupForm() {
   const searchParams = useSearchParams()
   const isPro = searchParams.get('role') === 'pro'
   const [agreed, setAgreed] = useState(false)
+  const [termsError, setTermsError] = useState(false)
+
+  function toggleAgreed() {
+    const next = !agreed
+    setAgreed(next)
+    if (next) setTermsError(false)
+  }
+
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    if (!agreed) {
+      e.preventDefault()
+      setTermsError(true)
+    }
+  }
 
   if (state.needsVerification) {
     return (
@@ -86,7 +101,7 @@ export default function SignupForm() {
   }
 
   return (
-    <form action={action} className="flex flex-col gap-4">
+    <form action={action} onSubmit={handleSubmit} className="flex flex-col gap-4">
       <input type="hidden" name="role" value={isPro ? 'TIDYPRO' : 'USER'} />
       {/* Submit both consent fields so the server action accepts the combined checkbox */}
       <input type="hidden" name="terms_accepted" value={agreed ? 'on' : ''} />
@@ -98,9 +113,9 @@ export default function SignupForm() {
           : 'Book a Tydio cleaning in minutes.'}
       </p>
 
-      {state.error && (
+      {(state.error || termsError) && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-          {state.error}
+          {state.error || 'You must agree to the Terms & Conditions and Privacy Policy to continue.'}
         </p>
       )}
 
@@ -152,8 +167,8 @@ export default function SignupForm() {
       </div>
 
       {/* Combined Terms & Privacy */}
-      <label className="flex items-start gap-2.5 cursor-pointer" onClick={() => setAgreed(v => !v)}>
-        <CustomCheckbox checked={agreed} onChange={() => setAgreed(v => !v)} />
+      <label className="flex items-start gap-2.5 cursor-pointer" onClick={toggleAgreed}>
+        <CustomCheckbox checked={agreed} onChange={toggleAgreed} />
         <span className="text-xs text-slate-500 leading-relaxed">
           I agree to the{' '}
           <Link href="/terms" className="text-sky-600 underline underline-offset-2" onClick={e => e.stopPropagation()}>
