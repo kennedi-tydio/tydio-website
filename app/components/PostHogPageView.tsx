@@ -14,7 +14,10 @@ function PostHogPageView() {
       let url = window.origin + pathname
       const search = searchParams.toString()
       if (search) url += `?${search}`
-      posthog.capture('$pageview', { $current_url: url })
+      const timer = setTimeout(() => {
+        posthog.capture('$pageview', { $current_url: url })
+      }, 50)
+      return () => clearTimeout(timer)
     }
   }, [pathname, searchParams, posthog])
 

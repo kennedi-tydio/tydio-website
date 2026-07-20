@@ -143,9 +143,7 @@ export default function SignupForm() {
       {/* Phone + Zip */}
       <div className="flex gap-3">
         <div className="flex-1 flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-slate-700" htmlFor="phone">
-            Phone{!isPro && <span className="text-slate-400 font-normal"> (optional)</span>}
-          </label>
+          <label className="text-sm font-medium text-slate-700" htmlFor="phone">Phone</label>
           <input id="phone" name="phone" type="tel" autoComplete="tel" required={isPro}
             placeholder="(555) 000-0000"
             className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
