@@ -7,18 +7,25 @@ import type { TidyTask } from './types'
 
 export const metadata: Metadata = { title: 'Home — Tydio' }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ priceError?: string }>
+}) {
   const session = await getSession()
   if (!session || session.role !== 'USER') redirect('/login')
 
+  const { priceError } = await searchParams
+
   const admin = createAdminClient()
 
-  const { data: profile } = await admin
+  const { data: profile, error: profileError } = await admin
     .from('profiles')
     .select('id, first_name, booking_access_status, custom_rooms')
     .eq('id', session.profileId)
     .single()
 
+  if (profileError) throw new Error(`Failed to load dashboard profile: ${profileError.message}`)
   if (!profile) redirect('/login')
 
   const { data: draft } = await admin
@@ -37,6 +44,7 @@ export default async function DashboardPage() {
       draftId={draft?.id ?? null}
       bookingAccessStatus={profile.booking_access_status ?? 'waitlisted'}
       savedRooms={(profile.custom_rooms as string[] | null) ?? []}
+      priceError={priceError}
     />
   )
 }

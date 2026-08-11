@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { setAdminCookie, clearAdminCookie, isAdminAuthed } from '@/lib/auth/admin'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendEmail, emailShell } from '@/lib/email'
+import { researchAreaMarketPrice, researchStateMedianPrice } from '@/lib/marketPricing'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -226,6 +227,35 @@ export async function pauseAreaAction(
   revalidatePath('/admin/service-areas')
 }
 
+export async function researchMarketPriceAction(
+  serviceAreaId: string,
+  _formData: FormData
+): Promise<void> {
+  if (!(await isAdminAuthed())) return
+
+  const admin = createAdminClient()
+  const { data: area } = await admin
+    .from('service_areas')
+    .select('name, city, state')
+    .eq('id', serviceAreaId)
+    .single()
+
+  if (!area) return
+
+  try {
+    const { price, summary } = await researchAreaMarketPrice(area)
+    await admin.from('service_areas').update({
+      market_price: price,
+      market_price_summary: summary,
+      market_price_researched_at: new Date().toISOString(),
+    }).eq('id', serviceAreaId)
+  } catch (err) {
+    console.error('Market price research failed', err)
+  }
+
+  revalidatePath('/admin/service-areas')
+}
+
 export async function deleteZipCodeAction(
   zipId: string,
   _formData: FormData
@@ -235,6 +265,133 @@ export async function deleteZipCodeAction(
   const admin = createAdminClient()
   await admin.from('service_area_zip_codes').delete().eq('id', zipId)
   revalidatePath('/admin/service-areas')
+}
+
+// ─── State Pricing ────────────────────────────────────────────────────────────
+
+const PRICE_PATTERN = /^\d+(\.\d{1,2})?$/
+
+function parsePrice(raw: FormDataEntryValue | null): { value?: number; error?: string } {
+  const str = (raw as string)?.trim()
+  if (!str) return { error: 'Median 4-hour price is required' }
+  if (!PRICE_PATTERN.test(str)) return { error: 'Price must be a valid amount with at most 2 decimal places' }
+  const value = Number(str)
+  if (!Number.isFinite(value) || value <= 0) return { error: 'Price must be greater than zero' }
+  return { value }
+}
+
+export async function createStatePriceAction(
+  _prev: { error?: string; success?: boolean },
+  formData: FormData
+): Promise<{ error?: string; success?: boolean }> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const state = (formData.get('state') as string)?.trim()
+  if (!state) return { error: 'State is required' }
+
+  const { value: price, error: priceError } = parsePrice(formData.get('median_four_hour_price'))
+  if (priceError) return { error: priceError }
+
+  const admin = createAdminClient()
+  const { error } = await admin.from('state_pricing').insert({
+    state,
+    median_four_hour_price: price as number,
+    pricing_active: true,
+  })
+
+  if (error) {
+    if (error.code === '23505') return { error: `${state} already has a price — edit it below instead` }
+    return { error: error.message }
+  }
+
+  revalidatePath('/admin/state-pricing')
+  return { success: true }
+}
+
+export async function updateStatePriceAction(
+  statePricingId: string,
+  _prev: { error?: string; success?: boolean },
+  formData: FormData
+): Promise<{ error?: string; success?: boolean }> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const { value: price, error: priceError } = parsePrice(formData.get('median_four_hour_price'))
+  if (priceError) return { error: priceError }
+
+  const admin = createAdminClient()
+  const { error } = await admin
+    .from('state_pricing')
+    .update({ median_four_hour_price: price, updated_at: new Date().toISOString() })
+    .eq('id', statePricingId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/admin/state-pricing')
+  return { success: true }
+}
+
+export async function activateStatePricingAction(
+  statePricingId: string,
+  _formData: FormData
+): Promise<void> {
+  if (!(await isAdminAuthed())) return
+
+  const admin = createAdminClient()
+  await admin
+    .from('state_pricing')
+    .update({ pricing_active: true, updated_at: new Date().toISOString() })
+    .eq('id', statePricingId)
+
+  revalidatePath('/admin/state-pricing')
+}
+
+export async function deactivateStatePricingAction(
+  statePricingId: string,
+  _formData: FormData
+): Promise<void> {
+  if (!(await isAdminAuthed())) return
+
+  const admin = createAdminClient()
+  await admin
+    .from('state_pricing')
+    .update({ pricing_active: false, updated_at: new Date().toISOString() })
+    .eq('id', statePricingId)
+
+  revalidatePath('/admin/state-pricing')
+}
+
+// AI-assisted suggestion for a state's median price (admin-triggered, not
+// automatic) — creates or refreshes that state's state_pricing row.
+export async function researchStatePriceAction(formData: FormData): Promise<void> {
+  if (!(await isAdminAuthed())) return
+
+  const state = (formData.get('state') as string)?.trim()
+  if (!state) return
+
+  const admin = createAdminClient()
+
+  try {
+    const { price } = await researchStateMedianPrice(state)
+
+    const { data: existing } = await admin
+      .from('state_pricing')
+      .select('id')
+      .eq('state', state)
+      .maybeSingle()
+
+    if (existing) {
+      await admin
+        .from('state_pricing')
+        .update({ median_four_hour_price: price, pricing_active: true, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+    } else {
+      await admin.from('state_pricing').insert({ state, median_four_hour_price: price, pricing_active: true })
+    }
+  } catch (err) {
+    console.error('State price research failed', err)
+  }
+
+  revalidatePath('/admin/state-pricing')
 }
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -267,6 +424,44 @@ export async function revokeAccessAction(
     booking_access_status: 'waitlisted',
     booking_access_granted_at: null,
     waitlisted: true,
+  }).eq('id', profileId)
+
+  revalidatePath('/admin/users')
+  revalidatePath('/admin')
+}
+
+// ─── Cleaners (Tidy Pros) ───────────────────────────────────────────────────
+
+export async function approveCleanerAction(
+  profileId: string,
+  _formData: FormData
+): Promise<void> {
+  if (!(await isAdminAuthed())) return
+
+  const admin = createAdminClient()
+  await admin.from('tidypro_profiles').update({
+    cleaner_status: 'approved',
+    active_for_booking: true,
+    approved_at: new Date().toISOString(),
+    paused_at: null,
+    pause_reason: null,
+  }).eq('id', profileId)
+
+  revalidatePath('/admin/users')
+  revalidatePath('/admin')
+}
+
+export async function pauseCleanerAction(
+  profileId: string,
+  _formData: FormData
+): Promise<void> {
+  if (!(await isAdminAuthed())) return
+
+  const admin = createAdminClient()
+  await admin.from('tidypro_profiles').update({
+    cleaner_status: 'paused',
+    active_for_booking: false,
+    paused_at: new Date().toISOString(),
   }).eq('id', profileId)
 
   revalidatePath('/admin/users')

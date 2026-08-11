@@ -1,11 +1,17 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { grantAccessAction, revokeAccessAction } from '../../actions'
+import { grantAccessAction, revokeAccessAction, approveCleanerAction, pauseCleanerAction } from '../../actions'
 
 const STATUS_COLORS: Record<string, string> = {
   booking_allowed: '#22c55e',
   waitlisted: '#f59e0b',
   paused: '#64748b',
   closed: '#ef4444',
+}
+
+const CLEANER_STATUS_COLORS: Record<string, string> = {
+  approved: '#22c55e',
+  applied: '#f59e0b',
+  paused: '#64748b',
 }
 
 export default async function UsersPage({
@@ -34,6 +40,15 @@ export default async function UsersPage({
 
   const { data: users } = await query
   const hasFilters = search || role || status || verified
+
+  const cleanerIds = (users ?? []).filter((u) => u.role === 'TIDYPRO').map((u) => u.id)
+  const { data: cleanerProfiles } = cleanerIds.length
+    ? await admin
+        .from('tidypro_profiles')
+        .select('id, cleaner_status, active_for_booking')
+        .in('id', cleanerIds)
+    : { data: [] }
+  const cleanerById = new Map((cleanerProfiles ?? []).map((c) => [c.id, c]))
 
   return (
     <div>
@@ -115,8 +130,13 @@ export default async function UsersPage({
             </thead>
             <tbody className="divide-y divide-slate-50">
               {(users ?? []).map(user => {
-                const statusColor =
-                  STATUS_COLORS[user.booking_access_status ?? 'waitlisted'] ?? '#64748b'
+                const cleaner = user.role === 'TIDYPRO' ? cleanerById.get(user.id) : undefined
+                const statusColor = cleaner
+                  ? CLEANER_STATUS_COLORS[cleaner.cleaner_status ?? 'applied'] ?? '#64748b'
+                  : STATUS_COLORS[user.booking_access_status ?? 'waitlisted'] ?? '#64748b'
+                const statusLabel = cleaner
+                  ? `${cleaner.cleaner_status ?? 'applied'}${cleaner.active_for_booking ? '' : ' · not bookable'}`
+                  : user.booking_access_status ?? '—'
                 const name =
                   [user.first_name, user.last_name].filter(Boolean).join(' ') || '—'
                 return (
@@ -134,7 +154,7 @@ export default async function UsersPage({
                         className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
                         style={{ color: statusColor, backgroundColor: `${statusColor}1a` }}
                       >
-                        {user.booking_access_status ?? '—'}
+                        {statusLabel}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -166,6 +186,28 @@ export default async function UsersPage({
                               style={{ backgroundColor: '#38C7CA' }}
                             >
                               Grant Access
+                            </button>
+                          </form>
+                        )
+                      )}
+                      {user.role === 'TIDYPRO' && (
+                        cleaner?.active_for_booking ? (
+                          <form action={pauseCleanerAction.bind(null, user.id)}>
+                            <button
+                              type="submit"
+                              className="text-xs font-medium text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                            >
+                              Pause
+                            </button>
+                          </form>
+                        ) : (
+                          <form action={approveCleanerAction.bind(null, user.id)}>
+                            <button
+                              type="submit"
+                              className="text-xs font-semibold px-2.5 py-1 rounded-lg text-white transition-opacity hover:opacity-90"
+                              style={{ backgroundColor: '#38C7CA' }}
+                            >
+                              Approve
                             </button>
                           </form>
                         )

@@ -83,6 +83,7 @@ export default function DashboardHome({
   draftId: initialDraftId,
   bookingAccessStatus,
   savedRooms,
+  priceError,
 }: {
   firstName: string
   userId: string
@@ -90,11 +91,17 @@ export default function DashboardHome({
   draftId: string | null
   bookingAccessStatus: string
   savedRooms: string[]
+  priceError?: string
 }) {
   const [tasks, setTasks] = useState<TidyTask[]>(initialTasks)
   const [draftId, setDraftId] = useState<string | null>(initialDraftId)
   const [showModal, setShowModal] = useState(false)
   const [collapsedRooms, setCollapsedRooms] = useState<Set<string>>(new Set())
+  const [showPriceError, setShowPriceError] = useState(!!priceError)
+  const priceErrorMessage =
+    priceError === 'state_pricing_not_configured'
+      ? "Instant pricing isn't available in your state yet — we've let our team know."
+      : "We couldn't calculate a price for one of your tasks. Try removing and re-adding it."
   const [, startTransition] = useTransition()
 
   function persist(updated: TidyTask[]) {
@@ -146,6 +153,21 @@ export default function DashboardHome({
     <div className="min-h-screen bg-white flex flex-col">
       {/* ── scrollable content ── */}
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full">
+
+        {showPriceError && (
+          <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 mb-5 flex items-start justify-between gap-3">
+            <p className="text-xs text-red-600 leading-relaxed">{priceErrorMessage}</p>
+            <button
+              onClick={() => setShowPriceError(false)}
+              className="flex-shrink-0 text-red-400"
+              aria-label="Dismiss"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Location header */}
         <button className="flex items-center gap-1 mb-7">
@@ -239,7 +261,9 @@ export default function DashboardHome({
                     <div className="pb-2">
                       {roomTasks.map(task => {
                         const dirtLabel = task.dirtLevel === 'light' ? 'Light touch-up' : task.dirtLevel === 'standard' ? 'Standard cleaning' : task.dirtLevel === 'heavy' ? 'Heavy cleaning' : null
-                        const meta = [dirtLabel, ...(task.unusual ?? [])].filter(Boolean).join(' · ')
+                        const dishwasherLabel = task.hasDishwasher === true ? 'Has dishwasher' : task.hasDishwasher === false ? 'No dishwasher — hand wash' : null
+                        const laundryLabel = task.laundryLoads ? `${task.laundryLoads.wash} wash · ${task.laundryLoads.dry} dry · ${task.laundryLoads.fold} fold` : null
+                        const meta = [dirtLabel, dishwasherLabel, laundryLabel, ...(task.unusual ?? [])].filter(Boolean).join(' · ')
                         return (
                           <button
                             key={task.id}

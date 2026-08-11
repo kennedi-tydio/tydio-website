@@ -349,6 +349,15 @@ export interface Database {
           task_list: Json | null
           pricing_breakdown: Json | null
           last_step_reached: number
+          scheduled_location: Json | null
+          scheduled_date: string | null
+          scheduled_time: string | null
+          selected_tidy_pro_id: string | null
+          pets: string | null
+          notes: string | null
+          supplies_provided: boolean
+          gift_code: string | null
+          selected_payment_method_id: string | null
           created_at: string
           updated_at: string
         }
@@ -358,10 +367,43 @@ export interface Database {
           task_list?: Json | null
           pricing_breakdown?: Json | null
           last_step_reached?: number
+          scheduled_location?: Json | null
+          scheduled_date?: string | null
+          scheduled_time?: string | null
+          selected_tidy_pro_id?: string | null
+          pets?: string | null
+          notes?: string | null
+          supplies_provided?: boolean
+          gift_code?: string | null
+          selected_payment_method_id?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['booking_drafts']['Insert']>
+        Relationships: []
+      }
+      payment_methods: {
+        Row: {
+          id: string
+          user_id: string
+          brand: string
+          last4: string
+          exp_month: number
+          exp_year: number
+          is_default: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          brand: string
+          last4: string
+          exp_month: number
+          exp_year: number
+          is_default?: boolean
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['payment_methods']['Insert']>
         Relationships: []
       }
       job_notifications: {
@@ -601,6 +643,9 @@ export interface Database {
           status: 'waitlist_only' | 'beta_open' | 'paused_recruiting_cleaners' | 'closed'
           city: string | null
           state: string
+          market_price: number | null
+          market_price_summary: string | null
+          market_price_researched_at: string | null
           created_at: string
           updated_at: string
         }
@@ -610,10 +655,33 @@ export interface Database {
           status?: 'waitlist_only' | 'beta_open' | 'paused_recruiting_cleaners' | 'closed'
           city?: string | null
           state?: string
+          market_price?: number | null
+          market_price_summary?: string | null
+          market_price_researched_at?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['service_areas']['Insert']>
+        Relationships: []
+      }
+      state_pricing: {
+        Row: {
+          id: string
+          state: string
+          median_four_hour_price: number
+          pricing_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          state: string
+          median_four_hour_price: number
+          pricing_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['state_pricing']['Insert']>
         Relationships: []
       }
       service_area_zip_codes: {

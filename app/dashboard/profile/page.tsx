@@ -12,12 +12,13 @@ export default async function ProfilePage() {
 
   const admin = createAdminClient()
 
-  const { data: profile } = await admin
+  const { data: profile, error: profileError } = await admin
     .from('profiles')
     .select('id, first_name, last_name, email, phone, zip_code')
     .eq('id', session.profileId)
     .single()
 
+  if (profileError) throw new Error(`Failed to load profile: ${profileError.message}`)
   if (!profile) redirect('/login')
 
   return (

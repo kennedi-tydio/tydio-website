@@ -18,7 +18,7 @@ async function getSessionFromRequest(req: NextRequest) {
   }
 }
 
-const PROTECTED_PATHS = ['/dashboard', '/book', '/bookings']
+const PROTECTED_PATHS = ['/dashboard', '/book', '/bookings', '/pro']
 const AUTH_PATHS = ['/login', '/signup']
 const PUBLIC_PATHS = ['/claim-task', '/job', '/review']
 
@@ -44,7 +44,7 @@ export async function proxy(request: NextRequest) {
 
   // Redirect logged-in users away from auth pages
   if (isAuth && session) {
-    const dest = session.role === 'TIDYPRO' ? '/' : '/dashboard'
+    const dest = session.role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard'
     return NextResponse.redirect(new URL(dest, request.url))
   }
 

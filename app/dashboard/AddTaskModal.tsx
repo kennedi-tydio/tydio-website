@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import type { TidyTask, DirtLevel } from './types'
+import type { TidyTask, DirtLevel, LaundryLoads } from './types'
+import type { Tier } from '@/lib/pricingRules'
 
 const DEFAULT_ROOMS = ['Kitchen', 'Bedroom', 'Bathroom']
 
@@ -13,7 +14,15 @@ const DIRT_OPTIONS: { value: DirtLevel; label: string }[] = [
 
 const UNUSUAL_OPTIONS = ['Pet mess', 'Hard water stains', 'Mold/mildew', 'Other (add to notes)']
 
-type Step = 'create' | 'dirt' | 'unusual'
+function isDishTask(name: string) {
+  return /dish/i.test(name)
+}
+
+function isLaundryTask(name: string) {
+  return /laundry|\bclothes\b|\blaundering\b/i.test(name)
+}
+
+type Step = 'create' | 'dishwasher' | 'laundryLoads' | 'dirt' | 'unusual'
 
 type Props = {
   savedRooms: string[]
@@ -37,12 +46,41 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
   const [unusual, setUnusual] = useState<string[]>([])
   const [validating, setValidating] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [hasDishwasher, setHasDishwasher] = useState<boolean | null>(null)
+  const [washLoads, setWashLoads] = useState(1)
+  const [dryLoads, setDryLoads] = useState(1)
+  const [foldLoads, setFoldLoads] = useState(1)
 
   const selectedRoom = showNewRoom ? newRoom.trim() : room
+  const isDish = isDishTask(name)
+  const isLaundry = isLaundryTask(name)
+
+  function prevStep(current: Step): Step {
+    switch (current) {
+      case 'unusual':
+        return isLaundry ? 'laundryLoads' : 'dirt'
+      case 'dirt':
+        return isDish ? 'dishwasher' : 'create'
+      default:
+        return 'create'
+    }
+  }
 
   function handleStep1Save() {
     if (!selectedRoom) return
+    if (isDish) setStep('dishwasher')
+    else if (isLaundry) setStep('laundryLoads')
+    else setStep('dirt')
+  }
+
+  function handleDishwasherSave() {
+    if (hasDishwasher === null) return
     setStep('dirt')
+  }
+
+  function handleLaundryLoadsSave() {
+    if (washLoads + dryLoads + foldLoads === 0) return
+    setStep('unusual')
   }
 
   function handleStep2Save() {
@@ -53,32 +91,50 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
 
   async function handleFinalSave() {
     setValidationError(null)
-    setValidating(true)
-    try {
-      const res = await fetch('/api/validate-task', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), notes, room: selectedRoom }),
-      })
-      const { valid, reason } = await res.json() as { valid: boolean; reason: string }
-      if (!valid) {
-        setValidationError(reason || 'This doesn\'t look like a valid Tidy Task. Please enter a specific cleaning task that takes under 30 minutes.')
-        return
+    // Dishwashing and laundry are built-in task types with fixed price tiers
+    // (dishwasher availability / load type), so they skip the free-text
+    // 30-minute Tidy Task check and AI tier classification entirely.
+    let tier: Tier | null = null
+    let estimatedMinutes: number | null = null
+    if (!isDish && !isLaundry) {
+      setValidating(true)
+      try {
+        const res = await fetch('/api/validate-task', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim(), notes, room: selectedRoom }),
+        })
+        const data = await res.json() as { valid: boolean; reason: string; tier: Tier | null; estimated_minutes: number | null }
+        if (!data.valid) {
+          setValidationError(data.reason || 'This doesn\'t look like a valid Tidy Task. Please enter a specific cleaning task that takes under 30 minutes.')
+          return
+        }
+        tier = data.tier
+        estimatedMinutes = data.estimated_minutes
+      } catch {
+        // If validation fails due to a network error, allow saving without a tier —
+        // the booking summary page will flag it before it can be priced.
+      } finally {
+        setValidating(false)
       }
-    } catch {
-      // If validation fails due to a network error, allow saving
-    } finally {
-      setValidating(false)
     }
+
+    const laundryLoads: LaundryLoads | null = isLaundry
+      ? { wash: washLoads, dry: dryLoads, fold: foldLoads }
+      : null
 
     onSave({
       id: crypto.randomUUID(),
       name: name.trim() || selectedRoom,
       notes,
       room: selectedRoom,
-      dirtLevel,
+      dirtLevel: isLaundry ? null : dirtLevel,
       unusual,
       completed: false,
+      hasDishwasher: isDish ? hasDishwasher : null,
+      laundryLoads,
+      tier,
+      estimatedMinutes,
     })
   }
 
@@ -118,7 +174,7 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
           <div className="flex items-center gap-3">
             {step !== 'create' && (
               <button
-                onClick={() => setStep(step === 'unusual' ? 'dirt' : 'create')}
+                onClick={() => setStep(prevStep(step))}
                 className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100"
                 aria-label="Back"
               >
@@ -184,6 +240,103 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
               <button
                 onClick={handleStep1Save}
                 disabled={!selectedRoom}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
+                style={{ backgroundColor: '#1a2332' }}
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Dishwashing — dishwasher availability */}
+        {step === 'dishwasher' && (
+          <>
+            {TaskInputs}
+
+            <p className="text-sm font-semibold text-slate-900 mb-3">
+              Do you have a dishwasher?<span className="text-[#38C7CA]">*</span>
+            </p>
+
+            <div className="flex flex-col gap-2.5 mb-6">
+              {[{ value: true, label: 'Yes' }, { value: false, label: 'No — hand wash' }].map(opt => (
+                <label
+                  key={String(opt.value)}
+                  className="flex items-center gap-3 cursor-pointer"
+                  onClick={() => setHasDishwasher(opt.value)}
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${hasDishwasher === opt.value ? 'border-[#38C7CA]' : 'border-slate-300'}`}>
+                    {hasDishwasher === opt.value && <div className="w-2.5 h-2.5 rounded-full bg-[#38C7CA]" />}
+                  </div>
+                  <span className="text-sm text-slate-700">{opt.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600">
+                Cancel
+              </button>
+              <button
+                onClick={handleDishwasherSave}
+                disabled={hasDishwasher === null}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
+                style={{ backgroundColor: '#1a2332' }}
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Laundry — loads to wash / dry / fold */}
+        {step === 'laundryLoads' && (
+          <>
+            {TaskInputs}
+
+            <p className="text-sm font-semibold text-slate-900 mb-3">
+              How many loads?<span className="text-[#38C7CA]">*</span>
+            </p>
+            <p className="text-xs text-slate-400 mb-3">Each load is priced separately</p>
+
+            <div className="flex flex-col gap-4 mb-6">
+              {[
+                { label: 'Loads to wash', value: washLoads, set: setWashLoads },
+                { label: 'Loads to dry', value: dryLoads, set: setDryLoads },
+                { label: 'Loads to fold', value: foldLoads, set: setFoldLoads },
+              ].map(row => (
+                <div key={row.label} className="flex items-center justify-between">
+                  <span className="text-sm text-slate-700">{row.label}</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => row.set(Math.max(0, row.value - 1))}
+                      className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-semibold flex items-center justify-center"
+                      aria-label={`Decrease ${row.label.toLowerCase()}`}
+                    >
+                      −
+                    </button>
+                    <span className="w-6 text-center text-sm font-semibold text-slate-900">{row.value}</span>
+                    <button
+                      type="button"
+                      onClick={() => row.set(row.value + 1)}
+                      className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-semibold flex items-center justify-center"
+                      aria-label={`Increase ${row.label.toLowerCase()}`}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600">
+                Cancel
+              </button>
+              <button
+                onClick={handleLaundryLoadsSave}
+                disabled={washLoads + dryLoads + foldLoads === 0}
                 className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
                 style={{ backgroundColor: '#1a2332' }}
               >

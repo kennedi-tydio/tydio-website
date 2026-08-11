@@ -126,6 +126,68 @@ ALTER TABLE email_verification_tokens DISABLE ROW LEVEL SECURITY;
 
 -- ─── 007: Custom rooms per user ────────────────────────────────────────────
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_rooms text[] DEFAULT '{}';
+
+-- ─── 008: Market pricing per service area ──────────────────────────────────
+ALTER TABLE service_areas ADD COLUMN IF NOT EXISTS market_price numeric;
+ALTER TABLE service_areas ADD COLUMN IF NOT EXISTS market_price_summary text;
+ALTER TABLE service_areas ADD COLUMN IF NOT EXISTS market_price_researched_at timestamptz;
+
+-- ─── 009: Booking schedule (location/date/time) ────────────────────────────
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS scheduled_location jsonb;
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS scheduled_date date;
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS scheduled_time text;
+
+-- ─── 010: Selected cleaner on booking draft ────────────────────────────────
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS selected_tidy_pro_id uuid REFERENCES profiles(id) ON DELETE SET NULL;
+
+-- ─── 011: City pricing ──────────────────────────────────────────────────────
+ALTER TABLE service_areas ADD COLUMN IF NOT EXISTS median_four_hour_price numeric(10,2);
+ALTER TABLE service_areas ADD COLUMN IF NOT EXISTS pricing_active boolean NOT NULL DEFAULT false;
+ALTER TABLE service_areas ADD COLUMN IF NOT EXISTS pricing_updated_at timestamptz;
+
+DO $$ BEGIN
+  ALTER TABLE service_areas ADD CONSTRAINT service_areas_price_positive
+    CHECK (median_four_hour_price IS NULL OR median_four_hour_price > 0);
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE service_areas ADD CONSTRAINT service_areas_pricing_active_requires_price
+    CHECK (pricing_active = false OR (city IS NOT NULL AND median_four_hour_price IS NOT NULL));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS service_areas_active_price_city_state_idx
+  ON service_areas (lower(city), state) WHERE pricing_active = true;
+
+-- ─── 012: State pricing (replaces city-level pricing from 011) ─────────────
+CREATE TABLE IF NOT EXISTS state_pricing (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  state text NOT NULL UNIQUE,
+  median_four_hour_price numeric(10,2) NOT NULL,
+  pricing_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+DO $$ BEGIN
+  ALTER TABLE state_pricing ADD CONSTRAINT state_pricing_price_positive
+    CHECK (median_four_hour_price > 0);
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE state_pricing DISABLE ROW LEVEL SECURITY;
+
+-- 011's city-level pricing columns are superseded by state_pricing above.
+ALTER TABLE service_areas DROP CONSTRAINT IF EXISTS service_areas_price_positive;
+ALTER TABLE service_areas DROP CONSTRAINT IF EXISTS service_areas_pricing_active_requires_price;
+DROP INDEX IF EXISTS service_areas_active_price_city_state_idx;
+ALTER TABLE service_areas DROP COLUMN IF EXISTS median_four_hour_price;
+ALTER TABLE service_areas DROP COLUMN IF EXISTS pricing_active;
+ALTER TABLE service_areas DROP COLUMN IF EXISTS pricing_updated_at;
 `
 
 export async function GET() {

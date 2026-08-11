@@ -1,18 +1,4 @@
-export const PRICING_VERSION = 'v1'
-
-export const TIER_BASE_PRICES: Record<string, number> = {
-  Tiny: 39,
-  Quick: 39,
-  Standard: 39,
-  Heavy: 49,
-}
-
-export const TIER_ADDON_PRICES: Record<string, number> = {
-  Tiny: 8,
-  Quick: 12,
-  Standard: 18,
-  Heavy: 25,
-}
+export const PRICING_VERSION = 'v4-state'
 
 export const CLEANER_PAYOUT_RATE = 0.80
 export const PLATFORM_FEE_RATE = 0.20
@@ -20,134 +6,151 @@ export const PLATFORM_FEE_RATE = 0.20
 // No service fee in MVP v1
 // Tips pass 100% to cleaner on top of 80% payout
 
-export const CONDITION_MULTIPLIERS: Record<string, number> = {
-  normal: 1.0,
-  dirty: 1.15,
-  very_dirty: 1.25,
+export const TIER_ORDER = ['Tiny', 'Quick', 'Standard', 'Heavy'] as const
+export type Tier = (typeof TIER_ORDER)[number]
+
+// Cosmetic display minutes for line items that don't come from an AI
+// estimate (dishwashing/laundry have fixed tiers, not estimated ones).
+export const TIER_MINUTE_MIDPOINTS: Record<Tier, number> = {
+  Tiny: 7,
+  Quick: 12,
+  Standard: 20,
+  Heavy: 27,
 }
 
-export const UNUSUAL_NOTES_SURCHARGE = 5
+// Maps an AI-estimated task duration to a price tier. Boundaries match the
+// tier table above (Tiny 5-10, Quick 10-15, Standard 15-25, Heavy 25-30).
+// Anything under 5 minutes clamps to Tiny; 30+ minutes is invalid (must be
+// rejected or split into smaller tasks) and returns null.
+export function tierFromEstimatedMinutes(minutes: number): Tier | null {
+  if (minutes < 10) return 'Tiny'
+  if (minutes < 15) return 'Quick'
+  if (minutes < 25) return 'Standard'
+  if (minutes < 30) return 'Heavy'
+  return null
+}
 
-export const TIER_ORDER = ['Tiny', 'Quick', 'Standard', 'Heavy'] as const
-type Tier = (typeof TIER_ORDER)[number]
+// Denominator for the base-price ratio: a 4-hour (240 minute) full clean is
+// priced at exactly the admin-configured state median.
+export const BASE_PRICE_DIVISOR_MINUTES = 240
+
+// Per-task cleaning-type surcharge, keyed by that task's dirt level.
+export const CLEANING_TYPE_SURCHARGE: Record<'light' | 'standard' | 'heavy', number> = {
+  light: 0,
+  standard: 5,
+  heavy: 10,
+}
+
+// Flat surcharge added per selected "additional issue" (pet mess, mold,
+// hard water stains, etc.) on a task.
+export const ADDITIONAL_ISSUE_SURCHARGE_PER_ITEM = 10
+
+// Added per cleaner (not per booking) when that cleaner is a Top Tidy Pro —
+// applied downstream of calculatePrice, once cleaner search results are
+// known, not inside this module.
+export const TOP_TIDY_PRO_SURCHARGE = 5
 
 export interface ValidatedTask {
   normalized_task_name: string
   tier: string
   estimated_minutes: number
-  condition_level: 'normal' | 'dirty' | 'very_dirty'
-  has_unusual_factors: boolean
+  // False for tasks whose tier is fixed by task type (dishwashing, laundry)
+  // rather than an actual AI time estimate — `estimated_minutes` on those is
+  // just the tier's midpoint, not a real duration, so it shouldn't be shown
+  // to the customer as one.
+  has_estimated_duration?: boolean
+  cleaning_type_surcharge: number
+  additional_issue_surcharge: number
   unusual_notes?: string
 }
 
 export interface TaskLineItem {
   name: string
   tier: string
-  is_first_task: boolean
   estimated_minutes: number
-  condition_level: string
-  has_unusual_factors: boolean
+  has_estimated_duration: boolean
+  cleaning_type_surcharge: number
+  additional_issue_surcharge: number
   unusual_notes?: string
-  base_price: number
-  condition_multiplier: number
-  unusual_surcharge: number
-  final_price: number
 }
 
 export interface PricingBreakdown {
   pricing_version: string
-  first_task: { name: string; tier: string; price: number }
-  addon_tasks: { name: string; tier: string; price: number }[]
-  task_list: TaskLineItem[]
-  customer_subtotal: number
+  state: string
+  median_four_hour_price: number
+  total_task_minutes: number
+  base_price: number
+  cleaning_type_surcharge: number
+  additional_issue_surcharge: number
+  // base_price + cleaning_type_surcharge + additional_issue_surcharge.
+  // Does NOT include the Top Tidy Pro surcharge — that's per-cleaner and
+  // applied by the caller once cleaner search results are known.
   total_customer_charge: number
   cleaner_payout: number
   platform_fee: number
-  stripe_fee_estimate: number
-  quote_generated_at: string
+  task_list: TaskLineItem[]
+  calculated_at: string
 }
 
-export function selectFirstTask(tasks: ValidatedTask[]): number {
-  let firstIndex = 0
-  let highestTierIndex = -1
-
-  for (let i = 0; i < tasks.length; i++) {
-    const tierIdx = TIER_ORDER.indexOf(tasks[i].tier as Tier)
-    if (tierIdx > highestTierIndex) {
-      highestTierIndex = tierIdx
-      firstIndex = i
-    }
-  }
-
-  return firstIndex
+// Structured pricing context an AI service may be given to estimate/validate
+// task durations. The AI may populate totalTaskMinutes; it must never
+// determine or override medianFourHourBookingPrice — that value always comes
+// from the administrator-configured state_pricing record in the database.
+export interface AIPricingContext {
+  serviceState: string
+  totalTaskMinutes: number
+  medianFourHourBookingPrice: number
+  cleaningType: 'standard' | 'deep'
+  additionalIssues: string[]
 }
 
-export function applyConditionModifiers(
-  basePrice: number,
-  conditionLevel: string,
-  hasUnusualFactors: boolean
-): { finalPrice: number; multiplier: number; surcharge: number } {
-  const multiplier = CONDITION_MULTIPLIERS[conditionLevel] ?? 1.0
-  const surcharge = hasUnusualFactors ? UNUSUAL_NOTES_SURCHARGE : 0
-  const finalPrice = Math.round(basePrice * multiplier) + surcharge
-  return { finalPrice, multiplier, surcharge }
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
 
-export function calculateBookingPrice(tasks: ValidatedTask[]): PricingBreakdown {
+// Prices a booking directly off the administrator-configured state median for
+// a 4-hour clean, scaled by total task effort, plus flat per-task surcharges
+// for cleaning type (dirt level) and additional issues. This is the sole,
+// backend-only price computation — it never accepts a total from the
+// frontend or an AI response, only the raw task list and the DB-sourced
+// median price.
+export function calculatePrice(tasks: ValidatedTask[], state: string, medianFourHourPrice: number): PricingBreakdown {
   if (tasks.length === 0) {
     throw new Error('At least one task is required')
   }
 
-  const firstTaskIndex = selectFirstTask(tasks)
-  const taskLineItems: TaskLineItem[] = []
+  const taskLineItems: TaskLineItem[] = tasks.map((task) => ({
+    name: task.normalized_task_name,
+    tier: task.tier,
+    estimated_minutes: task.estimated_minutes,
+    has_estimated_duration: task.has_estimated_duration ?? true,
+    cleaning_type_surcharge: task.cleaning_type_surcharge,
+    additional_issue_surcharge: task.additional_issue_surcharge,
+    unusual_notes: task.unusual_notes,
+  }))
 
-  for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i]
-    const isFirst = i === firstTaskIndex
-    const basePrice = isFirst
-      ? TIER_BASE_PRICES[task.tier] ?? 39
-      : TIER_ADDON_PRICES[task.tier] ?? 8
+  const totalTaskMinutes = taskLineItems.reduce((sum, t) => sum + t.estimated_minutes, 0)
+  const cleaningTypeSurcharge = taskLineItems.reduce((sum, t) => sum + t.cleaning_type_surcharge, 0)
+  const additionalIssueSurcharge = taskLineItems.reduce((sum, t) => sum + t.additional_issue_surcharge, 0)
 
-    const { finalPrice, multiplier, surcharge } = applyConditionModifiers(
-      basePrice,
-      task.condition_level,
-      task.has_unusual_factors
-    )
+  const basePrice = (totalTaskMinutes / BASE_PRICE_DIVISOR_MINUTES) * medianFourHourPrice
+  const totalCustomerCharge = round2(basePrice + cleaningTypeSurcharge + additionalIssueSurcharge)
 
-    taskLineItems.push({
-      name: task.normalized_task_name,
-      tier: task.tier,
-      is_first_task: isFirst,
-      estimated_minutes: task.estimated_minutes,
-      condition_level: task.condition_level,
-      has_unusual_factors: task.has_unusual_factors,
-      unusual_notes: task.unusual_notes,
-      base_price: basePrice,
-      condition_multiplier: multiplier,
-      unusual_surcharge: surcharge,
-      final_price: finalPrice,
-    })
-  }
-
-  const firstItem = taskLineItems.find((t) => t.is_first_task)!
-  const addonItems = taskLineItems.filter((t) => !t.is_first_task)
-
-  const customerSubtotal = taskLineItems.reduce((sum, t) => sum + t.final_price, 0)
-  const totalCustomerCharge = customerSubtotal // no service fee in v1
-  const cleanerPayout = Math.round(customerSubtotal * CLEANER_PAYOUT_RATE * 100) / 100
-  const platformFee = Math.round(customerSubtotal * PLATFORM_FEE_RATE * 100) / 100
-  const stripeFeeEstimate = Math.round((totalCustomerCharge * 0.029 + 0.30) * 100) / 100
+  const cleanerPayout = round2(totalCustomerCharge * CLEANER_PAYOUT_RATE)
+  const platformFee = round2(totalCustomerCharge * PLATFORM_FEE_RATE)
 
   return {
     pricing_version: PRICING_VERSION,
-    first_task: { name: firstItem.name, tier: firstItem.tier, price: firstItem.final_price },
-    addon_tasks: addonItems.map((t) => ({ name: t.name, tier: t.tier, price: t.final_price })),
-    task_list: taskLineItems,
-    customer_subtotal: customerSubtotal,
+    state,
+    median_four_hour_price: medianFourHourPrice,
+    total_task_minutes: totalTaskMinutes,
+    base_price: round2(basePrice),
+    cleaning_type_surcharge: cleaningTypeSurcharge,
+    additional_issue_surcharge: additionalIssueSurcharge,
     total_customer_charge: totalCustomerCharge,
     cleaner_payout: cleanerPayout,
     platform_fee: platformFee,
-    stripe_fee_estimate: stripeFeeEstimate,
-    quote_generated_at: new Date().toISOString(),
+    task_list: taskLineItems,
+    calculated_at: new Date().toISOString(),
   }
 }

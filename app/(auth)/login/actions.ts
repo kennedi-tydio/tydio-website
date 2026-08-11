@@ -55,7 +55,7 @@ export async function loginAction(
   await createSession({ profileId: profile.id, role: profile.role as 'USER' | 'TIDYPRO', email })
 
   if (next && next.startsWith('/')) redirect(next)
-  redirect(role === 'TIDYPRO' ? '/' : '/dashboard')
+  redirect(role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
 }
 
 export async function resendVerificationAction(

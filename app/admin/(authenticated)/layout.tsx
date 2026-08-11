@@ -9,6 +9,7 @@ export const metadata: Metadata = { title: 'Admin — Tydio' }
 const NAV_ITEMS = [
   { label: 'Overview', href: '/admin' },
   { label: 'Service Areas', href: '/admin/service-areas' },
+  { label: 'State Pricing', href: '/admin/state-pricing' },
   { label: 'Users', href: '/admin/users' },
 ]
 

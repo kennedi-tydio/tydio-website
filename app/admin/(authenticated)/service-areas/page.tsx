@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { activateAreaAction, pauseAreaAction, deleteZipCodeAction } from '../../actions'
+import { activateAreaAction, pauseAreaAction, deleteZipCodeAction, researchMarketPriceAction } from '../../actions'
 import CreateAreaForm from './CreateAreaForm'
 import AddZipForm from './AddZipForm'
 
@@ -108,6 +108,31 @@ export default async function ServiceAreasPage() {
                     <p className="text-xl font-bold text-slate-700">{area.zips.length}</p>
                     <p className="text-xs text-slate-400">ZIP Codes</p>
                   </div>
+                </div>
+
+                {/* Market price */}
+                <div className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-3 mb-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {area.market_price != null ? `$${area.market_price} full clean` : 'Not yet researched'}
+                    </p>
+                    {area.market_price_researched_at && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Researched {new Date(area.market_price_researched_at).toLocaleDateString()}
+                      </p>
+                    )}
+                    {area.market_price_summary && (
+                      <p className="text-xs text-slate-400 mt-0.5 italic truncate">{area.market_price_summary}</p>
+                    )}
+                  </div>
+                  <form action={researchMarketPriceAction.bind(null, area.id)} className="flex-shrink-0">
+                    <button
+                      type="submit"
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg text-slate-600 border border-slate-200 hover:bg-white transition-colors"
+                    >
+                      {area.market_price != null ? 'Refresh' : 'Research Market Price'}
+                    </button>
+                  </form>
                 </div>
 
                 {/* ZIP chips */}

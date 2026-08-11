@@ -48,5 +48,5 @@ export async function resetPasswordAction(
 
   await createSession({ profileId: profile.id, role: profile.role as 'USER' | 'TIDYPRO' | 'ADMIN', email: profile.email })
 
-  redirect('/dashboard')
+  redirect(profile.role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
 }

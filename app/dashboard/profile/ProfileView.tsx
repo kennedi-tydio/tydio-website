@@ -134,18 +134,29 @@ export default function ProfileView({ firstName, lastName, email }: Props) {
 
         {/* Menu items */}
         {[
-          { label: 'Manage Addresses' },
-          { label: 'Payment methods' },
-          { label: 'Preferences' },
-        ].map(item => (
-          <button
-            key={item.label}
-            className="w-full bg-white rounded-2xl px-5 py-4 mb-3 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
-          >
-            <span className="font-semibold text-slate-800 text-sm">{item.label}</span>
-            <IconChevronRight />
-          </button>
-        ))}
+          { label: 'Manage Addresses', href: '/dashboard/profile/addresses' },
+          { label: 'Payment methods', href: '/dashboard/profile/payment-methods' },
+          { label: 'Preferences', href: null },
+        ].map(item =>
+          item.href ? (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="w-full bg-white rounded-2xl px-5 py-4 mb-3 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
+            >
+              <span className="font-semibold text-slate-800 text-sm">{item.label}</span>
+              <IconChevronRight />
+            </Link>
+          ) : (
+            <button
+              key={item.label}
+              className="w-full bg-white rounded-2xl px-5 py-4 mb-3 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
+            >
+              <span className="font-semibold text-slate-800 text-sm">{item.label}</span>
+              <IconChevronRight />
+            </button>
+          )
+        )}
 
         {/* Logout */}
         <button
