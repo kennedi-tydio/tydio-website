@@ -65,6 +65,8 @@ export default function StateSelect({ value, onChange, placeholder = 'State', cl
       const match = results[highlight]
       if (match) selectState(match.code, match.name)
     } else if (e.key === 'Escape') {
+      // Keeps an enclosing ModalShell from closing too.
+      if (open) e.preventDefault()
       setOpen(false)
       setQuery(selected?.name ?? '')
     }
@@ -73,6 +75,7 @@ export default function StateSelect({ value, onChange, placeholder = 'State', cl
   return (
     <div ref={rootRef} className={`relative ${className ?? ''}`}>
       <input
+        aria-label="State"
         type="text"
         role="combobox"
         aria-expanded={open}
@@ -87,7 +90,7 @@ export default function StateSelect({ value, onChange, placeholder = 'State', cl
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        className="w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-[#38C7CA]"
+        className="w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-brand"
       />
       {open && (
         <div

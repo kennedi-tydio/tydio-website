@@ -1,4 +1,5 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
+import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -7,7 +8,8 @@ export type WeekdayKey = (typeof WEEKDAY_KEYS)[number]
 
 export type WeeklyAvailability = Partial<Record<WeekdayKey, { start: string; end: string }[]>>
 
-export const SEARCH_RADIUS_MILES = 15
+// The furthest a Tidy Pro can choose to travel. Each one sets their own radius up to this.
+export const MAX_TRAVEL_RADIUS_MILES = 20
 
 export interface LatLng {
   latitude: number
@@ -86,6 +88,44 @@ export function hasAvailabilityBlock(
   })
 }
 
+// "Any day" variant — true if the cleaner has a block covering the requested
+// time on at least one day of the week, regardless of which day that ends up
+// being. Used when the customer picked a specific time but left the date as
+// "Any day"; actual booking conflicts are only checked once a real date is
+// chosen.
+export function hasAnyDayAvailabilityBlock(
+  availability: WeeklyAvailability,
+  timeRange: { start: string; end: string }
+): boolean {
+  return WEEKDAY_KEYS.some((weekday) => hasAvailabilityBlock(availability, weekday, timeRange))
+}
+
+// Whether the cleaner already has a booking or open request overlapping this time,
+// by the same rule search uses. Checked again right before the customer is charged,
+// since someone else may have taken the slot after it was picked.
+export async function hasBookingConflict(
+  admin: AdminClient,
+  cleanerId: string,
+  date: string,
+  time: string,
+  durationMinutes: number
+): Promise<boolean> {
+  const { data: existing } = await admin
+    .from('bookings')
+    .select('scheduled_time, estimated_duration_minutes')
+    .eq('tidy_pro_id', cleanerId)
+    .eq('scheduled_date', date)
+    .not('status', 'in', '("cancelled","declined")')
+
+  const reqStart = minutesSinceMidnight(time)
+  const reqEnd = reqStart + durationMinutes
+  return (existing ?? []).some((b) => {
+    if (!b.scheduled_time) return false
+    const start = minutesSinceMidnight(b.scheduled_time)
+    return rangesOverlap(reqStart, reqEnd, start, start + (b.estimated_duration_minutes ?? 60))
+  })
+}
+
 export async function findAvailableCleaners(
   params: {
     latitude: number
@@ -98,14 +138,17 @@ export async function findAvailableCleaners(
 ): Promise<CleanerMatch[]> {
   const { data: candidates } = await admin
     .from('tidypro_profiles')
-    .select('id, rating, review_count, is_verified, total_accepted_bookings, profile_photo_url, latitude, longitude, availability')
+    .select('id, rating, review_count, is_verified, total_accepted_bookings, profile_photo_url, bio, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, availability')
     .eq('active_for_booking', true)
+    .eq('cleaner_status', 'approved')
+    .eq('is_away', false)
     .not('latitude', 'is', null)
     .not('longitude', 'is', null)
 
   if (!candidates || candidates.length === 0) return []
 
   const nearby = candidates
+    .filter((c) => missingOnboardingSteps(c).length === 0)
     .map((c) => ({
       ...c,
       distanceMiles: haversineDistanceMiles(
@@ -113,12 +156,12 @@ export async function findAvailableCleaners(
         { latitude: c.latitude as number, longitude: c.longitude as number }
       ),
     }))
-    .filter((c) => c.distanceMiles <= SEARCH_RADIUS_MILES)
+    .filter((c) => c.distanceMiles <= Math.min(c.travel_radius_miles as number, MAX_TRAVEL_RADIUS_MILES))
 
   if (nearby.length === 0) return []
 
-  // "Any day" — no specific date to check availability/conflicts against,
-  // so proximity alone determines the result.
+  // "Any day" with "Anytime": every bookable cleaner in range. The customer picks whoever
+  // they like, then a day from that cleaner's calendar. With a time, it narrows further down.
   let available = nearby
   if (params.date) {
     const date = params.date
@@ -157,6 +200,12 @@ export async function findAvailableCleaners(
         return !busy.some((b) => rangesOverlap(reqStart, reqEnd, b.start, b.end))
       })
     }
+  } else if (params.time) {
+    // "Any day" but a specific time — the cleaner just needs to work that
+    // time of day on some weekday. There's no specific date yet, so booking
+    // conflicts aren't checked until the customer actually picks one.
+    const timeRange = { start: params.time, end: minutesToTime(minutesSinceMidnight(params.time) + params.durationMinutes) }
+    available = nearby.filter((c) => hasAnyDayAvailabilityBlock((c.availability as WeeklyAvailability) ?? {}, timeRange))
   }
 
   if (available.length === 0) return []

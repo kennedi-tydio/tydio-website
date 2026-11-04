@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { buildValidatedTaskPool, resolveStatePricing } from './taskPricing'
+import { describe, expect, it, vi } from 'vitest'
+import { estimateTaskDuration } from '@/lib/aiTaskEstimate'
+import { buildValidatedTaskPool, ensurePriceableTasks, isTaskPriceable, resolveStatePricing, UnpriceableTaskError } from './taskPricing'
 import type { TidyTask } from './types'
+
+vi.mock('@/lib/aiTaskEstimate', () => ({
+  estimateTaskDuration: vi.fn(),
+}))
 
 function tidyTask(overrides: Partial<TidyTask> = {}): TidyTask {
   return {
@@ -21,12 +26,12 @@ describe('buildValidatedTaskPool — per-task surcharge mapping', () => {
     expect(validated.cleaning_type_surcharge).toBe(0)
   })
 
-  it('maps dirtLevel standard to +$5', () => {
+  it('maps dirtLevel standard to +$5 cleaning-type surcharge', () => {
     const [validated] = buildValidatedTaskPool([tidyTask({ dirtLevel: 'standard', estimatedMinutes: 15 })])
     expect(validated.cleaning_type_surcharge).toBe(5)
   })
 
-  it('maps dirtLevel heavy to +$10', () => {
+  it('maps dirtLevel heavy (deep cleaning) to +$10', () => {
     const [validated] = buildValidatedTaskPool([tidyTask({ dirtLevel: 'heavy', estimatedMinutes: 15 })])
     expect(validated.cleaning_type_surcharge).toBe(10)
   })
@@ -55,6 +60,109 @@ describe('buildValidatedTaskPool — per-task surcharge mapping', () => {
     ])
     expect(validated.cleaning_type_surcharge).toBe(0)
     expect(validated.additional_issue_surcharge).toBe(0)
+  })
+
+  it('uses the AI-estimated minutes as-is, not a tier midpoint, when one was returned', () => {
+    const [validated] = buildValidatedTaskPool([tidyTask({ tier: 'Standard', estimatedMinutes: 18 })])
+    expect(validated.estimated_minutes).toBe(18)
+    expect(validated.has_estimated_duration).toBe(true)
+  })
+
+  it('rejects a task the AI never estimated instead of silently pricing it as the cheapest tier', () => {
+    // Regression test: a task that failed AI validation (e.g. network error)
+    // is saved with tier=null and estimatedMinutes=null. It must be treated
+    // as unpriceable, not fall through to the "Tiny" (7-minute) tier.
+    const unestimated = tidyTask({ tier: null, estimatedMinutes: null })
+    expect(() => buildValidatedTaskPool([unestimated])).toThrow(UnpriceableTaskError)
+  })
+})
+
+describe('isTaskPriceable', () => {
+  it('is false for a regular task with no tier and no estimate', () => {
+    expect(isTaskPriceable(tidyTask({ tier: null, estimatedMinutes: null }))).toBe(false)
+  })
+
+  it('is true once a tier or estimate is present', () => {
+    expect(isTaskPriceable(tidyTask({ tier: 'Standard', estimatedMinutes: null }))).toBe(true)
+    expect(isTaskPriceable(tidyTask({ tier: null, estimatedMinutes: 12 }))).toBe(true)
+  })
+
+  it('dish and laundry tasks are always priceable — they use fixed tiers, not an AI estimate', () => {
+    expect(isTaskPriceable(tidyTask({ tier: null, estimatedMinutes: null, hasDishwasher: false }))).toBe(true)
+    expect(isTaskPriceable(tidyTask({ tier: null, estimatedMinutes: null, laundryLoads: { wash: 1, dry: 0, fold: 0 } }))).toBe(true)
+  })
+})
+
+function mockDraftsAdmin() {
+  const updateCalls: unknown[] = []
+  const admin = {
+    from: (table: string) => {
+      if (table !== 'booking_drafts') throw new Error(`unexpected table ${table}`)
+      return {
+        update: (patch: unknown) => ({
+          eq: async () => {
+            updateCalls.push(patch)
+            return { error: null }
+          },
+        }),
+      }
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any
+  return { admin, updateCalls }
+}
+
+describe('ensurePriceableTasks — self-healing backfill', () => {
+  it('leaves an already-priceable task list untouched and never calls the AI', async () => {
+    const mockEstimate = vi.mocked(estimateTaskDuration)
+    mockEstimate.mockClear()
+    const { admin } = mockDraftsAdmin()
+    const tasks = [tidyTask({ tier: 'Standard', estimatedMinutes: 15 })]
+
+    const result = await ensurePriceableTasks(admin, 'draft-1', tasks)
+
+    expect(result).toBe(tasks)
+    expect(mockEstimate).not.toHaveBeenCalled()
+  })
+
+  it('backfills a task missing an estimate using its full details, and persists the fix', async () => {
+    const mockEstimate = vi.mocked(estimateTaskDuration)
+    mockEstimate.mockReset()
+    mockEstimate.mockResolvedValue({ valid: true, reason: '', estimated_minutes: 22, tier: 'Standard' })
+
+    const { admin, updateCalls } = mockDraftsAdmin()
+    const broken = tidyTask({ id: 'broken-1', tier: null, estimatedMinutes: null, dirtLevel: 'heavy', unusual: ['Pet mess'] })
+    const fine = tidyTask({ id: 'fine-1', tier: 'Quick', estimatedMinutes: 12 })
+
+    const result = await ensurePriceableTasks(admin, 'draft-1', [broken, fine])
+
+    // The AI gets the same task info a customer entered — name, room, notes,
+    // mess level, and any additional issues — not just the bare name.
+    expect(mockEstimate).toHaveBeenCalledTimes(1)
+    expect(mockEstimate).toHaveBeenCalledWith({
+      name: broken.name,
+      room: broken.room,
+      notes: broken.notes,
+      dirtLevel: 'heavy',
+      unusual: ['Pet mess'],
+    })
+
+    expect(result.find((t) => t.id === 'broken-1')).toMatchObject({ tier: 'Standard', estimatedMinutes: 22 })
+    expect(result.find((t) => t.id === 'fine-1')).toEqual(fine)
+    expect(updateCalls).toHaveLength(1)
+  })
+
+  it('leaves a task unpriceable, without throwing, if the AI itself is unreachable', async () => {
+    const mockEstimate = vi.mocked(estimateTaskDuration)
+    mockEstimate.mockReset()
+    mockEstimate.mockRejectedValue(new Error('network down'))
+
+    const { admin } = mockDraftsAdmin()
+    const broken = tidyTask({ tier: null, estimatedMinutes: null })
+
+    const result = await ensurePriceableTasks(admin, 'draft-1', [broken])
+
+    expect(isTaskPriceable(result[0])).toBe(false)
   })
 })
 

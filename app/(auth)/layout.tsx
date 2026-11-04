@@ -6,7 +6,7 @@ import RoleSelector from './RoleSelector'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
+    <main id="main-content" className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
       <Link href="/" className="mb-2">
         <Image
           src="/Tydio Logo No Bkg.png"
@@ -38,6 +38,6 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <p className="mt-6 text-xs text-slate-400 text-center max-w-xs">
         Tydio Lite is an early access version of the full Tydio app.
       </p>
-    </div>
+    </main>
   )
 }

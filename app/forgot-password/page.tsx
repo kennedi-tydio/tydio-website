@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: 'Forgot Password — Tydio' }
 
 export default function ForgotPasswordPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <main id="main-content" className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
         <Link href="/" className="block mb-8 text-center">
           <span className="text-2xl font-bold tracking-tight" style={{ color: '#1a2332' }}>
@@ -22,6 +22,6 @@ export default function ForgotPasswordPage() {
           </Suspense>
         </div>
       </div>
-    </div>
+    </main>
   )
 }

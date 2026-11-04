@@ -6,6 +6,12 @@ type EmailOptions = {
   htmlContent: string
 }
 
+export const TYDIO_ADMIN_EMAIL = 'kennedicoats@tydioapp.com'
+
+export function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 export async function sendEmail(opts: EmailOptions): Promise<void> {
   const apiKey = process.env.BREVO_API_KEY
   if (!apiKey) throw new Error('BREVO_API_KEY is not set')

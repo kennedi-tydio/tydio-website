@@ -72,7 +72,7 @@ export default async function ServiceAreasPage() {
                         <button
                           type="submit"
                           className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition-opacity hover:opacity-90"
-                          style={{ backgroundColor: '#38C7CA' }}
+                          style={{ backgroundColor: 'var(--color-brand)' }}
                         >
                           Activate + Send Emails
                         </button>
@@ -99,7 +99,7 @@ export default async function ServiceAreasPage() {
                     <p className="text-xs text-slate-400">Waitlisted</p>
                   </div>
                   <div>
-                    <p className="text-xl font-bold" style={{ color: '#38C7CA' }}>
+                    <p className="text-xl font-bold" style={{ color: 'var(--color-brand)' }}>
                       {area.bookingAllowedCount}
                     </p>
                     <p className="text-xs text-slate-400">Booking Allowed</p>

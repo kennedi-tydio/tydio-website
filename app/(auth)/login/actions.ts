@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { verifyPassword } from '@/lib/auth/password'
 import { createSession } from '@/lib/auth/session'
 import { sendEmail, emailShell } from '@/lib/email'
+import { BANNED_MESSAGE, isBanned } from '@/lib/bannedUsers'
 import { redirect } from 'next/navigation'
 
 export type LoginState = {
@@ -28,9 +29,12 @@ export async function loginAction(
 
   const admin = createAdminClient()
 
+  // Before the account lookup, since a denied cleaner's account no longer exists.
+  if (await isBanned(admin, { email })) return { error: BANNED_MESSAGE }
+
   const { data: profile } = await admin
     .from('profiles')
-    .select('id, role, password_hash, email_verified_at')
+    .select('id, role, password_hash, email_verified_at, phone')
     .eq('email', email)
     .eq('role', role)
     .maybeSingle()
@@ -47,6 +51,8 @@ export async function loginAction(
 
   const valid = await verifyPassword(password, profile.password_hash)
   if (!valid) return { error: 'Incorrect password.' }
+
+  if (await isBanned(admin, { phone: profile.phone })) return { error: BANNED_MESSAGE }
 
   if (!profile.email_verified_at) {
     return { unverified: true, unverifiedEmail: email, unverifiedRole: role }

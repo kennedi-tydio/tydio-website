@@ -50,6 +50,7 @@ export default async function CleanerDetailPage({
       averageResponseTimeMinutes={tidyPro.average_response_time_minutes}
       availability={(tidyPro.availability as WeeklyAvailability | null) ?? {}}
       allergies={allergies}
+      reviewsHref={`/book/schedule/${cleanerId}/reviews`}
     />
   )
 }

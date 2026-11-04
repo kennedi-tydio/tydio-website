@@ -2,22 +2,13 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { shiftDateISO } from '@/lib/bookingTime'
 import { buildValidatedTaskPool } from '@/app/dashboard/taskPricing'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
 import ChooseTimeView, { type BusyRange } from './ChooseTimeView'
 
 export const metadata: Metadata = { title: 'Choose a Time — Tydio' }
-
-function todayISO(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
-
-function nowMinutesSinceMidnight(): number {
-  const now = new Date()
-  return now.getHours() * 60 + now.getMinutes()
-}
 
 export default async function ChooseTimePage({
   params,
@@ -41,7 +32,7 @@ export default async function ChooseTimePage({
 
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
-    .select('id, task_list')
+    .select('id, task_list, scheduled_date, scheduled_time')
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -49,6 +40,21 @@ export default async function ChooseTimePage({
 
   if (draftError) throw new Error(`Failed to load booking draft: ${draftError.message}`)
   if (!draft) redirect('/dashboard')
+
+  // A specific date AND time were already locked in on "Plan your booking" —
+  // search only returned cleaners free at that exact slot, so there's
+  // nothing left to choose here. Lock in this cleaner and go straight to
+  // reviewing the request.
+  if (draft.scheduled_date && draft.scheduled_time) {
+    const { error: confirmError } = await admin
+      .from('booking_drafts')
+      .update({ selected_tidy_pro_id: cleanerId })
+      .eq('id', draft.id)
+      .eq('customer_user_id', session.profileId)
+
+    if (confirmError) throw new Error(`Failed to confirm Tidy Pro: ${confirmError.message}`)
+    redirect('/book/review')
+  }
 
   const allTasks = (draft.task_list as TidyTask[] | null) ?? []
   const tasks = allTasks.filter((t) => t.completed)
@@ -65,7 +71,8 @@ export default async function ChooseTimePage({
     .from('bookings')
     .select('scheduled_date, scheduled_time, estimated_duration_minutes')
     .eq('tidy_pro_id', cleanerId)
-    .gte('scheduled_date', todayISO())
+    // A day back, since "today" here is the server's, and the customer's may be behind it.
+    .gte('scheduled_date', shiftDateISO(new Date().toISOString().slice(0, 10), -1))
     .not('status', 'in', '("cancelled","declined")')
 
   const busyByDate = new Map<string, BusyRange[]>()
@@ -83,8 +90,8 @@ export default async function ChooseTimePage({
       availability={(tidyPro.availability as WeeklyAvailability | null) ?? {}}
       busyByDate={Object.fromEntries(busyByDate)}
       durationMinutes={durationMinutes}
-      todayISO={todayISO()}
-      nowMinutes={nowMinutesSinceMidnight()}
+      initialDate={draft.scheduled_date}
+      initialTime={draft.scheduled_time}
     />
   )
 }

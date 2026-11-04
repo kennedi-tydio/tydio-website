@@ -5,6 +5,17 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    rules: {
+      "no-restricted-imports": ["error", {
+        paths: [{
+          name: "next/navigation",
+          importNames: ["useRouter"],
+          message: "Use useRouter from @/app/components/NavigationSpinner, so navigating shows the loading wheel.",
+        }],
+      }],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

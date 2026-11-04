@@ -11,7 +11,7 @@ function SubmitButton() {
       type="submit"
       disabled={pending}
       className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-60 transition-opacity"
-      style={{ backgroundColor: '#38C7CA' }}
+      style={{ backgroundColor: 'var(--color-brand)' }}
     >
       {pending ? 'Saving…' : 'Save'}
     </button>
@@ -31,12 +31,13 @@ export default function EditStatePriceForm({
   return (
     <form action={formAction} className="flex items-center gap-2">
       <input
+        aria-label="Median 4-hour price"
         name="median_four_hour_price"
         required
         inputMode="decimal"
         defaultValue={currentPrice}
         placeholder="e.g. 150.00"
-        className="w-32 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-[#38C7CA] transition-colors"
+        className="w-32 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-brand transition-colors"
       />
       <SubmitButton />
       {state?.error && <span className="text-red-500 text-xs">{state.error}</span>}

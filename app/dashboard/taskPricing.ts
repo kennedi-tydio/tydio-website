@@ -8,8 +8,14 @@ import {
   calculatePrice,
   tierFromEstimatedMinutes,
 } from '@/lib/pricingRules'
+import { estimateTaskDuration } from '@/lib/aiTaskEstimate'
+import { isSquareFootage, type SquareFootage } from '@/lib/squareFootage'
+import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { createAdminClient } from '@/lib/supabase/admin'
+import { isTaskPriceable } from './isTaskPriceable'
 import type { DirtLevel, LaundryLoads, TidyTask } from './types'
+
+export { isTaskPriceable } from './isTaskPriceable'
 
 export class UnpriceableTaskError extends Error {
   constructor(task: TidyTask) {
@@ -86,9 +92,83 @@ export function buildValidatedTaskPool(tasks: TidyTask[]): ValidatedTask[] {
   return tasks.flatMap(taskToValidatedTasks)
 }
 
-export function priceTaskListForState(tasks: TidyTask[], state: string, medianFourHourPrice: number): PricingBreakdown {
+// Self-healing backfill for tasks that ended up saved without a tier/estimate
+// (e.g. an interrupted request from before the "Add Task" flow blocked on a
+// failed estimate). Rather than rejecting these at booking time, read the
+// same task info the AI would have seen originally — name, room, mess level,
+// notes, additional issues — and estimate it now, then persist the fix so it
+// only ever needs to happen once per task. Takes the *full* draft task list
+// (not just the completed/selected subset) so the write-back doesn't drop
+// unselected tasks.
+export async function ensurePriceableTasks(
+  admin: ReturnType<typeof createAdminClient>,
+  draftId: string,
+  allTasks: TidyTask[]
+): Promise<TidyTask[]> {
+  const needsEstimate = allTasks.filter((t) => !isTaskPriceable(t))
+  if (needsEstimate.length === 0) return allTasks
+
+  const patches = await Promise.all(
+    needsEstimate.map(async (t) => {
+      try {
+        const result = await estimateTaskDuration({
+          name: t.name,
+          room: t.room,
+          notes: t.notes,
+          dirtLevel: t.dirtLevel,
+          unusual: t.unusual,
+        })
+        return { id: t.id, tier: result.tier, estimatedMinutes: result.estimated_minutes }
+      } catch {
+        // Genuinely no way to reach the AI right now (offline, provider
+        // down) — leave this one task unpriceable; the caller's existing
+        // UnpriceableTaskError handling still applies as the last resort.
+        return { id: t.id, tier: null, estimatedMinutes: null }
+      }
+    })
+  )
+
+  const patchById = new Map(patches.map((p) => [p.id, p]))
+  const repaired = allTasks.map((t) => {
+    const patch = patchById.get(t.id)
+    if (!patch || patch.tier == null) return t
+    return { ...t, tier: patch.tier, estimatedMinutes: patch.estimatedMinutes }
+  })
+
+  const { error } = await admin.from('booking_drafts').update({ task_list: repaired as never }).eq('id', draftId)
+  if (error) console.error('Failed to persist repaired task estimates', error)
+
+  return repaired
+}
+
+export function priceTaskListForState(
+  tasks: TidyTask[],
+  state: string,
+  medianFourHourPrice: number,
+  squareFootage: SquareFootage | null = null
+): PricingBreakdown {
   const pool = buildValidatedTaskPool(tasks)
-  return calculatePrice(pool, state, medianFourHourPrice)
+  return calculatePrice(pool, state, medianFourHourPrice, squareFootage)
+}
+
+// The square footage that prices a booking, read from the customer's own
+// saved address - never trusted from the client. Null for a current-location
+// booking or an address with no square footage, which prices at the base rate.
+export async function resolveLocationSquareFootage(
+  admin: ReturnType<typeof createAdminClient>,
+  customerId: string,
+  location: ScheduledLocation | null
+): Promise<SquareFootage | null> {
+  if (location?.type !== 'address') return null
+
+  const { data } = await admin
+    .from('user_addresses')
+    .select('square_footage')
+    .eq('id', location.addressId)
+    .eq('user_id', customerId)
+    .maybeSingle()
+
+  return isSquareFootage(data?.square_footage) ? data.square_footage : null
 }
 
 export type StatePricingResult =

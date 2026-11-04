@@ -2,6 +2,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { deleteSession, getSession } from '@/lib/auth/session'
+import { deleteOwnAccount } from '@/lib/accountDeletion'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import type { TidyTask } from './types'
@@ -13,12 +14,12 @@ export async function logoutAction() {
   redirect('/')
 }
 
-export async function deleteAccountAction(): Promise<void> {
+export async function deleteAccountAction(): Promise<{ error: string }> {
   const session = await getSession()
   if (!session) redirect('/login')
 
-  const admin = createAdminClient()
-  await admin.from('profiles').delete().eq('id', session.profileId)
+  const result = await deleteOwnAccount(createAdminClient(), session.profileId)
+  if ('error' in result) return result
   await deleteSession()
   redirect('/')
 }

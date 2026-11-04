@@ -1,13 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import {
-  createPaymentMethodAction,
-  selectPaymentMethodForDraftAction,
-  type SavedPaymentMethod,
-} from './actions'
+import { useRouter } from '@/app/components/NavigationSpinner'
+import { removePaymentMethodAction, selectPaymentMethodForDraftAction, type SavedPaymentMethod } from './actions'
+import AddCardSheet from './AddCardSheet'
 
 function IconBack() {
   return (
@@ -19,7 +15,7 @@ function IconBack() {
 
 function IconShieldCheck() {
   return (
-    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#38C7CA' }}>
+    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-brand)' }}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M20 6L9 17l-5-5" />
       </svg>
@@ -76,8 +72,7 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId)
   const [showAddCard, setShowAddCard] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-
-  const backHref = draftId ? '/book/review' : '/dashboard/profile'
+  const [removingId, setRemovingId] = useState<string | null>(null)
 
   async function handleConfirmSelection() {
     if (!draftId || !selectedId) return
@@ -93,12 +88,21 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
     setShowAddCard(false)
   }
 
+  async function handleRemove(id: string) {
+    setRemovingId(id)
+    const result = await removePaymentMethodAction(id)
+    setRemovingId(null)
+    if ('error' in result) return
+    setPaymentMethods((prev) => prev.filter((pm) => pm.id !== id))
+    setSelectedId((prev) => (prev === id ? null : prev))
+  }
+
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-8 max-w-sm mx-auto w-full">
-        <Link href={backHref} aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
+        <button type="button" onClick={() => router.back()} aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
           <IconBack />
-        </Link>
+        </button>
 
         <h1 className="text-3xl font-bold text-slate-900 mb-5">Payment Methods</h1>
 
@@ -116,32 +120,45 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
             {paymentMethods.map((pm) => {
               const isSelected = pm.id === selectedId
               return (
-                <button
+                <div
                   key={pm.id}
-                  type="button"
-                  onClick={() => setSelectedId(pm.id)}
-                  className="w-full rounded-2xl border border-slate-100 shadow-sm px-4 py-3.5 flex items-center gap-3 text-left"
+                  className="w-full rounded-2xl border border-slate-100 shadow-sm px-4 py-3.5 flex items-center gap-3"
                 >
-                  <span
-                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? 'border-[#38C7CA]' : 'border-slate-300'}`}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(pm.id)}
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
                   >
-                    {isSelected && <span className="w-2.5 h-2.5 rounded-full bg-[#38C7CA]" />}
-                  </span>
-                  <CardBrandBadge brand={pm.brand} />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">**** {pm.last4}</p>
-                    <p className="text-xs text-slate-400">
-                      expires {pm.exp_month}/{String(pm.exp_year).slice(-2)}
-                    </p>
-                  </div>
-                </button>
+                    <span
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? 'border-brand' : 'border-slate-300'}`}
+                    >
+                      {isSelected && <span className="w-2.5 h-2.5 rounded-full bg-brand" />}
+                    </span>
+                    <CardBrandBadge brand={pm.brand} />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">**** {pm.last4}</p>
+                      <p className="text-xs text-slate-400">
+                        expires {pm.exp_month}/{String(pm.exp_year).slice(-2)}
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(pm.id)}
+                    disabled={removingId === pm.id}
+                    aria-label={`Remove card ending in ${pm.last4}`}
+                    className="flex-shrink-0 text-xs font-semibold text-slate-400 hover:text-red-500 disabled:opacity-40 px-1"
+                  >
+                    {removingId === pm.id ? '…' : 'Remove'}
+                  </button>
+                </div>
               )
             })}
             <button
               type="button"
               onClick={() => setShowAddCard(true)}
               className="flex items-center gap-2 text-sm font-semibold mt-1 px-1 py-1.5"
-              style={{ color: '#38C7CA' }}
+              style={{ color: 'var(--color-brand)' }}
             >
               <span className="text-lg leading-none">+</span> Add new card
             </button>
@@ -155,7 +172,7 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
             type="button"
             onClick={() => setShowAddCard(true)}
             className="w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide"
-            style={{ backgroundColor: '#38C7CA' }}
+            style={{ backgroundColor: 'var(--color-brand)' }}
           >
             Add payment method
           </button>
@@ -165,7 +182,7 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
             onClick={handleConfirmSelection}
             disabled={!selectedId || submitting}
             className="w-full py-4 rounded-2xl font-semibold text-base tracking-wide text-white disabled:text-slate-400 transition-colors"
-            style={{ backgroundColor: selectedId ? '#38C7CA' : '#e5e9ef' }}
+            style={{ backgroundColor: selectedId ? 'var(--color-brand)' : '#e5e9ef' }}
           >
             {submitting ? 'Saving…' : 'Select payment method'}
           </button>
@@ -174,92 +191,6 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
       </div>
 
       {showAddCard && <AddCardSheet onSaved={handleCardAdded} onClose={() => setShowAddCard(false)} />}
-    </div>
-  )
-}
-
-function AddCardSheet({
-  onSaved,
-  onClose,
-}: {
-  onSaved: (pm: SavedPaymentMethod) => void
-  onClose: () => void
-}) {
-  const [cardNumber, setCardNumber] = useState('')
-  const [expiry, setExpiry] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSave() {
-    const [mm, yy] = expiry.split('/').map((p) => p.trim())
-    const expMonth = Number(mm)
-    const expYear = yy ? 2000 + Number(yy) : NaN
-
-    if (!expMonth || !expYear) {
-      setError('Enter expiration as MM/YY.')
-      return
-    }
-
-    setSaving(true)
-    setError(null)
-    const result = await createPaymentMethodAction({ cardNumber, expMonth, expYear })
-    setSaving(false)
-    if ('error' in result) {
-      setError(result.error)
-      return
-    }
-    onSaved(result)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-sm bg-white rounded-t-3xl px-6 pt-6 pb-8 shadow-2xl">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-xl font-bold text-slate-900">Add payment method</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100" aria-label="Close">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M12 4L4 12M4 4l8 8" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 overflow-hidden mb-5">
-          <input
-            type="text"
-            inputMode="numeric"
-            placeholder="Card number"
-            value={cardNumber}
-            onChange={(e) => setCardNumber(e.target.value)}
-            className="w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 border-b border-slate-200 focus:outline-none"
-          />
-          <input
-            type="text"
-            placeholder="MM/YY"
-            value={expiry}
-            onChange={(e) => setExpiry(e.target.value)}
-            className="w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
-          />
-        </div>
-
-        {error && (
-          <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4 leading-relaxed">{error}</p>
-        )}
-
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600">
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || !cardNumber || !expiry}
-            className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
-            style={{ backgroundColor: '#1a2332' }}
-          >
-            {saving ? 'Saving…' : 'Save card'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </main>
   )
 }

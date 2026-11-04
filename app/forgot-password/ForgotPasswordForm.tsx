@@ -28,7 +28,7 @@ export default function ForgotPasswordForm() {
     return (
       <div className="flex flex-col items-center gap-4 py-4 text-center">
         <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ backgroundColor: '#e8f9fa' }}>
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#38C7CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>
           </svg>
         </div>
@@ -50,7 +50,7 @@ export default function ForgotPasswordForm() {
       <p className="text-sm text-slate-500">Enter your email and we&apos;ll send you a reset link.</p>
 
       {state.error && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
           {state.error}
         </p>
       )}

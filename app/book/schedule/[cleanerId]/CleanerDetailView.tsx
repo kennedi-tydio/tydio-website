@@ -1,4 +1,7 @@
+'use client'
+
 import Link from 'next/link'
+import { useRouter } from '@/app/components/NavigationSpinner'
 import { WEEKDAY_KEYS, type WeekdayKey, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { US_STATES } from '@/lib/usStates'
 
@@ -27,11 +30,11 @@ function IconStar() {
   )
 }
 
-function IconShield() {
+function IconInsuredBadge() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="M9 12l2 2 4-4" />
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="var(--color-brand)" stroke="var(--color-brand)" strokeWidth="0.5">
+      <path d="M12 2L4 5v6c0 5.5 3.4 9.9 8 11 4.6-1.1 8-5.5 8-11V5l-8-3z" />
+      <path d="M9.5 12.2l1.8 1.8 3.7-3.7" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -46,7 +49,7 @@ function IconPin() {
 
 function IconChevronRight() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-slate-400)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 18l6-6-6-6" />
     </svg>
   )
@@ -74,6 +77,10 @@ type Props = {
   averageResponseTimeMinutes: number | null
   availability: WeeklyAvailability
   allergies: string[]
+  reviewsHref: string
+  // Set when a Tidy Pro is viewing their own profile as a customer would: back
+  // returns here, and Book/Message are on the page for show but do nothing.
+  previewBackHref?: string
 }
 
 export default function CleanerDetailView({
@@ -90,14 +97,17 @@ export default function CleanerDetailView({
   averageResponseTimeMinutes,
   availability,
   allergies,
+  reviewsHref,
+  previewBackHref,
 }: Props) {
+  const router = useRouter()
   const stateName = state ? US_STATES.find((s) => s.code === state)?.name ?? state : null
   const location = [city, stateName].filter(Boolean).join(', ')
   const responseTimeLabel = formatResponseTime(averageResponseTimeMinutes)
   const initials = name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto max-w-sm mx-auto w-full pb-16">
         {/* Hero photo */}
         <div className="relative h-56 bg-slate-200 flex-shrink-0">
@@ -105,19 +115,20 @@ export default function CleanerDetailView({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={photoUrl} alt={name} className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: '#38C7CA' }}>
+            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: 'var(--color-brand)' }}>
               <span className="text-white text-4xl font-bold">{initials || '?'}</span>
             </div>
           )}
-          <Link
-            href="/book/schedule"
+          <button
+            type="button"
+            onClick={() => (previewBackHref ? router.push(previewBackHref) : router.back())}
             aria-label="Back"
             className="absolute top-4 left-4 w-8 h-8 rounded-full bg-white flex items-center justify-center shadow"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M10 12L6 8l4-4" stroke="#1a2332" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </Link>
+          </button>
           <button
             type="button"
             aria-label="Message"
@@ -139,7 +150,7 @@ export default function CleanerDetailView({
             )}
             {isInsured && (
               <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                <IconShield /> Insured
+                <IconInsuredBadge /> Insured Cleaner
               </div>
             )}
             {location && (
@@ -159,19 +170,21 @@ export default function CleanerDetailView({
           )}
 
           <div className="border-t border-slate-100 pt-4 mb-4">
-            <button type="button" className="w-full flex items-center justify-between">
-              <h2 className="font-semibold text-slate-900">Reviews</h2>
-              <IconChevronRight />
-            </button>
-            {reviewCount > 0 ? (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <IconStar />
-                <span className="text-sm font-semibold text-slate-800">{rating.toFixed(1)}</span>
-                <span className="text-sm text-slate-400">{reviewCount} review{reviewCount === 1 ? '' : 's'}</span>
+            <Link href={reviewsHref} className="block">
+              <div className="w-full flex items-center justify-between">
+                <h2 className="font-semibold text-slate-900">Reviews</h2>
+                <IconChevronRight />
               </div>
-            ) : (
-              <p className="text-sm text-slate-400 mt-1.5">No reviews yet</p>
-            )}
+              {reviewCount > 0 ? (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <IconStar />
+                  <span className="text-sm font-semibold text-slate-800">{rating.toFixed(1)}</span>
+                  <span className="text-sm text-slate-400">{reviewCount} review{reviewCount === 1 ? '' : 's'}</span>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400 mt-1.5">No reviews yet</p>
+              )}
+            </Link>
           </div>
 
           <div className="border-t border-slate-100 pt-4 mb-5">
@@ -191,13 +204,23 @@ export default function CleanerDetailView({
             </div>
           </div>
 
-          <Link
-            href={`/book/schedule/${cleanerId}/time`}
-            className="block w-full py-3.5 rounded-2xl text-white font-semibold text-sm text-center mb-5"
-            style={{ backgroundColor: '#38C7CA' }}
-          >
-            Book
-          </Link>
+          {previewBackHref ? (
+            <button
+              type="button"
+              className="block w-full py-3.5 rounded-2xl text-white font-semibold text-sm text-center mb-5"
+              style={{ backgroundColor: 'var(--color-brand)' }}
+            >
+              Book
+            </button>
+          ) : (
+            <Link
+              href={`/book/schedule/${cleanerId}/time`}
+              className="block w-full py-3.5 rounded-2xl text-white font-semibold text-sm text-center mb-5"
+              style={{ backgroundColor: 'var(--color-brand)' }}
+            >
+              Book
+            </Link>
+          )}
 
           {allergies.length > 0 && (
             <div className="border-t border-slate-100 pt-4">
@@ -207,6 +230,6 @@ export default function CleanerDetailView({
           )}
         </div>
       </div>
-    </div>
+    </main>
   )
 }

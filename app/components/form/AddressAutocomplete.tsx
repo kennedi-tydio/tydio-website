@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Script from 'next/script'
+import { US_STATES } from '@/lib/usStates'
 
 export interface PlaceDetails {
   streetAddress: string
@@ -49,6 +50,18 @@ function componentValue(components: AddressComponent[], type: string, useShort =
   return useShort ? match.short_name : match.long_name
 }
 
+// Google normally returns a 2-letter short_name for administrative_area_level_1
+// ("GA"), but if that's ever missing while the long_name ("Georgia") is
+// present, fall back to resolving the code from the full name rather than
+// leaving the state field blank.
+function resolveStateCode(components: AddressComponent[]): string {
+  const match = components.find((c) => c.types.includes('administrative_area_level_1'))
+  if (!match) return ''
+  if (match.short_name) return match.short_name
+  const byName = US_STATES.find((s) => s.name.toLowerCase() === match.long_name.toLowerCase())
+  return byName?.code ?? match.long_name
+}
+
 function parsePlace(place: PlaceResult): PlaceDetails {
   const components = place.address_components ?? []
   const streetNumber = componentValue(components, 'street_number')
@@ -62,7 +75,7 @@ function parsePlace(place: PlaceResult): PlaceDetails {
   return {
     streetAddress: [streetNumber, route].filter(Boolean).join(' '),
     city,
-    state: componentValue(components, 'administrative_area_level_1', true),
+    state: resolveStateCode(components),
     zipCode: componentValue(components, 'postal_code'),
     latitude: loc ? loc.lat() : null,
     longitude: loc ? loc.lng() : null,
@@ -133,12 +146,13 @@ export default function AddressAutocomplete({
         ref={inputRef}
         type="text"
         placeholder={placeholder}
+        aria-label={placeholder ?? 'Street address'}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoComplete="off"
         className={
           className ??
-          'w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-[#38C7CA]'
+          'w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-brand'
         }
       />
     </>

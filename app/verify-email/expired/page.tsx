@@ -5,7 +5,7 @@ export const metadata: Metadata = { title: 'Link Expired — Tydio' }
 
 export default function VerifyExpiredPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <main id="main-content" className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm text-center">
         <Link href="/" className="block mb-8">
           <span className="text-2xl font-bold tracking-tight" style={{ color: '#1a2332' }}>
@@ -21,7 +21,7 @@ export default function VerifyExpiredPage() {
             </svg>
           </div>
           <div>
-            <p className="font-bold text-slate-900 text-lg">Link expired or invalid</p>
+            <h1 className="font-bold text-slate-900 text-lg">Link expired or invalid</h1>
             <p className="text-sm text-slate-500 mt-1 leading-relaxed">
               This verification link has already been used or has expired.
               Sign in and we&apos;ll give you the option to resend a new one.
@@ -30,12 +30,12 @@ export default function VerifyExpiredPage() {
           <Link
             href="/login"
             className="mt-2 w-full py-3 rounded-xl text-white font-semibold text-sm text-center"
-            style={{ backgroundColor: '#38C7CA' }}
+            style={{ backgroundColor: 'var(--color-brand)' }}
           >
             Back to sign in
           </Link>
         </div>
       </div>
-    </div>
+    </main>
   )
 }

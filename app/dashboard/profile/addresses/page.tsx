@@ -14,7 +14,7 @@ export default async function AddressesPage() {
 
   const { data: addresses, error } = await admin
     .from('user_addresses')
-    .select('id, label, street_address, unit_number, city, state, zip_code, latitude, longitude, is_default')
+    .select('id, label, street_address, unit_number, city, state, zip_code, latitude, longitude, is_default, square_footage')
     .eq('user_id', session.profileId)
     .order('is_default', { ascending: false })
     .order('created_at', { ascending: true })

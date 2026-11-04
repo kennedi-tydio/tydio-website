@@ -5,6 +5,21 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { WEEKDAY_KEYS, type WeeklyAvailability } from '@/lib/cleanerMatching'
 
+// Saved on its own, the moment it's toggled, so it never depends on the cleaner also
+// saving their hours. Those stay as they are, ready for when they come back.
+export async function setAwayAction(away: boolean): Promise<{ error: string } | { success: true }> {
+  const session = await getSession()
+  if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+  const { error } = await admin.from('tidypro_profiles').update({ is_away: away }).eq('id', session.profileId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/pro/profile/availability')
+  return { success: true }
+}
+
 export async function saveAvailabilityAction(
   availability: WeeklyAvailability
 ): Promise<{ error: string } | { success: true }> {

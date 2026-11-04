@@ -20,7 +20,7 @@ export default async function PaymentMethodsPage({
 
   const { data: paymentMethods, error } = await admin
     .from('payment_methods')
-    .select('id, brand, last4, exp_month, exp_year, is_default')
+    .select('id, brand:card_brand, last4:card_last4, exp_month:card_exp_month, exp_year:card_exp_year, is_default')
     .eq('user_id', session.profileId)
     .order('is_default', { ascending: false })
     .order('created_at', { ascending: true })

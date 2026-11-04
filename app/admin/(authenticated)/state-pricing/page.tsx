@@ -79,9 +79,10 @@ export default async function StatePricingPage({
       {/* Filter */}
       <form method="get" className="flex flex-wrap gap-2 mb-4 items-center">
         <select
+          aria-label="Filter by state"
           name="state"
           defaultValue={state}
-          className="w-52 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-[#38C7CA]"
+          className="w-52 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
         >
           <option value="">All states</option>
           {US_STATES.map((s) => (
@@ -93,7 +94,7 @@ export default async function StatePricingPage({
         <button
           type="submit"
           className="px-4 py-2 rounded-xl text-white text-sm font-semibold"
-          style={{ backgroundColor: '#38C7CA' }}
+          style={{ backgroundColor: 'var(--color-brand)' }}
         >
           Filter
         </button>
@@ -156,7 +157,7 @@ export default async function StatePricingPage({
                       <button
                         type="submit"
                         className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition-opacity hover:opacity-90"
-                        style={{ backgroundColor: '#38C7CA' }}
+                        style={{ backgroundColor: 'var(--color-brand)' }}
                       >
                         Activate
                       </button>

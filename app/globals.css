@@ -12,6 +12,13 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+/* Not `inline`, so utilities read these through var() and the high-contrast
+   overrides below can swap them at runtime. */
+@theme {
+  /* Tydio Teal. bg-brand, text-brand, border-brand, etc. */
+  --color-brand: #38C7CA;
 
   /* Tydio Teal overrides all sky-* utilities */
   --color-sky-50: #f0fafb;
@@ -25,8 +32,55 @@
   --color-teal-400: #38C7CA;
 }
 
+/* High contrast mode (WCAG 2.2 AA alternate version), toggled by
+   HighContrastToggle. Darker teal is ~6:1 against white in both directions,
+   and light grey text is raised to slate-600. */
+:root[data-contrast="high"] {
+  --color-brand: #0B6E70;
+  --color-sky-400: #0B6E70;
+  --color-sky-500: #0B6E70;
+  --color-sky-600: #095A5C;
+  --color-teal-400: #0B6E70;
+  --color-slate-300: #475569;
+  --color-slate-400: #475569;
+  --color-slate-500: #475569;
+}
+
 html {
   scroll-behavior: smooth;
+}
+
+/* Visible keyboard focus everywhere, including inputs that set outline-none. */
+:focus-visible {
+  outline: 2px solid #0B6E70;
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -100px;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: #0f172a;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
 }
 
 body {

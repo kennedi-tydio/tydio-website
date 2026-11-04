@@ -11,12 +11,14 @@ export default async function AdminOverviewPage() {
     { count: recentCount },
     { count: tidyProCount },
     { data: activationEvents },
+    { count: tidyProWaitlistCount },
   ] = await Promise.all([
     admin.from('profiles').select('booking_access_status').eq('role', 'USER'),
     admin.from('service_areas').select('id, name, status'),
     admin.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'USER').gte('created_at', sevenDaysAgo),
     admin.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'TIDYPRO'),
     admin.from('service_area_activation_events').select('*').order('created_at', { ascending: false }).limit(5),
+    admin.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'TIDYPRO').eq('booking_access_status', 'waitlisted'),
   ])
 
   const total = (customers ?? []).length
@@ -38,6 +40,7 @@ export default async function AdminOverviewPage() {
         <StatCard label="Active Areas" value={activeAreas} color="teal" href="/admin/service-areas" />
         <StatCard label="Total Areas" value={(areas ?? []).length} href="/admin/service-areas" />
         <StatCard label="New Users (7d)" value={recentCount ?? 0} color="teal" href={`/admin/users?role=USER`} />
+        <StatCard label="Tidy Pro Waitlist" value={tidyProWaitlistCount ?? 0} color="amber" href="/admin/users?role=TIDYPRO&status=waitlisted" />
       </div>
 
       {(activationEvents ?? []).length > 0 && (
@@ -80,7 +83,7 @@ function StatCard({
   href: string
 }) {
   const valueColor =
-    color === 'teal' ? '#38C7CA' : color === 'amber' ? '#f59e0b' : '#1a2332'
+    color === 'teal' ? 'var(--color-brand)' : color === 'amber' ? '#f59e0b' : '#1a2332'
   return (
     <Link
       href={href}

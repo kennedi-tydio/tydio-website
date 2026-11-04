@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createSession } from '@/lib/auth/session'
+import { isBanned } from '@/lib/bannedUsers'
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token')
@@ -22,11 +23,14 @@ export async function GET(req: NextRequest) {
 
   const { data: profile } = await admin
     .from('profiles')
-    .select('id, role, email')
+    .select('id, role, email, phone')
     .eq('id', tokenRow.profile_id)
     .single()
 
   if (!profile) return NextResponse.redirect(expired)
+  if (await isBanned(admin, { email: profile.email, phone: profile.phone })) {
+    return NextResponse.redirect(new URL('/login?banned=1', req.url))
+  }
 
   const now = new Date().toISOString()
 

@@ -15,12 +15,12 @@ export async function researchAreaMarketPrice(area: {
   const response = await openai.responses.create({
     model: 'gpt-4o-mini',
     tools: [{ type: 'web_search' }],
-    input: `Search for current prices of professional home cleaning services for a standard 2-3 bedroom home in ${location}.
-Look at real listings, pricing pages, or quotes from local cleaning companies.
+    temperature: 0,
+    input: `Search angi.com (Angi, formerly Angie's List) — and only angi.com — for its published cost guide on professional home cleaning services covering ${location}. Angi is the sole source of truth for this figure; do not use any other site's listings or quotes. Use the typical/average price Angi reports for a standard full-service cleaning of a 2-3 bedroom home in or near this area (fall back to Angi's broader regional or national figure only if it has nothing specific to this area, and say so in the summary).
 
 Respond with JSON only, no markdown formatting: { "price": number, "summary": string }
-- price: your best-effort estimate, in whole USD, of the typical price for a standard full-service cleaning in this area.
-- summary: a 1-2 sentence citation of what you found (e.g. company names or price ranges seen).`,
+- price: the typical/average price for a standard full-service cleaning, in whole USD, as reported by Angi.
+- summary: a 1-2 sentence citation naming the specific Angi figure/page used (and noting if it was a regional/national fallback).`,
   })
 
   const raw = response.output_text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
@@ -42,15 +42,23 @@ Respond with JSON only, no markdown formatting: { "price": number, "summary": st
 // and framed around a 4-hour cleaning session to match the booking pricing
 // formula. This is an admin-triggered suggestion only — the admin still
 // reviews/saves it; nothing here writes to the database directly.
+//
+// Anchored to a single named source (Angi) rather than an open-ended web
+// search: an unconstrained search pulls from a different, shifting mix of
+// listings each run, so the same state can come back with a noticeably
+// different number every time it's regenerated. Pinning to one canonical
+// source — plus temperature 0 — makes repeated runs land on the same figure
+// far more consistently.
 export async function researchStateMedianPrice(state: string): Promise<{ price: number; summary: string }> {
   const response = await openai.responses.create({
     model: 'gpt-4o-mini',
     tools: [{ type: 'web_search' }],
-    input: `Search for current prices of professional home cleaning services across ${state} (a US state), for a standard 4-hour cleaning session on a 2-3 bedroom home. Look at real listings, pricing pages, or quotes from cleaning companies in several of the state's major cities.
+    temperature: 0,
+    input: `Search angi.com (Angi, formerly Angie's List) — and only angi.com — for its published cost guide on professional home cleaning services in ${state} (a US state). Angi is the sole source of truth for this figure; do not use any other cleaning company's site or listings. Use the typical/average price Angi reports for a standard 4-hour cleaning session on a 2-3 bedroom home in this state (fall back to Angi's national figure only if it doesn't break pricing out by state, and say so in the summary).
 
 Respond with JSON only, no markdown formatting: { "price": number, "summary": string }
-- price: your best-effort estimate, in whole USD, of the median price for a standard 4-hour cleaning across this state.
-- summary: a 1-2 sentence citation of what you found (e.g. company names, cities, or price ranges seen).`,
+- price: the typical/average price for a standard 4-hour cleaning session, in whole USD, as reported by Angi for this state.
+- summary: a 1-2 sentence citation naming the specific Angi figure/page used (and noting if it was a national fallback).`,
   })
 
   const raw = response.output_text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()

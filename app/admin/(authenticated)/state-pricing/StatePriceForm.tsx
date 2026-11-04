@@ -12,7 +12,7 @@ function SubmitButton() {
       type="submit"
       disabled={pending}
       className="px-4 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-60 flex-shrink-0 transition-opacity"
-      style={{ backgroundColor: '#38C7CA' }}
+      style={{ backgroundColor: 'var(--color-brand)' }}
     >
       {pending ? 'Adding…' : 'Add State Price'}
     </button>
@@ -40,10 +40,11 @@ export default function StatePriceForm() {
     <form action={action} className="space-y-3">
       <div className="flex flex-wrap gap-3">
         <select
+          aria-label="State"
           name="state"
           required
           defaultValue=""
-          className="w-52 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#38C7CA] bg-white"
+          className="w-52 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand bg-white"
         >
           <option value="" disabled>
             State
@@ -55,15 +56,16 @@ export default function StatePriceForm() {
           ))}
         </select>
         <input
+          aria-label="Median 4-hour price"
           name="median_four_hour_price"
           inputMode="decimal"
           placeholder="Median 4-hr price (e.g. 150.00) — or leave blank and research"
-          className="w-72 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#38C7CA] transition-colors"
+          className="w-72 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand transition-colors"
         />
         <SubmitButton />
         <ResearchButton />
       </div>
-      {state?.error && <p className="text-red-500 text-xs">{state.error}</p>}
+      {state?.error && <p role="alert" className="text-red-500 text-xs">{state.error}</p>}
       {state?.success && <p className="text-green-600 text-xs">State price added!</p>}
     </form>
   )

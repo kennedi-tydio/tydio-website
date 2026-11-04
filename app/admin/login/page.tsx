@@ -11,7 +11,7 @@ function SubmitButton() {
       type="submit"
       disabled={pending}
       className="w-full py-2.5 rounded-xl text-white font-semibold text-sm disabled:opacity-60 transition-opacity"
-      style={{ backgroundColor: '#38C7CA' }}
+      style={{ backgroundColor: 'var(--color-brand)' }}
     >
       {pending ? 'Signing in…' : 'Sign in'}
     </button>
@@ -22,10 +22,11 @@ export default function AdminLoginPage() {
   const [state, action] = useActionState(adminLoginAction, {})
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+    <main id="main-content" className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <h1 className="sr-only">Admin login</h1>
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <span style={{ color: '#38C7CA' }} className="text-2xl font-bold">Tydio</span>
+          <span style={{ color: 'var(--color-brand)' }} className="text-2xl font-bold">Tydio</span>
           <p className="text-slate-500 text-sm mt-1">Admin Dashboard</p>
         </div>
         <form
@@ -37,20 +38,21 @@ export default function AdminLoginPage() {
               Admin Password
             </label>
             <input
+              aria-label="Admin password"
               name="secret"
               type="password"
               required
               autoFocus
               placeholder="••••••••"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#38C7CA] transition-colors"
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand transition-colors"
             />
           </div>
           {state?.error && (
-            <p className="text-red-500 text-sm">{state.error}</p>
+            <p role="alert" className="text-red-500 text-sm">{state.error}</p>
           )}
           <SubmitButton />
         </form>
       </div>
-    </div>
+    </main>
   )
 }

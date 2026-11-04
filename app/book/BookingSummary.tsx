@@ -27,7 +27,7 @@ export default function BookingSummary({
   const lines = groupTasks(tasks)
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full">
         <Link href="/dashboard" className="flex items-center gap-1.5 mb-6 text-sm text-slate-500">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -62,6 +62,6 @@ export default function BookingSummary({
           </Link>
         </div>
       </div>
-    </div>
+    </main>
   )
 }

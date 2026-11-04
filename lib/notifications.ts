@@ -1,0 +1,203 @@
+// Per-trigger notification copy — written once here, consumed by both
+// lib/sms.ts (flattens body+url into one text) and lib/push.ts (uses
+// title/body directly, url goes in the push payload's `data`).
+
+export type NotificationPayload = {
+  title: string
+  body: string
+  url: string
+}
+
+function siteUrl(path: string): string {
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+  return `${base}${path}`
+}
+
+export function notifyNewBookingRequest(customerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'New booking request',
+    body: `${customerFirstName} just requested a Tidy Task booking.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyBookingAccepted(cleanerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Booking confirmed',
+    body: `${cleanerFirstName} accepted your booking request!`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyBookingDeclined(bookingId: string): NotificationPayload {
+  return {
+    title: 'Booking declined',
+    body: "Your Tidy Pro declined your booking. Choose up to 3 other cleaners with no new charge, or cancel your booking for a refund.",
+    url: siteUrl(`/dashboard/bookings/${bookingId}/replace`),
+  }
+}
+
+export function notifyRequestFilled(bookingId: string): NotificationPayload {
+  return {
+    title: 'Request no longer available',
+    body: 'Another Tidy Pro accepted this booking first.',
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyReplacementsDeclined(): NotificationPayload {
+  return {
+    title: 'Booking canceled',
+    body: 'The Tidy Pros you asked declined, so your booking has been canceled and your payment refunded, minus the nonrefundable Stripe fee. Your tasks are back on your list.',
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyBookingCancelledConfirmation(): NotificationPayload {
+  return {
+    title: 'Booking canceled',
+    body: 'Your booking has been canceled and your payment refunded, minus the nonrefundable Stripe fee. Your tasks are back on your list.',
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyBookingExpired(): NotificationPayload {
+  return {
+    title: 'Booking canceled',
+    body: 'No Tidy Pro accepted by an hour before your booking time, so it has been canceled and your payment refunded, minus the nonrefundable Stripe fee. Your tasks are back on your list.',
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyRequestExpired(bookingId: string): NotificationPayload {
+  return {
+    title: 'Request expired',
+    body: 'A booking request expired because it was not accepted at least an hour before its start time.',
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyCustomerCancelled(customerFirstName: string): NotificationPayload {
+  return {
+    title: 'Booking cancelled',
+    body: `${customerFirstName} cancelled their booking request.`,
+    url: siteUrl('/pro/messages'),
+  }
+}
+
+export function notifyOnTheWay(cleanerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: `${cleanerFirstName} is on the way`,
+    body: 'Track their progress in the app.',
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyBookingDone(bookingId: string): NotificationPayload {
+  return {
+    title: 'All done!',
+    body: 'Your Tidy Pro finished the job — leave them a review.',
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyOnTheWayReminder(bookingId: string): NotificationPayload {
+  return {
+    title: 'Your booking has started',
+    body: `Your booking's start time has arrived. If you're on the way, open Tydio, tap "I'm on the way", and follow the booking instructions.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyStartsIn30(forRole: 'USER' | 'TIDYPRO', bookingId: string): NotificationPayload {
+  return forRole === 'USER'
+    ? {
+        title: 'Starting soon',
+        body: 'Your cleaning starts in 30 minutes.',
+        url: siteUrl(`/dashboard/bookings/${bookingId}`),
+      }
+    : {
+        title: 'Starting soon',
+        body: 'Your next booking starts in 30 minutes.',
+        url: siteUrl(`/pro/messages/${bookingId}`),
+      }
+}
+
+// Deliberately leaves out the star rating — the Tidy Pro may not be allowed to
+// see this review yet (see cleanerReviewWindow).
+export function notifyNewReview(bookingId: string): NotificationPayload {
+  return {
+    title: 'New review',
+    body: 'Your customer left you a review. Open the booking to see it.',
+    url: siteUrl(`/pro/bookings/${bookingId}`),
+  }
+}
+
+export function notifyNewTimeProposed(cleanerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'New start time suggested',
+    body: `${cleanerFirstName} suggested a different start time for your booking. Approve or decline it in your messages.`,
+    url: siteUrl(`/dashboard/messages/${bookingId}`),
+  }
+}
+
+export function notifyTimeProposalAnswered(approved: boolean, bookingId: string): NotificationPayload {
+  return {
+    title: approved ? 'New start time approved' : 'New start time declined',
+    body: approved
+      ? 'Your customer approved the start time you suggested. The booking has been updated.'
+      : 'Your customer declined the start time you suggested, so the booking keeps its original time.',
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyNewMessage(forRole: 'USER' | 'TIDYPRO', bookingId: string): NotificationPayload {
+  return {
+    title: 'New message',
+    body: 'You received a new message.',
+    url: siteUrl(forRole === 'USER' ? `/dashboard/messages/${bookingId}` : `/pro/messages/${bookingId}`),
+  }
+}
+
+// With no link, the provider emailed the cleaner its invitation directly.
+export function notifyBackgroundCheckLinkSent(link: string | null): NotificationPayload {
+  return {
+    title: 'Complete your background check',
+    body: link
+      ? 'Your Tydio background check form is ready to complete.'
+      : 'Your Tydio background check is ready. Check your email for an invitation from Checkr.',
+    url: link ?? siteUrl('/pro/onboarding/setup/background-check'),
+  }
+}
+
+export function notifyBackgroundCheckPassed(): NotificationPayload {
+  return {
+    title: "You've been approved!",
+    body: 'You passed your Tydio background check. Finish your availability, profile picture, bio, and payout method to start receiving bookings.',
+    url: siteUrl('/pro/onboarding'),
+  }
+}
+
+export function notifyInsuranceExpiringSoon(expirationLabel: string): NotificationPayload {
+  return {
+    title: 'Your insurance expires soon',
+    body: `Your proof of insurance expires on ${expirationLabel}. Please upload your updated insurance before then to keep your Insured Cleaner badge.`,
+    url: siteUrl('/pro/profile/insurance'),
+  }
+}
+
+export function notifyInsuranceExpired(): NotificationPayload {
+  return {
+    title: 'Your insurance has expired',
+    body: 'Your proof of insurance has reached its expiration date. Please upload your updated insurance to get your Insured Cleaner badge back.',
+    url: siteUrl('/pro/profile/insurance'),
+  }
+}
+
+export function notifyInsuranceDenied(reason: string): NotificationPayload {
+  return {
+    title: 'Insurance document needs attention',
+    body: `Your proof of insurance wasn't approved: ${reason}`,
+    url: siteUrl('/pro/profile/insurance'),
+  }
+}

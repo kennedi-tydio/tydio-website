@@ -15,11 +15,16 @@ export default async function AvailabilityPage() {
 
   const { data: tidyPro, error } = await admin
     .from('tidypro_profiles')
-    .select('availability')
+    .select('availability, is_away')
     .eq('id', session.profileId)
     .single()
 
   if (error) throw new Error(`Failed to load availability: ${error.message}`)
 
-  return <AvailabilityView initialAvailability={(tidyPro?.availability as WeeklyAvailability | null) ?? {}} />
+  return (
+    <AvailabilityView
+      initialAvailability={(tidyPro?.availability as WeeklyAvailability | null) ?? {}}
+      initialAway={tidyPro?.is_away ?? false}
+    />
+  )
 }

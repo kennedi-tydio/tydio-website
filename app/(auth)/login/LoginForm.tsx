@@ -3,6 +3,7 @@
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useSearchParams } from 'next/navigation'
+import { BANNED_MESSAGE } from '@/lib/bannedUsers'
 import Link from 'next/link'
 import { loginAction, resendVerificationAction, type LoginState } from './actions'
 
@@ -37,6 +38,7 @@ export default function LoginForm({ next }: { next?: string }) {
   const [resendState, resendAction] = useActionState<LoginState, FormData>(resendVerificationAction, {})
   const searchParams = useSearchParams()
   const isPro = searchParams.get('role') === 'pro'
+  const wasRemovedForBan = searchParams.get('banned') === '1'
 
   // Unverified state — show resend option
   if (state.unverified) {
@@ -80,9 +82,9 @@ export default function LoginForm({ next }: { next?: string }) {
         {isPro ? 'Welcome back, Tidy Pro.' : 'Welcome back to Tydio.'}
       </p>
 
-      {state.error && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-          {state.error}
+      {(state.error || wasRemovedForBan) && (
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+          {state.error ?? BANNED_MESSAGE}
         </p>
       )}
 

@@ -6,6 +6,7 @@ import { hashPassword } from '@/lib/auth/password'
 import { sendEmail, emailShell } from '@/lib/email'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/database.types'
+import { BANNED_MESSAGE, isBanned, normalizePhone } from '@/lib/bannedUsers'
 
 export type SignupState = {
   error?: string
@@ -13,32 +14,17 @@ export type SignupState = {
   needsVerification?: boolean
 }
 
-type BookingAccess = {
-  status: 'waitlisted' | 'booking_allowed' | 'paused'
-  serviceAreaId: string | null
-}
-
-async function determineBookingAccess(
+async function findServiceAreaId(
   admin: SupabaseClient<Database>,
   zip: string
-): Promise<BookingAccess> {
+): Promise<string | null> {
   const { data: zipRow } = await admin
     .from('service_area_zip_codes')
     .select('service_area_id')
     .eq('zip_code', zip)
     .maybeSingle()
 
-  if (!zipRow) return { status: 'waitlisted', serviceAreaId: null }
-
-  const { data: area } = await admin
-    .from('service_areas')
-    .select('status')
-    .eq('id', zipRow.service_area_id)
-    .single()
-
-  if (area?.status === 'beta_open') return { status: 'booking_allowed', serviceAreaId: zipRow.service_area_id }
-  if (area?.status === 'paused_recruiting_cleaners') return { status: 'paused', serviceAreaId: zipRow.service_area_id }
-  return { status: 'waitlisted', serviceAreaId: zipRow.service_area_id }
+  return zipRow?.service_area_id ?? null
 }
 
 function isGeorgiaZip(zip: string): boolean {
@@ -135,6 +121,8 @@ export async function signupAction(
   const admin = createAdminClient()
   const now = new Date().toISOString()
 
+  if (await isBanned(admin, { email, phone })) return { error: BANNED_MESSAGE }
+
   const { data: existing } = await admin
     .from('profiles')
     .select('id, waitlisted, booking_access_status')
@@ -150,6 +138,27 @@ export async function signupAction(
       return { error: 'A Tidy Pro account already exists for this email. To create a customer account instead, click "Join as a customer".' }
     }
     return { error: 'A customer account already exists for this email. To sign up as a cleaner instead, click "Be a cleaner".' }
+  }
+
+  if (phone) {
+    const normalizedPhone = normalizePhone(phone)
+    // Scoped to this role, same as the email check above — the same person
+    // can hold both a customer and a Tidy Pro account with one phone number,
+    // but not two accounts of the same role.
+    const { data: existingPhones } = await admin
+      .from('profiles')
+      .select('phone')
+      .eq('role', role)
+      .not('phone', 'is', null)
+    const phoneTaken = (existingPhones ?? []).some((p) => p.phone && normalizePhone(p.phone) === normalizedPhone)
+    if (phoneTaken) {
+      return {
+        error:
+          role === 'TIDYPRO'
+            ? 'A Tidy Pro account already exists with this phone number.'
+            : 'A customer account already exists with this phone number.',
+      }
+    }
   }
 
   const passwordHash = await hashPassword(password)
@@ -176,11 +185,15 @@ export async function signupAction(
     })
 
     if (insertError) return { error: `Something went wrong: ${insertError.message}` }
+    if (role === 'TIDYPRO') {
+      await admin.from('tidypro_profiles').insert({ id: newId, phone })
+    }
     return { waitlisted: true }
   }
 
-  // Georgia user: determine booking access
-  const { status: bookingStatus, serviceAreaId } = await determineBookingAccess(admin, zip)
+  // Every new account (customer or Tidy Pro) starts on the waitlist until an
+  // admin grants access from /admin/users — see /waitlist.
+  const serviceAreaId = await findServiceAreaId(admin, zip)
 
   const { data: profile, error: insertError } = await admin
     .from('profiles')
@@ -195,9 +208,8 @@ export async function signupAction(
       zip_code: zip,
       street_address: streetAddress,
       service_area_id: serviceAreaId,
-      waitlisted: bookingStatus !== 'booking_allowed',
-      booking_access_status: bookingStatus,
-      booking_access_granted_at: bookingStatus === 'booking_allowed' ? now : null,
+      waitlisted: true,
+      booking_access_status: 'waitlisted',
       email_verified_at: null, // must verify email before logging in
       waitlisted_at: now,
       terms_accepted_at: termsAccepted ? now : null,
@@ -211,7 +223,7 @@ export async function signupAction(
   }
 
   if (role === 'TIDYPRO') {
-    await admin.from('tidypro_profiles').insert({ id: profile.id })
+    await admin.from('tidypro_profiles').insert({ id: profile.id, phone })
   }
 
   await sendVerificationEmail(email, firstName, profile.id, admin)

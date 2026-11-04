@@ -30,11 +30,12 @@ export default function AddZipForm({ serviceAreaId }: { serviceAreaId: string })
     <form ref={formRef} action={action} className="flex items-center gap-2">
       <input type="hidden" name="service_area_id" value={serviceAreaId} />
       <input
+        aria-label="ZIP code to add"
         name="zip_code"
         placeholder="Add ZIP code"
         maxLength={5}
         pattern="\d{5}"
-        className="w-32 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-mono focus:outline-none focus:border-[#38C7CA] transition-colors"
+        className="w-32 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-mono focus:outline-none focus:border-brand transition-colors"
       />
       <SubmitButton />
       {state?.error && (

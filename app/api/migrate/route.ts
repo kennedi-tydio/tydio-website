@@ -188,6 +188,412 @@ DROP INDEX IF EXISTS service_areas_active_price_city_state_idx;
 ALTER TABLE service_areas DROP COLUMN IF EXISTS median_four_hour_price;
 ALTER TABLE service_areas DROP COLUMN IF EXISTS pricing_active;
 ALTER TABLE service_areas DROP COLUMN IF EXISTS pricing_updated_at;
+
+-- ─── 013: Payment methods & Review Your Request details ───────────────────
+CREATE TABLE IF NOT EXISTS payment_methods (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+);
+
+-- Added as explicit ALTERs (not just inline in CREATE TABLE) so this also
+-- backfills correctly if payment_methods already existed in a partial state.
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS brand text;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS last4 text;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS exp_month integer;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS exp_year integer;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS is_default boolean DEFAULT false;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+
+ALTER TABLE payment_methods DISABLE ROW LEVEL SECURITY;
+
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS pets text;
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS supplies_provided boolean DEFAULT false;
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS gift_code text;
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS selected_payment_method_id uuid REFERENCES payment_methods(id) ON DELETE SET NULL;
+
+-- ─── 014: Customer profile — pets ──────────────────────────────────────────
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pets text;
+
+-- ─── 015: Promo codes ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS promo_codes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+);
+
+ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS code text;
+ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS active boolean DEFAULT true;
+ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+
+DO $$ BEGIN
+  ALTER TABLE promo_codes ADD CONSTRAINT promo_codes_code_unique UNIQUE (code);
+EXCEPTION
+  WHEN duplicate_object OR duplicate_table THEN NULL;
+END $$;
+
+ALTER TABLE promo_codes DISABLE ROW LEVEL SECURITY;
+
+-- ─── 016: Stripe Connect wiring for payment methods ────────────────────────
+-- Note: the live payment_methods table already carries card_brand/card_last4/
+-- card_exp_month/card_exp_year/stripe_payment_method_id as NOT NULL (set up
+-- directly against Supabase, ahead of this script). These ALTERs exist so a
+-- fresh environment ends up with the same columns the app code actually
+-- reads and writes (see app/dashboard/profile/payment-methods/actions.ts).
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS stripe_customer_id text;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS stripe_payment_method_id text;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS card_brand text;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS card_last4 text;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS card_exp_month integer;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS card_exp_year integer;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
+DO $$ BEGIN
+  ALTER TABLE payment_methods ADD CONSTRAINT payment_methods_stripe_payment_method_id_key UNIQUE (stripe_payment_method_id);
+EXCEPTION
+  WHEN duplicate_object OR duplicate_table THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS payment_methods_user_id_idx ON payment_methods (user_id);
+CREATE INDEX IF NOT EXISTS payment_methods_default_idx ON payment_methods (user_id, is_default) WHERE is_default = true;
+
+-- Superseded by the payment_methods_stripe_payment_method_id_key constraint above.
+DROP INDEX IF EXISTS payment_methods_stripe_pm_id_idx;
+
+-- ─── 017: Bookings → message thread (pets/notes/location snapshot) ─────────
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pets text;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS scheduled_location jsonb;
+
+-- ─── 018: Unread dot on the Messages list ──────────────────────────────────
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_unread boolean NOT NULL DEFAULT false;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS tidy_pro_unread boolean NOT NULL DEFAULT false;
+
+-- ─── 019: Real chat between customer and Tidy Pro ──────────────────────────
+CREATE TABLE IF NOT EXISTS booking_messages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id uuid NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+  sender_role text NOT NULL CHECK (sender_role IN ('USER', 'TIDYPRO')),
+  body text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS booking_messages_booking_id_created_at_idx
+  ON booking_messages (booking_id, created_at);
+
+ALTER TABLE booking_messages DISABLE ROW LEVEL SECURITY;
+
+-- ─── 020: SMS + push notification consent, subscriptions, reminders ───────
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS sms_consent text;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS push_consent text;
+DO $$ BEGIN
+  ALTER TABLE profiles ADD CONSTRAINT profiles_sms_consent_check CHECK (sms_consent IN ('opted_in', 'declined'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE profiles ADD CONSTRAINT profiles_push_consent_check CHECK (push_consent IN ('opted_in', 'declined'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS sms_consent text;
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS push_consent text;
+DO $$ BEGIN
+  ALTER TABLE tidypro_profiles ADD CONSTRAINT tidypro_profiles_sms_consent_check CHECK (sms_consent IN ('opted_in', 'declined'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE tidypro_profiles ADD CONSTRAINT tidypro_profiles_push_consent_check CHECK (push_consent IN ('opted_in', 'declined'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  endpoint text NOT NULL UNIQUE,
+  p256dh text NOT NULL,
+  auth text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_profile_id_idx ON push_subscriptions (profile_id);
+ALTER TABLE push_subscriptions DISABLE ROW LEVEL SECURITY;
+
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_sent_at timestamptz;
+CREATE INDEX IF NOT EXISTS bookings_reminder_poll_idx ON bookings (status, reminder_sent_at)
+  WHERE status = 'scheduled' AND reminder_sent_at IS NULL;
+
+-- ─── 021: Cleaner onboarding — background check (Checkr) + verified ack ───
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS verified_ack_at timestamptz;
+ALTER TABLE background_checks DISABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  ALTER TABLE background_checks ADD CONSTRAINT background_checks_pro_id_key UNIQUE (pro_id);
+EXCEPTION WHEN duplicate_object OR duplicate_table OR unique_violation THEN NULL;
+END $$;
+
+-- ─── 022: Checkr API integration — candidate DOB + report tracking ────────
+-- Checkr's Candidates API requires a date of birth (and middle name / "no
+-- middle name" flag) to create a candidate record; we don't collect this
+-- anywhere else today. Everything more sensitive (SSN, consent) is collected
+-- directly on Checkr's own hosted invitation page, never by us.
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS date_of_birth date;
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS legal_middle_name text;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS report_id text;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS result text;
+CREATE INDEX IF NOT EXISTS background_checks_reference_idx ON background_checks (reference);
+CREATE INDEX IF NOT EXISTS background_checks_checkr_invitation_id_idx ON background_checks (checkr_invitation_id);
+
+-- ─── 023: Insurance verification — storage bucket + status workflow ───────
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('insurance-documents', 'insurance-documents', false)
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS insurance_denial_reason text;
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS insurance_submitted_at timestamptz;
+DO $$ BEGIN
+  ALTER TABLE tidypro_profiles ADD CONSTRAINT tidypro_profiles_insurance_status_check
+    CHECK (insurance_status IN ('pending', 'approved', 'denied'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── 024: Cleaner active-booking flow — entry instructions + task photos ───
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS entry_instructions text;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('task-photos', 'task-photos', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- ─── 025: Tidy Pro profile photos ───────────────────────────────────────────
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('profile-photos', 'profile-photos', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- ─── 026: Background check fee paid through Stripe Checkout ─────────────────
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS stripe_checkout_session_id text;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS stripe_payment_intent_id text;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS fee_amount_cents integer;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS fee_paid_at timestamptz;
+
+-- ─── 027: Fee terms acceptance, refunds, undelivered adverse action notices ──
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS fee_terms_accepted_at timestamptz;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS fee_terms_amount_cents integer;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS fee_refunded_at timestamptz;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS fee_refund_reason text;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS stripe_refund_id text;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS adverse_notice_undelivered_at timestamptz;
+
+-- ─── 028: When a cleaner submitted Checkr's form ─────────────────────────────
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS submitted_at timestamptz;
+UPDATE background_checks SET submitted_at = updated_at WHERE submitted_at IS NULL AND report_id IS NOT NULL;
+
+-- ─── 029: Manual pass/reject of a background check ───────────────────────────
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS manual_decision_at timestamptz;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS manual_decision_note text;
+
+-- ─── 030: Background checks run by hand, each step recorded in Tydio ─────────
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS requested_at timestamptz;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS link_sent_at timestamptz;
+ALTER TABLE background_checks ADD COLUMN IF NOT EXISTS background_check_link text;
+UPDATE background_checks SET requested_at = fee_paid_at WHERE requested_at IS NULL AND fee_paid_at IS NOT NULL AND fee_refunded_at IS NULL;
+
+-- ─── 031: Banned users ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS banned_users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text NOT NULL,
+  phones_normalized text[] NOT NULL DEFAULT '{}',
+  first_name text,
+  last_name text,
+  note text,
+  former_profile_id uuid,
+  fee_amount_cents integer,
+  stripe_payment_intent_id text,
+  banned_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS banned_users_email_idx ON banned_users (email);
+CREATE INDEX IF NOT EXISTS banned_users_phones_idx ON banned_users USING gin (phones_normalized);
+ALTER TABLE banned_users ENABLE ROW LEVEL SECURITY;
+
+-- ─── 032: Tidy Pro "Away" toggle ─────────────────────────────────────────────
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS is_away boolean NOT NULL DEFAULT false;
+
+-- ─── 033: Replacement requests sent to several cleaners at once ──────────────
+CREATE TABLE IF NOT EXISTS booking_request_groups (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  original_booking_id uuid NOT NULL UNIQUE REFERENCES bookings(id) ON DELETE CASCADE,
+  stripe_payment_intent_id text NOT NULL,
+  hold_amount_cents integer NOT NULL,
+  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'filled', 'closed')),
+  accepted_booking_id uuid REFERENCES bookings(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE booking_request_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS request_group_id uuid REFERENCES booking_request_groups(id) ON DELETE SET NULL;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancelled_reason text;
+CREATE INDEX IF NOT EXISTS bookings_request_group_idx ON bookings (request_group_id);
+
+-- ─── 034: Replacement requests carry over the original payment ───────────────
+DO $$ BEGIN
+  ALTER TABLE booking_request_groups RENAME COLUMN hold_amount_cents TO amount_cents;
+EXCEPTION WHEN undefined_column THEN NULL;
+END $$;
+
+-- ─── 035: Booking time zones ─────────────────────────────────────────────────
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS time_zone text NOT NULL DEFAULT 'America/New_York';
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS time_zone text;
+
+-- ─── 037: Remember a deliberate "Any day" ────────────────────────────────────
+ALTER TABLE booking_drafts ADD COLUMN IF NOT EXISTS any_day_selected boolean NOT NULL DEFAULT false;
+
+-- ─── 038: Insurance expiration ───────────────────────────────────────────────
+ALTER TABLE tidypro_profiles DROP CONSTRAINT IF EXISTS tidypro_profiles_insurance_status_check;
+ALTER TABLE tidypro_profiles ADD CONSTRAINT tidypro_profiles_insurance_status_check
+  CHECK (insurance_status IN ('pending', 'approved', 'denied', 'expired'));
+SELECT cron.schedule('tydio-insurance-expirations', '0 * * * *', \$\$SELECT public.run_scheduled_job('/api/cron/insurance-expirations')\$\$);
+
+-- ─── 039: Insurance reminder 3 days ahead ────────────────────────────────────
+ALTER TABLE tidypro_profiles ADD COLUMN IF NOT EXISTS insurance_expiry_reminder_sent_at timestamptz;
+
+-- ─── 040: Accepting a request can't double book a cleaner ───────────────────
+CREATE OR REPLACE FUNCTION public.accept_booking_request(p_booking_id uuid, p_tidy_pro_id uuid)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS \$\$
+DECLARE
+  b bookings%ROWTYPE;
+  b_start timestamp;
+  b_end timestamp;
+BEGIN
+  PERFORM 1 FROM tidypro_profiles WHERE id = p_tidy_pro_id FOR UPDATE;
+
+  SELECT * INTO b FROM bookings WHERE id = p_booking_id AND tidy_pro_id = p_tidy_pro_id FOR UPDATE;
+  IF NOT FOUND THEN RETURN 'not_found'; END IF;
+  IF b.status IS DISTINCT FROM 'pending' THEN RETURN 'not_pending'; END IF;
+
+  b_start := b.scheduled_date + b.scheduled_time::time;
+  b_end := b_start + make_interval(mins => coalesce(b.estimated_duration_minutes, 60));
+
+  IF EXISTS (
+    SELECT 1 FROM bookings o
+    WHERE o.tidy_pro_id = p_tidy_pro_id
+      AND o.id <> b.id
+      AND o.status NOT IN ('pending', 'cancelled', 'declined')
+      AND o.scheduled_date BETWEEN b.scheduled_date - 1 AND b.scheduled_date + 1
+      AND o.scheduled_time IS NOT NULL
+      AND (o.scheduled_date + o.scheduled_time::time) < b_end
+      AND b_start < (o.scheduled_date + o.scheduled_time::time) + make_interval(mins => coalesce(o.estimated_duration_minutes, 60))
+  ) THEN
+    RETURN 'conflict';
+  END IF;
+
+  IF b.request_group_id IS NOT NULL THEN
+    UPDATE booking_request_groups
+    SET status = 'filled', accepted_booking_id = b.id
+    WHERE id = b.request_group_id AND status = 'open';
+    IF NOT FOUND THEN RETURN 'taken'; END IF;
+  END IF;
+
+  UPDATE bookings
+  SET decision_status = 'accepted', status = 'scheduled', tidy_pro_unread = false, user_unread = true
+  WHERE id = b.id;
+
+  RETURN 'accepted';
+END;
+\$\$;
+
+REVOKE ALL ON FUNCTION public.accept_booking_request(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.accept_booking_request(uuid, uuid) TO service_role;
+
+CREATE UNIQUE INDEX IF NOT EXISTS bookings_one_accepted_per_group_idx
+  ON bookings (request_group_id)
+  WHERE request_group_id IS NOT NULL AND status NOT IN ('pending', 'cancelled', 'declined');
+
+-- ─── 041: How far each Tidy Pro will travel ─────────────────────────────────
+-- Cleaners who exist when the column is added keep the old 10-mile radius.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'tidypro_profiles' AND column_name = 'travel_radius_miles'
+  ) THEN
+    ALTER TABLE tidypro_profiles ADD COLUMN travel_radius_miles integer;
+    UPDATE tidypro_profiles SET travel_radius_miles = 10;
+  END IF;
+END $$;
+ALTER TABLE tidypro_profiles DROP CONSTRAINT IF EXISTS tidypro_profiles_travel_radius_miles_check;
+ALTER TABLE tidypro_profiles ADD CONSTRAINT tidypro_profiles_travel_radius_miles_check
+  CHECK (travel_radius_miles IS NULL OR travel_radius_miles BETWEEN 1 AND 20);
+
+-- ─── 042: Tidy Pros can suggest a new start time ────────────────────────────
+ALTER TABLE booking_messages ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'text';
+ALTER TABLE booking_messages ADD COLUMN IF NOT EXISTS proposed_date date;
+ALTER TABLE booking_messages ADD COLUMN IF NOT EXISTS proposed_time text;
+ALTER TABLE booking_messages ADD COLUMN IF NOT EXISTS proposal_status text;
+ALTER TABLE booking_messages DROP CONSTRAINT IF EXISTS booking_messages_kind_check;
+ALTER TABLE booking_messages ADD CONSTRAINT booking_messages_kind_check
+  CHECK (kind IN ('text', 'time_proposal'));
+ALTER TABLE booking_messages DROP CONSTRAINT IF EXISTS booking_messages_proposal_status_check;
+ALTER TABLE booking_messages ADD CONSTRAINT booking_messages_proposal_status_check
+  CHECK (proposal_status IS NULL OR proposal_status IN ('pending', 'approved', 'declined', 'withdrawn'));
+
+-- ─── 043: Remind cleaners who haven't left, then alert the admin ────────────
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS on_the_way_reminder_sent_at timestamptz;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS unresponsive_alert_sent_at timestamptz;
+SELECT cron.schedule('tydio-unresponsive-cleaners', '* * * * *', \$\$SELECT public.run_scheduled_job('/api/cron/unresponsive-cleaners')\$\$);
+
+-- ─── 044: Customer reports of a Tidy Pro (from 001, never applied) ──────────
+CREATE TABLE IF NOT EXISTS risk_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type text NOT NULL,
+  booking_id uuid REFERENCES bookings(id) ON DELETE SET NULL,
+  user_id uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  severity text NOT NULL DEFAULT 'low',
+  description text,
+  metadata jsonb,
+  resolved_at timestamptz,
+  resolution_notes text,
+  created_by uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS risk_events_booking_id_idx ON risk_events (booking_id);
+CREATE INDEX IF NOT EXISTS risk_events_user_id_idx ON risk_events (user_id);
+ALTER TABLE risk_events ENABLE ROW LEVEL SECURITY;
+
+-- ─── 036: Scheduled jobs run from the database ───────────────────────────────
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
+CREATE OR REPLACE FUNCTION public.run_scheduled_job(job_path text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS \$\$
+DECLARE
+  site_url text;
+  cron_secret text;
+BEGIN
+  SELECT decrypted_secret INTO site_url FROM vault.decrypted_secrets WHERE name = 'tydio_site_url' LIMIT 1;
+  SELECT decrypted_secret INTO cron_secret FROM vault.decrypted_secrets WHERE name = 'tydio_cron_secret' LIMIT 1;
+
+  IF site_url IS NULL OR cron_secret IS NULL THEN
+    RETURN;
+  END IF;
+
+  PERFORM net.http_get(
+    url := rtrim(site_url, '/') || job_path,
+    headers := jsonb_build_object('x-cron-secret', cron_secret),
+    timeout_milliseconds := 60000
+  );
+END;
+\$\$;
+
+REVOKE ALL ON FUNCTION public.run_scheduled_job(text) FROM PUBLIC, anon, authenticated;
+
+SELECT cron.schedule('tydio-expire-booking-requests', '* * * * *', \$\$SELECT public.run_scheduled_job('/api/cron/expire-booking-requests')\$\$);
+SELECT cron.schedule('tydio-booking-reminders', '*/5 * * * *', \$\$SELECT public.run_scheduled_job('/api/cron/booking-reminders')\$\$);
+
+-- Force PostgREST to pick up the schema changes above immediately, instead
+-- of waiting for its own periodic reload (which is what was causing "column
+-- does not exist" errors right after this migration ran).
+NOTIFY pgrst, 'reload schema';
 `
 
 export async function GET() {

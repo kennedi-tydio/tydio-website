@@ -42,7 +42,7 @@ export default function ResetPasswordForm() {
       <p className="text-sm text-slate-500">Enter your new password below.</p>
 
       {state.error && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
           {state.error}
         </p>
       )}

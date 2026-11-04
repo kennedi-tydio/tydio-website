@@ -3,8 +3,8 @@
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { findAvailableCleaners, type CleanerMatch } from '@/lib/cleanerMatching'
-import { resolveStatePricing, priceTaskListForState } from '@/app/dashboard/taskPricing'
-import { TOP_TIDY_PRO_SURCHARGE } from '@/lib/pricingRules'
+import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
+import { TOP_TIDY_PRO_SURCHARGE, FAR_DISTANCE_SURCHARGE_MILES, FAR_DISTANCE_SURCHARGE } from '@/lib/pricingRules'
 import type { TidyTask } from '@/app/dashboard/types'
 
 export type ScheduledLocation =
@@ -28,6 +28,7 @@ export async function saveSchedule(draftId: string, schedule: Schedule): Promise
       scheduled_location: schedule.location as never,
       scheduled_date: schedule.date,
       scheduled_time: schedule.time,
+      any_day_selected: schedule.date == null,
     })
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)
@@ -92,10 +93,12 @@ export async function searchAvailableCleaners(
     }
   }
 
+  const squareFootage = await resolveLocationSquareFootage(admin, session.profileId, schedule.location)
+
   let durationMinutes = 180
   let basePrice = 0
   try {
-    const breakdown = priceTaskListForState(tasks, statePricing.state, statePricing.medianFourHourPrice)
+    const breakdown = priceTaskListForState(tasks, statePricing.state, statePricing.medianFourHourPrice, squareFootage)
     durationMinutes = breakdown.total_task_minutes
     basePrice = breakdown.total_customer_charge
   } catch {
@@ -115,7 +118,10 @@ export async function searchAvailableCleaners(
 
   const pricedCleaners = cleaners.map((cleaner) => ({
     ...cleaner,
-    price: basePrice + (cleaner.isTopTidyPro ? TOP_TIDY_PRO_SURCHARGE : 0),
+    price:
+      basePrice +
+      (cleaner.isTopTidyPro ? TOP_TIDY_PRO_SURCHARGE : 0) +
+      (cleaner.distanceMiles > FAR_DISTANCE_SURCHARGE_MILES ? FAR_DISTANCE_SURCHARGE : 0),
   }))
 
   return { cleaners: pricedCleaners }

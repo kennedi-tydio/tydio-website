@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getUnreadMessageCountForUser } from '@/lib/bookings'
 import ProfileView from './ProfileView'
 
 export const metadata: Metadata = { title: 'Profile — Tydio' }
@@ -14,18 +15,22 @@ export default async function ProfilePage() {
 
   const { data: profile, error: profileError } = await admin
     .from('profiles')
-    .select('id, first_name, last_name, email, phone, zip_code')
+    .select('id, first_name, last_name, email, phone, zip_code, pets')
     .eq('id', session.profileId)
     .single()
 
   if (profileError) throw new Error(`Failed to load profile: ${profileError.message}`)
   if (!profile) redirect('/login')
 
+  const unreadMessageCount = await getUnreadMessageCountForUser(admin, session.profileId)
+
   return (
     <ProfileView
       firstName={profile.first_name ?? ''}
       lastName={profile.last_name ?? ''}
       email={profile.email}
+      pets={profile.pets ?? ''}
+      unreadMessageCount={unreadMessageCount}
     />
   )
 }

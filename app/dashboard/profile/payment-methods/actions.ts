@@ -3,6 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { stripe } from '@/lib/stripe'
+import { getOrCreateStripeCustomerId } from '@/lib/stripe/customer'
+import type Stripe from 'stripe'
 
 export interface SavedPaymentMethod {
   id: string
@@ -13,32 +16,75 @@ export interface SavedPaymentMethod {
   is_default: boolean
 }
 
-export interface NewCardInput {
-  cardNumber: string
-  expMonth: number
-  expYear: number
+function brandLabel(brand: string): string {
+  switch (brand) {
+    case 'visa':
+      return 'Visa'
+    case 'mastercard':
+      return 'Mastercard'
+    case 'amex':
+      return 'Amex'
+    case 'discover':
+      return 'Discover'
+    default:
+      return brand.charAt(0).toUpperCase() + brand.slice(1)
+  }
 }
 
-function detectBrand(digits: string): string {
-  if (digits.startsWith('4')) return 'Visa'
-  if (/^5[1-5]/.test(digits)) return 'Mastercard'
-  if (/^3[47]/.test(digits)) return 'Amex'
-  if (digits.startsWith('6')) return 'Discover'
-  return 'Card'
+// Creates a SetupIntent so the client can collect and save a card via the
+// Stripe Payment Element — the card number never passes through our server.
+export async function createSetupIntentAction(): Promise<{ clientSecret: string } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const customerId = await getOrCreateStripeCustomerId(session.profileId)
+
+  const setupIntent = await stripe.setupIntents.create({
+    customer: customerId,
+    usage: 'off_session',
+    // This UI only ever collects reusable cards (brand/last4/expiry) and has
+    // no return_url to come back to, so redirect-based methods are excluded
+    // — otherwise Stripe requires a return_url at confirm time for any
+    // Dashboard-enabled method that might redirect the customer off-page.
+    automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+  })
+
+  if (!setupIntent.client_secret) return { error: 'Could not start card setup.' }
+  return { clientSecret: setupIntent.client_secret }
 }
 
-export async function createPaymentMethodAction(
-  input: NewCardInput
+// Called after the client confirms the SetupIntent with Stripe.js. Re-reads
+// the SetupIntent from Stripe (never trusts client-supplied card details) and
+// persists the resulting PaymentMethod's display metadata.
+export async function savePaymentMethodAction(
+  setupIntentId: string
 ): Promise<SavedPaymentMethod | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
 
-  const digits = input.cardNumber.replace(/\D/g, '')
-  if (digits.length < 12) return { error: 'Enter a valid card number.' }
-  if (input.expMonth < 1 || input.expMonth > 12) return { error: 'Enter a valid expiration month.' }
-  if (input.expYear < new Date().getFullYear()) return { error: 'Enter a valid expiration year.' }
-
   const admin = createAdminClient()
+
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('stripe_customer_id')
+    .eq('id', session.profileId)
+    .single()
+
+  if (!profile?.stripe_customer_id) return { error: 'No Stripe customer on file.' }
+
+  const setupIntent = await stripe.setupIntents.retrieve(setupIntentId)
+
+  if (setupIntent.customer !== profile.stripe_customer_id) return { error: 'Not authorized' }
+  if (setupIntent.status !== 'succeeded' || !setupIntent.payment_method) {
+    return { error: 'Card setup did not complete.' }
+  }
+
+  const paymentMethodId =
+    typeof setupIntent.payment_method === 'string' ? setupIntent.payment_method : setupIntent.payment_method.id
+
+  const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId)
+  const card = paymentMethod.card as Stripe.PaymentMethod.Card | undefined
+  if (!card) return { error: 'Only card payment methods are supported.' }
 
   const { count } = await admin
     .from('payment_methods')
@@ -49,19 +95,66 @@ export async function createPaymentMethodAction(
     .from('payment_methods')
     .insert({
       user_id: session.profileId,
-      brand: detectBrand(digits),
-      last4: digits.slice(-4),
-      exp_month: input.expMonth,
-      exp_year: input.expYear,
+      stripe_payment_method_id: paymentMethod.id,
+      card_brand: brandLabel(card.brand),
+      card_last4: card.last4,
+      card_exp_month: card.exp_month,
+      card_exp_year: card.exp_year,
       is_default: (count ?? 0) === 0,
     })
-    .select('id, brand, last4, exp_month, exp_year, is_default')
+    .select('id, brand:card_brand, last4:card_last4, exp_month:card_exp_month, exp_year:card_exp_year, is_default')
     .single()
 
   if (error || !data) return { error: error?.message ?? 'Failed to save payment method.' }
 
   revalidatePath('/dashboard/profile/payment-methods')
   return data
+}
+
+export async function removePaymentMethodAction(
+  paymentMethodId: string
+): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+
+  const { data: pm } = await admin
+    .from('payment_methods')
+    .select('id, stripe_payment_method_id, is_default')
+    .eq('id', paymentMethodId)
+    .eq('user_id', session.profileId)
+    .single()
+
+  if (!pm) return { error: 'Payment method not found.' }
+
+  if (pm.stripe_payment_method_id) {
+    // Best-effort — if it's already detached on Stripe's side (stale state,
+    // double-click) that shouldn't block removing it from the saved list.
+    try {
+      await stripe.paymentMethods.detach(pm.stripe_payment_method_id)
+    } catch {}
+  }
+
+  const { error } = await admin.from('payment_methods').delete().eq('id', pm.id)
+  if (error) return { error: error.message }
+
+  if (pm.is_default) {
+    const { data: next } = await admin
+      .from('payment_methods')
+      .select('id')
+      .eq('user_id', session.profileId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+
+    if (next) {
+      await admin.from('payment_methods').update({ is_default: true }).eq('id', next.id)
+    }
+  }
+
+  revalidatePath('/dashboard/profile/payment-methods')
+  return { success: true }
 }
 
 export async function selectPaymentMethodForDraftAction(

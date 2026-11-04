@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/app/components/NavigationSpinner'
 import { confirmSelectionAction } from './actions'
 import { WEEKDAY_KEYS, minutesSinceMidnight, minutesToTime, rangesOverlap, type WeeklyAvailability } from '@/lib/cleanerMatching'
+import LoadingScreen from '@/app/components/LoadingSpinner'
+import { useLocalClock } from '@/app/components/useLocalClock'
 
 export type BusyRange = { time: string; durationMinutes: number }
 
@@ -35,9 +36,29 @@ type Props = {
   durationMinutes: number
   todayISO: string
   nowMinutes: number
+  // Already chosen on "Plan your booking" — pre-selected here, but the
+  // customer can still change either one.
+  initialDate: string | null
+  initialTime: string | null
 }
 
-export default function ChooseTimeView({ draftId, cleanerId, availability, busyByDate, durationMinutes, todayISO, nowMinutes }: Props) {
+export default function ChooseTimeView(props: Omit<Props, 'todayISO' | 'nowMinutes'>) {
+  const clock = useLocalClock()
+  if (!clock) return <LoadingScreen />
+  return <ChooseTimeForm {...props} todayISO={clock.todayISO} nowMinutes={clock.nowMinutes} />
+}
+
+function ChooseTimeForm({
+  draftId,
+  cleanerId,
+  availability,
+  busyByDate,
+  durationMinutes,
+  todayISO,
+  nowMinutes,
+  initialDate,
+  initialTime,
+}: Props) {
   const router = useRouter()
 
   const computeSlots = useMemo(() => {
@@ -88,11 +109,17 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const initialView = earliestAvailable ? new Date(`${earliestAvailable}T00:00:00`) : new Date(`${todayISO}T00:00:00`)
+  // A specific date already chosen on "Plan your booking" wins over the
+  // earliest-available fallback (as long as it's still valid).
+  const effectiveInitialDate = initialDate && initialDate >= todayISO ? initialDate : earliestAvailable
+
+  const initialView = effectiveInitialDate ? new Date(`${effectiveInitialDate}T00:00:00`) : new Date(`${todayISO}T00:00:00`)
   const [viewYear, setViewYear] = useState(initialView.getFullYear())
   const [viewMonth, setViewMonth] = useState(initialView.getMonth())
-  const [selectedDate, setSelectedDate] = useState<string | null>(earliestAvailable)
-  const [selectedTime, setSelectedTime] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(effectiveInitialDate)
+  const [selectedTime, setSelectedTime] = useState<string | null>(() =>
+    initialTime && effectiveInitialDate && computeSlots(effectiveInitialDate).includes(initialTime) ? initialTime : null
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -107,7 +134,9 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
 
   function selectDate(iso: string) {
     setSelectedDate(iso)
-    setSelectedTime(null)
+    // A specific time already chosen on "Plan your booking" carries over to
+    // whichever date ends up selected, as long as it's still open that day.
+    setSelectedTime(initialTime && computeSlots(iso).includes(initialTime) ? initialTime : null)
   }
 
   async function handleConfirm() {
@@ -129,13 +158,13 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
   const slots = selectedDate ? computeSlots(selectedDate) : []
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-16 max-w-sm mx-auto w-full">
-        <Link href={`/book/schedule/${cleanerId}`} aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
+        <button type="button" onClick={() => router.back()} aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
             <path d="M10 12L6 8l4-4" stroke="#1a2332" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        </Link>
+        </button>
 
         <h1 className="text-3xl font-bold text-slate-900 mb-6">Choose a time</h1>
 
@@ -160,7 +189,7 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
               const colorClass = isSelected
                 ? 'text-white font-semibold'
                 : status === 'available'
-                  ? 'text-[#38C7CA] font-medium hover:bg-slate-100'
+                  ? 'text-brand font-medium hover:bg-slate-100'
                   : status === 'past'
                     ? 'text-slate-300'
                     : 'text-slate-800'
@@ -171,7 +200,7 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
                   disabled={disabled}
                   onClick={() => selectDate(iso)}
                   className={`w-8 h-8 mx-auto rounded-full text-sm flex items-center justify-center ${colorClass}`}
-                  style={isSelected ? { backgroundColor: '#38C7CA' } : undefined}
+                  style={isSelected ? { backgroundColor: 'var(--color-brand)' } : undefined}
                 >
                   {day}
                 </button>
@@ -181,7 +210,7 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
         </div>
 
         <div className="flex items-center gap-4 mb-6 text-xs text-slate-500">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#38C7CA' }} /> Available</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--color-brand)' }} /> Available</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-800" /> Unavailable</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-300" /> Past Date</span>
         </div>
@@ -200,10 +229,10 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
                       key={t}
                       type="button"
                       onClick={() => setSelectedTime(t)}
-                      className={`py-3.5 rounded-xl text-sm font-medium border transition-colors ${
-                        selected ? 'border-[#38C7CA] text-slate-800' : 'border-transparent bg-slate-100 text-slate-600'
+                      className={`py-3.5 rounded-xl text-sm font-medium border border-transparent transition-colors ${
+                        selected ? 'text-white' : 'bg-slate-100 text-slate-600'
                       }`}
-                      style={selected ? { backgroundColor: '#eafcfc' } : undefined}
+                      style={selected ? { backgroundColor: 'var(--color-brand)' } : undefined}
                     >
                       {formatTimeLabel(t)}
                     </button>
@@ -215,7 +244,7 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
         )}
 
         {error && (
-          <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4 leading-relaxed">
+          <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4 leading-relaxed">
             {error}
           </p>
         )}
@@ -225,11 +254,11 @@ export default function ChooseTimeView({ draftId, cleanerId, availability, busyB
           onClick={handleConfirm}
           disabled={!selectedDate || !selectedTime || saving}
           className="w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide disabled:opacity-50 transition-opacity"
-          style={{ backgroundColor: '#38C7CA' }}
+          style={{ backgroundColor: 'var(--color-brand)' }}
         >
           {saving ? 'Confirming…' : 'Confirm time'}
         </button>
       </div>
-    </div>
+    </main>
   )
 }

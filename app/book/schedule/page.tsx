@@ -26,7 +26,7 @@ export default async function SchedulePage() {
 
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
-    .select('id, task_list, scheduled_location, scheduled_date, scheduled_time')
+    .select('id, task_list, scheduled_location, scheduled_date, scheduled_time, any_day_selected')
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -40,7 +40,7 @@ export default async function SchedulePage() {
 
   const { data: addresses } = await admin
     .from('user_addresses')
-    .select('id, label, street_address, city, state, zip_code, unit_number, latitude, longitude, is_default')
+    .select('id, label, street_address, city, state, zip_code, unit_number, latitude, longitude, is_default, square_footage')
     .eq('user_id', session.profileId)
     .order('is_default', { ascending: false })
 
@@ -48,6 +48,7 @@ export default async function SchedulePage() {
     <SchedulePicker
       draftId={draft.id}
       addresses={addresses ?? []}
+      anyDaySelected={draft.any_day_selected}
       initialSchedule={{
         location: (draft.scheduled_location as ScheduledLocation | null) ?? null,
         date: draft.scheduled_date,

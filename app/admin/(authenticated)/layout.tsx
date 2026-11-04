@@ -11,6 +11,8 @@ const NAV_ITEMS = [
   { label: 'Service Areas', href: '/admin/service-areas' },
   { label: 'State Pricing', href: '/admin/state-pricing' },
   { label: 'Users', href: '/admin/users' },
+  { label: 'Insurance', href: '/admin/insurance' },
+  { label: 'Background Checks', href: '/admin/background-checks' },
 ]
 
 export default async function AdminAuthenticatedLayout({
@@ -26,7 +28,7 @@ export default async function AdminAuthenticatedLayout({
       {/* Sidebar */}
       <aside className="w-52 bg-white border-r border-slate-100 flex flex-col fixed inset-y-0 left-0 z-10">
         <div className="px-5 py-4 border-b border-slate-100 flex items-baseline gap-1.5">
-          <span className="text-base font-bold" style={{ color: '#38C7CA' }}>Tydio</span>
+          <span className="text-base font-bold" style={{ color: 'var(--color-brand)' }}>Tydio</span>
           <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Admin</span>
         </div>
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
@@ -52,7 +54,7 @@ export default async function AdminAuthenticatedLayout({
         </div>
       </aside>
       {/* Main content */}
-      <main className="flex-1 ml-52 p-8 min-h-screen">
+      <main id="main-content" className="flex-1 ml-52 p-8 min-h-screen">
         {children}
       </main>
     </div>

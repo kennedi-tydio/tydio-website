@@ -3,6 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { isSquareFootage, type SquareFootage } from '@/lib/squareFootage'
+
+const ADDRESS_COLUMNS = 'id, label, street_address, unit_number, city, state, zip_code, latitude, longitude, is_default, square_footage'
 
 export interface NewAddressInput {
   label: string
@@ -11,6 +14,7 @@ export interface NewAddressInput {
   city: string
   state: string
   zipCode: string
+  squareFootage: SquareFootage | null
   latitude?: number | null
   longitude?: number | null
 }
@@ -26,6 +30,8 @@ export interface SavedAddress {
   latitude: number | null
   longitude: number | null
   is_default: boolean
+  // Null only for addresses saved before square footage was required.
+  square_footage: string | null
 }
 
 export async function createAddressAction(
@@ -42,6 +48,9 @@ export async function createAddressAction(
 
   if (!label || !streetAddress || !city || !state || !zipCode) {
     return { error: 'Please fill in all required fields.' }
+  }
+  if (!isSquareFootage(input.squareFootage)) {
+    return { error: 'Please choose the square footage for this address.' }
   }
 
   const admin = createAdminClient()
@@ -64,11 +73,37 @@ export async function createAddressAction(
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
       is_default: (count ?? 0) === 0,
+      square_footage: input.squareFootage,
     })
-    .select('id, label, street_address, unit_number, city, state, zip_code, latitude, longitude, is_default')
+    .select(ADDRESS_COLUMNS)
     .single()
 
   if (error || !data) return { error: error?.message ?? 'Failed to save address.' }
+
+  revalidatePath('/dashboard/profile/addresses')
+  revalidatePath('/book/schedule')
+  return data
+}
+
+// For addresses saved before square footage was required.
+export async function updateAddressSquareFootageAction(
+  addressId: string,
+  squareFootage: SquareFootage
+): Promise<SavedAddress | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+  if (!isSquareFootage(squareFootage)) return { error: 'Please choose a valid square footage.' }
+
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('user_addresses')
+    .update({ square_footage: squareFootage, updated_at: new Date().toISOString() })
+    .eq('id', addressId)
+    .eq('user_id', session.profileId)
+    .select(ADDRESS_COLUMNS)
+    .single()
+
+  if (error || !data) return { error: error?.message ?? 'Failed to save square footage.' }
 
   revalidatePath('/dashboard/profile/addresses')
   revalidatePath('/book/schedule')

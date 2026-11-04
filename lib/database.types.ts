@@ -17,7 +17,7 @@ export interface Database {
           street_address: string | null
           zip_code: string | null
           service_area_id: string | null
-          booking_access_status: 'waitlisted' | 'booking_allowed' | 'paused' | 'closed'
+          booking_access_status: 'waitlisted' | 'booking_allowed' | 'paused' | 'closed' | 'denied'
           booking_access_granted_at: string | null
           waitlisted: boolean
           waitlisted_at: string | null
@@ -29,8 +29,12 @@ export interface Database {
           last_sign_in_at: string | null
           photo_url: string | null
           promo_code: string | null
+          pets: string | null
           sms_notifications_enabled: boolean
           email_notifications_enabled: boolean
+          stripe_customer_id: string | null
+          sms_consent: 'opted_in' | 'declined' | null
+          push_consent: 'opted_in' | 'declined' | null
           created_at: string
         }
         Insert: {
@@ -46,7 +50,7 @@ export interface Database {
           street_address?: string | null
           zip_code?: string | null
           service_area_id?: string | null
-          booking_access_status?: 'waitlisted' | 'booking_allowed' | 'paused' | 'closed'
+          booking_access_status?: 'waitlisted' | 'booking_allowed' | 'paused' | 'closed' | 'denied'
           booking_access_granted_at?: string | null
           waitlisted?: boolean
           waitlisted_at?: string | null
@@ -58,8 +62,12 @@ export interface Database {
           last_sign_in_at?: string | null
           photo_url?: string | null
           promo_code?: string | null
+          pets?: string | null
           sms_notifications_enabled?: boolean
           email_notifications_enabled?: boolean
+          stripe_customer_id?: string | null
+          sms_consent?: 'opted_in' | 'declined' | null
+          push_consent?: 'opted_in' | 'declined' | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['profiles']['Insert']>
@@ -86,6 +94,7 @@ export interface Database {
           is_verified: boolean
           stripe_account_id: string | null
           stripe_onboarding_completed: boolean
+          travel_radius_miles: number | null
           average_response_time_minutes: number | null
           is_insured: boolean
           // MVP additions
@@ -107,14 +116,24 @@ export interface Database {
           insurance_status: string | null
           insurance_provider: string | null
           insurance_policy_expiration_date: string | null
+          insurance_expiry_reminder_sent_at: string | null
           insurance_document_url: string | null
           insurance_verified_at: string | null
           insurance_verified_by: string | null
+          insurance_denial_reason: string | null
+          insurance_submitted_at: string | null
           payout_paused_until: string | null
           payout_pause_reason: string | null
           service_area_ids: string[] | null
           service_zip_codes: string[] | null
           active_for_booking: boolean
+          sms_consent: 'opted_in' | 'declined' | null
+          push_consent: 'opted_in' | 'declined' | null
+          verified_ack_at: string | null
+          is_away: boolean
+          time_zone: string | null
+          date_of_birth: string | null
+          legal_middle_name: string | null
           created_at: string
           updated_at: string
         }
@@ -138,6 +157,7 @@ export interface Database {
           is_verified?: boolean
           stripe_account_id?: string | null
           stripe_onboarding_completed?: boolean
+          travel_radius_miles?: number | null
           average_response_time_minutes?: number | null
           is_insured?: boolean
           terms_accepted?: boolean
@@ -158,14 +178,24 @@ export interface Database {
           insurance_status?: string | null
           insurance_provider?: string | null
           insurance_policy_expiration_date?: string | null
+          insurance_expiry_reminder_sent_at?: string | null
           insurance_document_url?: string | null
           insurance_verified_at?: string | null
           insurance_verified_by?: string | null
+          insurance_denial_reason?: string | null
+          insurance_submitted_at?: string | null
           payout_paused_until?: string | null
           payout_pause_reason?: string | null
           service_area_ids?: string[] | null
           service_zip_codes?: string[] | null
           active_for_booking?: boolean
+          sms_consent?: 'opted_in' | 'declined' | null
+          push_consent?: 'opted_in' | 'declined' | null
+          verified_ack_at?: string | null
+          is_away?: boolean
+          time_zone?: string | null
+          date_of_birth?: string | null
+          legal_middle_name?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -180,7 +210,25 @@ export interface Database {
           status: string
           reference: string | null
           checkr_invitation_id: string | null
+          report_id: string | null
+          result: string | null
           background_check_manual_review_notes: string | null
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
+          fee_amount_cents: number | null
+          fee_paid_at: string | null
+          fee_terms_accepted_at: string | null
+          fee_terms_amount_cents: number | null
+          fee_refunded_at: string | null
+          fee_refund_reason: string | null
+          stripe_refund_id: string | null
+          adverse_notice_undelivered_at: string | null
+          submitted_at: string | null
+          manual_decision_at: string | null
+          manual_decision_note: string | null
+          requested_at: string | null
+          link_sent_at: string | null
+          background_check_link: string | null
           invited_at: string | null
           completed_at: string | null
           created_at: string
@@ -192,7 +240,25 @@ export interface Database {
           status: string
           reference?: string | null
           checkr_invitation_id?: string | null
+          report_id?: string | null
+          result?: string | null
           background_check_manual_review_notes?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          fee_amount_cents?: number | null
+          fee_paid_at?: string | null
+          fee_terms_accepted_at?: string | null
+          fee_terms_amount_cents?: number | null
+          fee_refunded_at?: string | null
+          fee_refund_reason?: string | null
+          stripe_refund_id?: string | null
+          adverse_notice_undelivered_at?: string | null
+          submitted_at?: string | null
+          manual_decision_at?: string | null
+          manual_decision_note?: string | null
+          requested_at?: string | null
+          link_sent_at?: string | null
+          background_check_link?: string | null
           invited_at?: string | null
           completed_at?: string | null
           created_at?: string
@@ -241,6 +307,18 @@ export interface Database {
           payout_release_at: string | null
           payment_release_token: string | null
           payout_released_by_customer: boolean
+          pets: string | null
+          notes: string | null
+          entry_instructions: string | null
+          request_group_id: string | null
+          time_zone: string
+          cancelled_reason: string | null
+          scheduled_location: Json | null
+          user_unread: boolean
+          tidy_pro_unread: boolean
+          reminder_sent_at: string | null
+          on_the_way_reminder_sent_at: string | null
+          unresponsive_alert_sent_at: string | null
           created_at: string
           updated_at: string
         }
@@ -282,10 +360,68 @@ export interface Database {
           payout_release_at?: string | null
           payment_release_token?: string | null
           payout_released_by_customer?: boolean
+          pets?: string | null
+          notes?: string | null
+          entry_instructions?: string | null
+          request_group_id?: string | null
+          time_zone?: string
+          cancelled_reason?: string | null
+          scheduled_location?: Json | null
+          user_unread?: boolean
+          tidy_pro_unread?: boolean
+          reminder_sent_at?: string | null
+          on_the_way_reminder_sent_at?: string | null
+          unresponsive_alert_sent_at?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['bookings']['Insert']>
+        Relationships: []
+      }
+      booking_messages: {
+        Row: {
+          id: string
+          booking_id: string
+          sender_role: string
+          body: string
+          created_at: string
+          kind: string
+          proposed_date: string | null
+          proposed_time: string | null
+          proposal_status: string | null
+        }
+        Insert: {
+          id?: string
+          booking_id: string
+          sender_role: string
+          body: string
+          created_at?: string
+          kind?: string
+          proposed_date?: string | null
+          proposed_time?: string | null
+          proposal_status?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['booking_messages']['Insert']>
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          id: string
+          profile_id: string
+          endpoint: string
+          p256dh: string
+          auth: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          endpoint: string
+          p256dh: string
+          auth: string
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['push_subscriptions']['Insert']>
         Relationships: []
       }
       booking_tasks: {
@@ -342,6 +478,30 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['reviews']['Insert']>
         Relationships: []
       }
+      booking_request_groups: {
+        Row: {
+          id: string
+          user_id: string
+          original_booking_id: string
+          stripe_payment_intent_id: string
+          amount_cents: number
+          status: string
+          accepted_booking_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          original_booking_id: string
+          stripe_payment_intent_id: string
+          amount_cents: number
+          status?: string
+          accepted_booking_id?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['booking_request_groups']['Insert']>
+        Relationships: []
+      }
       booking_drafts: {
         Row: {
           id: string
@@ -351,6 +511,7 @@ export interface Database {
           last_step_reached: number
           scheduled_location: Json | null
           scheduled_date: string | null
+          any_day_selected: boolean
           scheduled_time: string | null
           selected_tidy_pro_id: string | null
           pets: string | null
@@ -369,6 +530,7 @@ export interface Database {
           last_step_reached?: number
           scheduled_location?: Json | null
           scheduled_date?: string | null
+          any_day_selected?: boolean
           scheduled_time?: string | null
           selected_tidy_pro_id?: string | null
           pets?: string | null
@@ -386,24 +548,44 @@ export interface Database {
         Row: {
           id: string
           user_id: string
-          brand: string
-          last4: string
-          exp_month: number
-          exp_year: number
+          stripe_payment_method_id: string
+          card_brand: string
+          card_last4: string
+          card_exp_month: number
+          card_exp_year: number
           is_default: boolean
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
           user_id: string
-          brand: string
-          last4: string
-          exp_month: number
-          exp_year: number
+          stripe_payment_method_id: string
+          card_brand: string
+          card_last4: string
+          card_exp_month: number
+          card_exp_year: number
           is_default?: boolean
           created_at?: string
+          updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['payment_methods']['Insert']>
+        Relationships: []
+      }
+      promo_codes: {
+        Row: {
+          id: string
+          code: string
+          active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          code: string
+          active?: boolean
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['promo_codes']['Insert']>
         Relationships: []
       }
       job_notifications: {
@@ -519,6 +701,11 @@ export interface Database {
           communication_rating: number | null
           written_feedback: string | null
           submitted_at: string | null
+          manual_decision_at: string | null
+          manual_decision_note: string | null
+          requested_at: string | null
+          link_sent_at: string | null
+          background_check_link: string | null
           created_at: string
         }
         Insert: {
@@ -533,6 +720,11 @@ export interface Database {
           communication_rating?: number | null
           written_feedback?: string | null
           submitted_at?: string | null
+          manual_decision_at?: string | null
+          manual_decision_note?: string | null
+          requested_at?: string | null
+          link_sent_at?: string | null
+          background_check_link?: string | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['customer_reviews_of_cleaners']['Insert']>
@@ -552,6 +744,11 @@ export interface Database {
           would_clean_again: boolean | null
           written_feedback: string | null
           submitted_at: string | null
+          manual_decision_at: string | null
+          manual_decision_note: string | null
+          requested_at: string | null
+          link_sent_at: string | null
+          background_check_link: string | null
           created_at: string
         }
         Insert: {
@@ -567,9 +764,42 @@ export interface Database {
           would_clean_again?: boolean | null
           written_feedback?: string | null
           submitted_at?: string | null
+          manual_decision_at?: string | null
+          manual_decision_note?: string | null
+          requested_at?: string | null
+          link_sent_at?: string | null
+          background_check_link?: string | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['cleaner_reviews_of_customers']['Insert']>
+        Relationships: []
+      }
+      banned_users: {
+        Row: {
+          id: string
+          email: string
+          phones_normalized: string[]
+          first_name: string | null
+          last_name: string | null
+          note: string | null
+          former_profile_id: string | null
+          fee_amount_cents: number | null
+          stripe_payment_intent_id: string | null
+          banned_at: string
+        }
+        Insert: {
+          id?: string
+          email: string
+          phones_normalized?: string[]
+          first_name?: string | null
+          last_name?: string | null
+          note?: string | null
+          former_profile_id?: string | null
+          fee_amount_cents?: number | null
+          stripe_payment_intent_id?: string | null
+          banned_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['banned_users']['Insert']>
         Relationships: []
       }
       user_addresses: {
@@ -585,6 +815,7 @@ export interface Database {
           latitude: number | null
           longitude: number | null
           is_default: boolean
+          square_footage: string | null
           created_at: string
           updated_at: string
         }
@@ -600,6 +831,7 @@ export interface Database {
           latitude?: number | null
           longitude?: number | null
           is_default?: boolean
+          square_footage?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -770,7 +1002,12 @@ export interface Database {
       }
     }
     Views: Record<string, never>
-    Functions: Record<string, never>
+    Functions: {
+      accept_booking_request: {
+        Args: { p_booking_id: string; p_tidy_pro_id: string }
+        Returns: 'accepted' | 'not_found' | 'not_pending' | 'conflict' | 'taken'
+      }
+    }
     Enums: Record<string, never>
   }
 }

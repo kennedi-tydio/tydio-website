@@ -18,7 +18,7 @@ async function getSessionFromRequest(req: NextRequest) {
   }
 }
 
-const PROTECTED_PATHS = ['/dashboard', '/book', '/bookings', '/pro']
+const PROTECTED_PATHS = ['/dashboard', '/book', '/bookings', '/pro', '/waitlist']
 const AUTH_PATHS = ['/login', '/signup']
 const PUBLIC_PATHS = ['/claim-task', '/job', '/review']
 

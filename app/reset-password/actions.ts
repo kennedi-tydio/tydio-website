@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hashPassword } from '@/lib/auth/password'
 import { createSession } from '@/lib/auth/session'
+import { BANNED_MESSAGE, isBanned } from '@/lib/bannedUsers'
 
 export type ResetState = { error?: string }
 
@@ -33,11 +34,12 @@ export async function resetPasswordAction(
 
   const { data: profile } = await admin
     .from('profiles')
-    .select('id, role, email')
+    .select('id, role, email, phone')
     .eq('id', tokenRow.profile_id)
     .single()
 
   if (!profile) return { error: 'Account not found.' }
+  if (await isBanned(admin, { email: profile.email, phone: profile.phone })) return { error: BANNED_MESSAGE }
 
   const passwordHash = await hashPassword(password)
 
