@@ -5,7 +5,9 @@ import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import ToggleSwitch from '@/app/components/form/ToggleSwitch'
 import { setEmailNotificationsAction, setSmsConsentAction } from '@/app/actions/notificationConsent'
-import { enablePushNotifications, disablePushNotifications } from '@/app/components/pushSubscription'
+import { enablePushNotifications, disablePushNotifications, useDevicePushSubscribed, useIsStandalone } from '@/app/components/pushSubscription'
+import ModalShell from '@/app/components/ModalShell'
+import AddToHomeScreenGuide from '@/app/components/AddToHomeScreenGuide'
 
 function IconBack() {
   return (
@@ -32,6 +34,13 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
   const [askingForPhone, setAskingForPhone] = useState(false)
   const [working, setWorking] = useState<'sms' | 'push' | 'email' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showInstallGuide, setShowInstallGuide] = useState(false)
+  const standalone = useIsStandalone()
+  const deviceSubscribed = useDevicePushSubscribed(standalone)
+  const [subscribedHere, setSubscribedHere] = useState<boolean | null>(null)
+  // Push is per device: on only when the account is opted in and this
+  // installed app holds a subscription. Outside the installed app it's off.
+  const pushOn = standalone && pushConsent === 'opted_in' && (subscribedHere ?? deviceSubscribed) !== false
 
   async function handleSmsToggle() {
     setError(null)
@@ -76,14 +85,16 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
   async function handlePushToggle() {
     setError(null)
     setWorking('push')
-    const result =
-      pushConsent === 'opted_in' ? await disablePushNotifications() : await enablePushNotifications()
+    const result = pushOn ? await disablePushNotifications() : await enablePushNotifications()
     setWorking(null)
     if ('error' in result) {
       setError(result.error)
+      // A refused permission prompt records the account as declined.
+      if (!pushOn && typeof Notification !== 'undefined' && Notification.permission === 'denied') setPushConsent('declined')
       return
     }
-    setPushConsent(pushConsent === 'opted_in' ? 'declined' : 'opted_in')
+    setPushConsent(pushOn ? 'declined' : 'opted_in')
+    setSubscribedHere(!pushOn)
   }
 
   async function handleEmailToggle() {
@@ -115,6 +126,11 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
             <div>
               <p className="font-semibold text-slate-900 text-sm">Text notifications</p>
               <p className="text-xs text-slate-400 mt-0.5">Booking updates and messages by text</p>
+              {smsConsent !== 'opted_in' && (
+                <p className="text-xs text-slate-400 mt-1">
+                  If you replied STOP to one of our texts, reply START to that text to turn them back on.
+                </p>
+              )}
             </div>
             <ToggleSwitch on={smsConsent === 'opted_in'} onClick={handleSmsToggle} disabled={working === 'sms'} label="Text notifications" />
           </div>
@@ -146,10 +162,17 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
             <div>
               <p className="font-semibold text-slate-900 text-sm">Push notifications</p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Booking updates on your home screen. Add Tydio to your home screen first.
+                Booking updates on your home screen. {!standalone && (
+                  <>
+                    Add Tydio to your home screen first, then open it from there to turn these on.{' '}
+                    <button type="button" onClick={() => setShowInstallGuide(true)} className="text-sky-600 underline underline-offset-2">
+                      Show me how
+                    </button>
+                  </>
+                )}
               </p>
             </div>
-            <ToggleSwitch on={pushConsent === 'opted_in'} onClick={handlePushToggle} disabled={working === 'push'} label="Push notifications" />
+            <ToggleSwitch on={pushOn} onClick={handlePushToggle} disabled={working === 'push' || !standalone} label="Push notifications" />
           </div>
 
           <div className="flex items-center justify-between px-5 py-4">
@@ -161,6 +184,15 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
           </div>
         </div>
       </div>
+      {showInstallGuide && (
+        <ModalShell
+          panelClassName="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl"
+          labelledBy="install-guide-title"
+          onClose={() => setShowInstallGuide(false)}
+        >
+          <AddToHomeScreenGuide titleId="install-guide-title" onDone={() => setShowInstallGuide(false)} skipLabel="Close" />
+        </ModalShell>
+      )}
     </main>
   )
 }

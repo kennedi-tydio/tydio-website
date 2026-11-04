@@ -61,6 +61,70 @@ export function notifyBookingCancelledConfirmation(): NotificationPayload {
   }
 }
 
+export function notifyLateCancelConfirmation(refund: number): NotificationPayload {
+  return {
+    title: 'Booking canceled',
+    body: `Your booking has been canceled. Because it was less than 12 hours away, $${refund.toFixed(2)} (50%) has been refunded. Your tasks are back on your list.`,
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyCleanerCancelled(cleanerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Your Tidy Pro canceled',
+    body: `${cleanerFirstName} canceled your booking. Choose up to 3 other cleaners with no new charge, or cancel your booking for a refund.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}/replace`),
+  }
+}
+
+export function notifyCleanerCancelledRefunded(cleanerFirstName: string): NotificationPayload {
+  return {
+    title: 'Your Tidy Pro canceled',
+    body: `${cleanerFirstName} canceled your booking less than an hour before it starts, so your payment has been refunded in full. Your tasks are back on your list.`,
+    url: siteUrl('/dashboard'),
+  }
+}
+
+// `refunded` is what Stripe returned, or null if it couldn't be looked up.
+export function notifyAdminCancelledBooking(refund: 'full' | 'minus_fee' | 'half' | 'none', refunded: number | null): NotificationPayload {
+  const amount = refunded != null ? `$${refunded.toFixed(2)}` : 'your payment'
+  const outcome = {
+    full: `${amount} has been refunded in full`,
+    minus_fee: `${amount} has been refunded, minus the nonrefundable Stripe fee`,
+    half: `${amount} has been refunded, half of what you paid`,
+    none: 'your payment was not refunded. We’ve emailed you the reason',
+  }[refund]
+  return {
+    title: 'Booking canceled',
+    body: `The Tydio team canceled your booking, and ${outcome}. Your tasks are back on your list.`,
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyCustomerNoAccess(): NotificationPayload {
+  return {
+    title: "Your Tidy Pro couldn't get in",
+    body: "Your Tidy Pro arrived but couldn't get into your home, so your booking has been canceled. Our team will review it and email you about any refund. Your tasks are back on your list.",
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyNoShowReportedConfirmation(): NotificationPayload {
+  return {
+    title: 'No-show reported',
+    body: "Sorry your Tidy Pro didn't arrive. Your booking has been canceled, and our team will review it and email you about your refund. Your tasks are back on your list.",
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyNoShowReported(bookingId: string): NotificationPayload {
+  return {
+    title: 'No-show reported',
+    body: "The customer reported that you didn't arrive for their booking, so it has been canceled. Your account is under review, and our team will email you about it.",
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
 export function notifyBookingExpired(): NotificationPayload {
   return {
     title: 'Booking canceled',
@@ -82,6 +146,22 @@ export function notifyCustomerCancelled(customerFirstName: string): Notification
     title: 'Booking cancelled',
     body: `${customerFirstName} cancelled their booking request.`,
     url: siteUrl('/pro/messages'),
+  }
+}
+
+export function notifyAdminCancelledRequest(bookingId: string): NotificationPayload {
+  return {
+    title: 'Booking cancelled',
+    body: 'The Tydio team cancelled this booking.',
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyCustomerCancelledLate(customerFirstName: string, pay: number, bookingId: string): NotificationPayload {
+  return {
+    title: 'Booking cancelled',
+    body: `${customerFirstName} cancelled less than 12 hours before the booking, so you'll still be paid $${pay.toFixed(2)}.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
   }
 }
 
@@ -164,7 +244,7 @@ export function notifyBackgroundCheckLinkSent(link: string | null): Notification
   return {
     title: 'Complete your background check',
     body: link
-      ? 'Your Tydio background check form is ready to complete.'
+      ? 'Your Tydio background check and ID verification are ready to complete.'
       : 'Your Tydio background check is ready. Check your email for an invitation from Checkr.',
     url: link ?? siteUrl('/pro/onboarding/setup/background-check'),
   }

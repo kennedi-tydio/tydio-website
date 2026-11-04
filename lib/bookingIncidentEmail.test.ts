@@ -21,6 +21,7 @@ vi.mock('@/lib/stripe', () => ({
 
 import { sendEmail } from '@/lib/email'
 import { sendCleanerReportEscalation } from './bookingIncidentEmail'
+import { findCleanerReportCategory } from './cleanerReportCategories'
 
 const email = vi.mocked(sendEmail)
 
@@ -82,14 +83,14 @@ beforeEach(() => {
 
 describe('sendCleanerReportEscalation', () => {
   it('emails the admin the report, the reporting customer, the cleaner, the booking, and the payment', async () => {
-    await sendCleanerReportEscalation(fakeAdmin(), 'b1', 'Left halfway through', new Date('2026-11-03T16:00:00Z'))
+    await sendCleanerReportEscalation(fakeAdmin(), 'b1', findCleanerReportCategory('cleaning_quality')!, 'Left halfway through', new Date('2026-11-03T16:00:00Z'))
 
     expect(email).toHaveBeenCalledTimes(1)
     const sent = email.mock.calls[0][0]
     expect(sent.to).toEqual([{ email: 'admin@example.com' }])
     expect(sent.subject).toBe('ESCALATION: CLEANER REPORTED')
     for (const detail of [
-      'Left halfway through', 'Nov 3, 2026, 11:00 AM', 'Reported by (customer)',
+      'Cleaning quality or incomplete service', 'Left halfway through', 'Nov 3, 2026, 11:00 AM', 'Reported by (customer)',
       'Sam Lee', 'sam@example.com', '+15550002222', '1 Main St, 30303', 'u1',
       'Nia Thomas', 'nia@example.com', '+15550001111', '9 Elm St, Decatur, GA, 30030',
       '1 Main St, Atlanta, GA, 30303', 'Code 1234', 'One cat', 'Dishes (Kitchen)', 'scheduled / cleaning',
@@ -100,7 +101,7 @@ describe('sendCleanerReportEscalation', () => {
   })
 
   it('sends nothing if the booking is gone', async () => {
-    await sendCleanerReportEscalation(fakeAdmin(null), 'b1', 'Rude')
+    await sendCleanerReportEscalation(fakeAdmin(null), 'b1', findCleanerReportCategory('unprofessional')!, 'Rude')
     expect(email).not.toHaveBeenCalled()
   })
 })

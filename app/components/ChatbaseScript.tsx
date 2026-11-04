@@ -7,7 +7,7 @@ export default function ChatbaseScript() {
     const script = document.createElement("script");
     script.src = "https://www.chatbase.co/embed.min.js";
     script.id = "QomQSlDJ4Kefzg0EAu8o8";
-    (script as any).domain = "www.chatbase.co";
+    Object.assign(script, { domain: "www.chatbase.co" });
     document.body.appendChild(script);
   }, []);
 

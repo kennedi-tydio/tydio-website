@@ -3,6 +3,7 @@
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getOrCreateConnectedAccountId, createPayoutOnboardingLink, createExpressDashboardLoginLink } from '@/lib/stripe/connect'
+import { userFacingError } from '@/lib/userFacingError'
 
 export async function startPayoutSetupAction(): Promise<{ url: string } | { error: string }> {
   const session = await getSession()
@@ -17,7 +18,7 @@ export async function startPayoutSetupAction(): Promise<{ url: string } | { erro
     const url = await createPayoutOnboardingLink(accountId, returnUrl, refreshUrl)
     return { url }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Could not start payout setup.' }
+    return { error: userFacingError(err, 'Could not start payout setup.') }
   }
 }
 
@@ -41,6 +42,6 @@ export async function getPayoutDashboardLinkAction(): Promise<{ url: string } | 
     const url = await createExpressDashboardLoginLink(tidyPro.stripe_account_id)
     return { url }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Could not open your Stripe dashboard.' }
+    return { error: userFacingError(err, 'Could not open your Stripe dashboard.') }
   }
 }

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
+import { extensionForType } from '@/lib/uploadExtension'
 
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png']
 const MAX_SIZE_BYTES = 10 * 1024 * 1024
@@ -47,7 +48,7 @@ export async function uploadInsuranceDocumentAction(
   }
 
   const admin = createAdminClient()
-  const extension = file.name.split('.').pop() ?? 'pdf'
+  const extension = extensionForType(file.type)
   const path = `${session.profileId}/${Date.now()}.${extension}`
 
   const { error: uploadError } = await admin.storage

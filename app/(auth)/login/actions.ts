@@ -6,6 +6,8 @@ import { verifyPassword } from '@/lib/auth/password'
 import { createSession } from '@/lib/auth/session'
 import { sendEmail, emailShell } from '@/lib/email'
 import { BANNED_MESSAGE, isBanned } from '@/lib/bannedUsers'
+import { safeRedirectPath } from '@/lib/safeRedirect'
+import { RATE_LIMITED_MESSAGE, RATE_LIMITS, allowEmailSend, clientIp, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 import { redirect } from 'next/navigation'
 
 export type LoginState = {
@@ -29,6 +31,17 @@ export async function loginAction(
 
   const admin = createAdminClient()
 
+  // Only failed attempts count, so a customer who gets their password right is never slowed down.
+  const accountKey = `login:account:${role}:${email}`
+  const ipKey = `login:ip:${await clientIp()}`
+  if (
+    (await isRateLimited(admin, accountKey, RATE_LIMITS.loginPerAccount)) ||
+    (await isRateLimited(admin, ipKey, RATE_LIMITS.loginPerIp))
+  ) {
+    return { error: RATE_LIMITED_MESSAGE }
+  }
+  const recordFailure = () => Promise.all([recordRateLimitEvent(admin, accountKey), recordRateLimitEvent(admin, ipKey)])
+
   // Before the account lookup, since a denied cleaner's account no longer exists.
   if (await isBanned(admin, { email })) return { error: BANNED_MESSAGE }
 
@@ -41,6 +54,7 @@ export async function loginAction(
 
   if (!profile) {
     await verifyPassword(password, '$2b$12$invalidhashpadding000000000000000000000000000000000000')
+    await recordFailure()
     const label = role === 'TIDYPRO' ? 'Tidy Pro' : 'customer'
     return { error: `No ${label} account found for that email. Check your role or sign up.` }
   }
@@ -50,7 +64,10 @@ export async function loginAction(
   }
 
   const valid = await verifyPassword(password, profile.password_hash)
-  if (!valid) return { error: 'Incorrect password.' }
+  if (!valid) {
+    await recordFailure()
+    return { error: 'Incorrect password.' }
+  }
 
   if (await isBanned(admin, { phone: profile.phone })) return { error: BANNED_MESSAGE }
 
@@ -60,7 +77,8 @@ export async function loginAction(
 
   await createSession({ profileId: profile.id, role: profile.role as 'USER' | 'TIDYPRO', email })
 
-  if (next && next.startsWith('/')) redirect(next)
+  const safeNext = safeRedirectPath(next)
+  if (safeNext) redirect(safeNext)
   redirect(role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
 }
 
@@ -74,6 +92,8 @@ export async function resendVerificationAction(
   if (!email) return { error: 'Email is required.' }
 
   const admin = createAdminClient()
+
+  if (!(await allowEmailSend(admin, 'verify', email))) return { error: RATE_LIMITED_MESSAGE }
 
   const { data: profile } = await admin
     .from('profiles')

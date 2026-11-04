@@ -6,7 +6,7 @@ function configureWebPush() {
   const publicKey = process.env.VAPID_PUBLIC_KEY
   const privateKey = process.env.VAPID_PRIVATE_KEY
   if (!publicKey || !privateKey) throw new Error('VAPID env vars are not set')
-  webpush.setVapidDetails('mailto:hello@tydio.com', publicKey, privateKey)
+  webpush.setVapidDetails('mailto:kennedicoats@tydioapp.com', publicKey, privateKey)
 }
 
 // Fans out to every device the profile has subscribed from. No consent

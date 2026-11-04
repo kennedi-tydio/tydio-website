@@ -3,11 +3,13 @@ import { stripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { STRIPE_DASHBOARD_REFUND } from '@/lib/backgroundCheckFee'
 import { recordFeePaymentIfPaid, recordFeeRefund } from '@/lib/stripe/backgroundCheckFee'
+import { recordChargeback } from '@/lib/stripe/disputes'
 
 // Records a cleaner's background check payment even if they never make it back
 // to the app after paying. Also covers payment methods that settle later, which
-// are still unpaid when the cleaner returns from Checkout. Signature
-// verification uses STRIPE_WEBHOOK_SECRET — never process a payload without it.
+// are still unpaid when the cleaner returns from Checkout, and flags any charge a
+// customer disputes with their bank. Signature verification uses
+// STRIPE_WEBHOOK_SECRET — never process a payload without it.
 export async function POST(req: NextRequest) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET
   if (!secret) return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 })
@@ -43,6 +45,8 @@ export async function POST(req: NextRequest) {
         await recordFeeRefund(admin, paymentIntentId, { reason: STRIPE_DASHBOARD_REFUND, refundId: null })
       }
     }
+  } else if (event.type === 'charge.dispute.created') {
+    await recordChargeback(createAdminClient(), event.data.object, event.id)
   }
 
   return NextResponse.json({ received: true })

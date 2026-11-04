@@ -186,7 +186,6 @@ function BookingCard({ booking }: { booking: UpcomingBooking }) {
 
 export default function DashboardHome({
   firstName,
-  userId,
   initialTasks,
   draftId: initialDraftId,
   bookingAccessStatus,
@@ -196,7 +195,6 @@ export default function DashboardHome({
   unreadMessageCount,
 }: {
   firstName: string
-  userId: string
   initialTasks: TidyTask[]
   draftId: string | null
   bookingAccessStatus: string
@@ -215,12 +213,11 @@ export default function DashboardHome({
   // the customer is still on it. Resetting there would wipe a selection
   // within moments of them making it. A mount-only effect only fires on an
   // actual navigation back to this page, not on those background refreshes.
+  const [resetSelectionsOnMount] = useState(() => initialTasks.some((t) => t.completed))
   const didResetSelectionsRef = useRef(false)
-  const [tasks, setTasks] = useState<TidyTask[]>(() => {
-    if (!initialTasks.some((t) => t.completed)) return initialTasks
-    didResetSelectionsRef.current = true
-    return initialTasks.map((t) => ({ ...t, completed: false }))
-  })
+  const [tasks, setTasks] = useState<TidyTask[]>(() =>
+    resetSelectionsOnMount ? initialTasks.map((t) => ({ ...t, completed: false })) : initialTasks
+  )
   const [draftId, setDraftId] = useState<string | null>(initialDraftId)
   const [showModal, setShowModal] = useState(false)
   const [collapsedRooms, setCollapsedRooms] = useState<Set<string>>(new Set())
@@ -234,14 +231,14 @@ export default function DashboardHome({
 
   function persist(updated: TidyTask[]) {
     startTransition(async () => {
-      const id = await saveTasks(userId, updated, draftId)
+      const id = await saveTasks(updated, draftId)
       if (id && !draftId) setDraftId(id)
     })
   }
 
   useEffect(() => {
-    if (didResetSelectionsRef.current) {
-      didResetSelectionsRef.current = false
+    if (resetSelectionsOnMount && !didResetSelectionsRef.current) {
+      didResetSelectionsRef.current = true
       persist(tasks)
     }
     // Intentionally mount-only — see comment above the `tasks` state.
@@ -265,7 +262,7 @@ export default function DashboardHome({
         await deleteDraft(draftId)
         setDraftId(null)
       } else {
-        const id = await saveTasks(userId, remaining, draftId)
+        const id = await saveTasks(remaining, draftId)
         if (id && !draftId) setDraftId(id)
       }
     })

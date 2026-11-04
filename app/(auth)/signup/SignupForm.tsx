@@ -7,13 +7,17 @@ import Link from 'next/link'
 import { signupAction, type SignupState } from './actions'
 import type { FormEvent } from 'react'
 
-function SubmitButton({ isPro }: { isPro: boolean }) {
+function SubmitButton({ isPro, ready }: { isPro: boolean; ready: boolean }) {
   const { pending } = useFormStatus()
   return (
     <button
       type="submit"
-      disabled={pending}
-      className="w-full bg-sky-500 hover:bg-sky-600 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
+      disabled={pending || !ready}
+      className={`w-full text-white font-semibold py-3 rounded-xl transition-colors ${
+        ready
+          ? 'bg-sky-500 hover:bg-sky-600 disabled:opacity-60'
+          : 'bg-slate-300 cursor-not-allowed'
+      }`}
     >
       {pending
         ? isPro ? 'Submitting application…' : 'Creating account…'
@@ -48,6 +52,9 @@ export default function SignupForm() {
   const isPro = searchParams.get('role') === 'pro'
   const [agreed, setAgreed] = useState(false)
   const [termsError, setTermsError] = useState(false)
+  // Tracks whether every required field passes native validation, so the
+  // submit button stays disabled until the form is complete.
+  const [fieldsValid, setFieldsValid] = useState(false)
 
   function toggleAgreed() {
     const next = !agreed
@@ -101,7 +108,13 @@ export default function SignupForm() {
   }
 
   return (
-    <form action={action} onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form
+      action={action}
+      onSubmit={handleSubmit}
+      onInput={e => setFieldsValid(e.currentTarget.checkValidity())}
+      onReset={() => setFieldsValid(false)}
+      className="flex flex-col gap-4"
+    >
       <input type="hidden" name="role" value={isPro ? 'TIDYPRO' : 'USER'} />
       {/* Submit both consent fields so the server action accepts the combined checkbox */}
       <input type="hidden" name="terms_accepted" value={agreed ? 'on' : ''} />
@@ -116,6 +129,15 @@ export default function SignupForm() {
       {(state.error || termsError) && (
         <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
           {state.error || 'You must agree to the Terms & Conditions and Privacy Policy to continue.'}
+          {state.error && state.accountExists && (
+            <>
+              {' '}or{' '}
+              <Link href={isPro ? '/login?role=pro' : '/login'} className="font-semibold underline underline-offset-2">
+                Sign in
+              </Link>
+              .
+            </>
+          )}
         </p>
       )}
 
@@ -179,7 +201,7 @@ export default function SignupForm() {
         </span>
       </label>
 
-      <SubmitButton isPro={isPro} />
+      <SubmitButton isPro={isPro} ready={fieldsValid && agreed} />
 
       {isPro && (
         <p className="text-xs text-slate-400 text-center leading-relaxed">

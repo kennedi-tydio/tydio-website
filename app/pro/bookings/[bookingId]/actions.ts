@@ -5,6 +5,8 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CLEANER_REVIEW_WINDOW_HOURS, cleanerReviewHoursLeft } from '@/lib/cleanerReviewWindow'
 import { markArrivedAction, startCleaningAction } from '@/app/pro/messages/[bookingId]/actions'
+import { extensionForType } from '@/lib/uploadExtension'
+import { userFacingError } from '@/lib/userFacingError'
 
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 const MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024
@@ -51,7 +53,7 @@ export async function submitTaskPhotoAction(
   if (!ALLOWED_PHOTO_TYPES.includes(file.type)) return { error: 'Please upload a JPG, PNG, or WEBP photo.' }
   if (file.size > MAX_PHOTO_SIZE_BYTES) return { error: 'Photo is too large — please upload something under 10MB.' }
 
-  const extension = file.name.split('.').pop() ?? 'jpg'
+  const extension = extensionForType(file.type)
   const path = `${bookingId}/${taskId}-${Date.now()}.${extension}`
 
   const { error: uploadError } = await admin.storage
@@ -72,7 +74,7 @@ export async function submitTaskPhotoAction(
     .update({ is_completed: true, completion_photo_url: photoUrl, completed_at: new Date().toISOString() })
     .eq('id', taskId)
 
-  if (updateError) return { error: updateError.message }
+  if (updateError) return { error: userFacingError(updateError) }
 
   revalidatePath(`/pro/bookings/${bookingId}`)
   return { success: true, photoUrl }
@@ -124,7 +126,7 @@ export async function submitCustomerReviewAction(
     submitted_at: new Date().toISOString(),
   })
 
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   revalidatePath(`/pro/bookings/${bookingId}`)
   revalidatePath(`/pro/bookings/${bookingId}/review`)

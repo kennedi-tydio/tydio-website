@@ -2,7 +2,11 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { backgroundCheckStage } from '@/lib/backgroundCheck'
 import { FEE_REFUND_REASONS, feeStatusLabel, hasPaidFee } from '@/lib/backgroundCheckFee'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
-import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleanerAction, pauseCleanerAction, refundBackgroundCheckFeeAction } from '../../actions'
+import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
+import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleanerAction, pauseCleanerAction, refundBackgroundCheckFeeAction, resendSignedAgreementAction } from '../../actions'
+import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAccounts } from './AccountActions'
+
+const SUSPENDED_COLOR = '#ef4444'
 
 const STATUS_COLORS: Record<string, string> = {
   booking_allowed: '#22c55e',
@@ -64,31 +68,45 @@ export default async function UsersPage({
 
   let query = admin
     .from('profiles')
-    .select('id, first_name, last_name, email, zip_code, role, booking_access_status, email_verified_at, created_at')
+    .select('id, first_name, last_name, email, phone, street_address, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at')
     .order('created_at', { ascending: false })
     .limit(200)
 
   if (search) {
     query = query.or(
-      `email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,zip_code.ilike.%${search}%`
+      `email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,zip_code.ilike.%${search}%,phone.ilike.%${search}%`
     )
   }
   if (role) query = query.eq('role', role as 'USER' | 'TIDYPRO' | 'ADMIN')
-  if (status) query = query.eq('booking_access_status', status as 'waitlisted' | 'booking_allowed' | 'paused' | 'closed')
+  if (status === 'suspended') query = query.not('suspended_at', 'is', null)
+  else if (status) query = query.eq('booking_access_status', status as 'waitlisted' | 'booking_allowed' | 'paused' | 'closed')
   if (verified === 'yes') query = query.not('email_verified_at', 'is', null)
   if (verified === 'no') query = query.is('email_verified_at', null)
 
-  const { data: users } = await query
+  const { data: users, error: usersError } = await query
   const hasFilters = search || role || status || verified
 
   const cleanerIds = (users ?? []).filter((u) => u.role === 'TIDYPRO').map((u) => u.id)
   const { data: cleanerProfiles } = cleanerIds.length
     ? await admin
         .from('tidypro_profiles')
-        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles')
+        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, phone, street_address, city, state, zip_code')
         .in('id', cleanerIds)
     : { data: [] }
   const cleanerById = new Map((cleanerProfiles ?? []).map((c) => [c.id, c]))
+
+  // A customer's default saved address, else their first one.
+  const customerIds = (users ?? []).filter((u) => u.role === 'USER').map((u) => u.id)
+  const { data: savedAddresses } = customerIds.length
+    ? await admin
+        .from('user_addresses')
+        .select('user_id, street_address, unit_number, city, state, zip_code, is_default')
+        .in('user_id', customerIds)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true })
+    : { data: [] }
+  const addressByUserId = new Map<string, NonNullable<typeof savedAddresses>[number]>()
+  for (const a of savedAddresses ?? []) if (!addressByUserId.has(a.user_id)) addressByUserId.set(a.user_id, a)
 
   const { data: backgroundChecks } = cleanerIds.length
     ? await admin
@@ -97,6 +115,32 @@ export default async function UsersPage({
         .in('pro_id', cleanerIds)
     : { data: [] }
   const backgroundCheckByProId = new Map((backgroundChecks ?? []).map((b) => [b.pro_id, b]))
+
+  const { data: signatures } = cleanerIds.length
+    ? await admin
+        .from('agreement_signatures')
+        .select('id, pro_id, signed_at, emailed_at')
+        .eq('agreement_version', ICA_VERSION)
+        .in('pro_id', cleanerIds)
+    : { data: [] }
+  const signatureByProId = new Map((signatures ?? []).map((s) => [s.pro_id, s]))
+
+  // Banned from this page and still inside the appeal process (see lib/banAccount).
+  const userIds = (users ?? []).map((u) => u.id)
+  const { data: activeBans } = userIds.length
+    ? await admin
+        .from('banned_users')
+        .select('former_profile_id, banned_at, appeal_submitted_at, appeal_denied_at')
+        .in('former_profile_id', userIds)
+        .is('account_deleted_at', null)
+    : { data: [] }
+  const banByProfileId = new Map((activeBans ?? []).map((b) => [b.former_profile_id, b]))
+
+  const { data: deletedAccounts } = await admin
+    .from('deleted_accounts')
+    .select('id, email, first_name, last_name, role, deleted_at')
+    .order('deleted_at', { ascending: false })
+    .limit(200)
 
   return (
     <div>
@@ -111,7 +155,7 @@ export default async function UsersPage({
           aria-label="Search users"
           name="search"
           defaultValue={search}
-          placeholder="Search name, email, ZIP…"
+          placeholder="Search name, email, phone, ZIP…"
           className="w-60 px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand transition-colors"
         />
         <select
@@ -137,6 +181,7 @@ export default async function UsersPage({
           <option value="paused">Paused</option>
           <option value="closed">Closed</option>
           <option value="denied">Denied</option>
+          <option value="suspended">Suspended</option>
         </select>
         <select
           aria-label="Filter by verified"
@@ -165,15 +210,27 @@ export default async function UsersPage({
         )}
       </form>
 
+      {usersError && (
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-4">
+          Couldn&apos;t load users: {usersError.message}
+        </p>
+      )}
+
+      <BulkAccountActions />
+
       {/* Table */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                <th className="pl-4 py-3 w-8">
+                  <SelectAllAccounts />
+                </th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Name</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Email</th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">ZIP</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Phone</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Address</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Role</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Background Check</th>
@@ -189,25 +246,51 @@ export default async function UsersPage({
                 const cleanerWaitlisted =
                   user.role === 'TIDYPRO' && (user.booking_access_status === 'waitlisted' || user.booking_access_status === 'denied')
                 const cleaner = user.role === 'TIDYPRO' && !cleanerWaitlisted ? cleanerById.get(user.id) : undefined
-                const statusColor = cleaner
+                const ban = banByProfileId.get(user.id)
+                const statusColor = ban || user.suspended_at
+                  ? SUSPENDED_COLOR
+                  : cleaner
                   ? CLEANER_STATUS_COLORS[cleaner.cleaner_status ?? 'applied'] ?? '#64748b'
                   : STATUS_COLORS[user.booking_access_status ?? 'waitlisted'] ?? '#64748b'
-                const statusLabel = cleaner
+                const statusLabel = ban
+                  ? ban.appeal_denied_at
+                    ? 'banned · appeal denied'
+                    : ban.appeal_submitted_at
+                    ? 'banned · appeal to review'
+                    : withDate('banned', ban.banned_at)
+                  : user.suspended_at
+                  ? withDate('suspended', user.suspended_at)
+                  : cleaner
                   ? `${cleaner.cleaner_status ?? 'applied'}${!cleaner.active_for_booking ? ' · not bookable' : cleaner.is_away ? ' · away' : missingOnboardingSteps(cleaner).length > 0 ? ' · onboarding incomplete' : ''}`
                   : user.booking_access_status ?? '—'
                 const name =
                   [user.first_name, user.last_name].filter(Boolean).join(' ') || '—'
                 const bgCheck = user.role === 'TIDYPRO' ? backgroundCheckByProId.get(user.id) : undefined
                 const bgCheckBadge = backgroundCheckBadge(bgCheck)
+                // Tidy Pros keep their phone and address on tidypro_profiles (cleaner is
+                // unset while they're waitlisted, so look them up directly).
+                const proProfile = user.role === 'TIDYPRO' ? cleanerById.get(user.id) : undefined
+                const saved = addressByUserId.get(user.id)
+                const phone = proProfile?.phone ?? user.phone
+                const address = proProfile?.street_address
+                  ? [proProfile.street_address, proProfile.city, proProfile.state, proProfile.zip_code]
+                  : saved
+                  ? [[saved.street_address, saved.unit_number].filter(Boolean).join(' '), saved.city, saved.state, saved.zip_code]
+                  : [user.street_address, proProfile?.zip_code ?? user.zip_code]
+                const addressText = address.filter(Boolean).join(', ')
                 return (
                   <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="pl-4 py-3">
+                      {user.role !== 'ADMIN' && <RowSelectCheckbox profileId={user.id} label={name} />}
+                    </td>
                     <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
                       {name}
                     </td>
                     <td className="px-4 py-3 text-slate-500 text-xs">{user.email}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                      {user.zip_code ?? '—'}
+                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                      {phone ? <a href={`tel:${phone}`} className="underline">{phone}</a> : '—'}
                     </td>
+                    <td className="px-4 py-3 text-xs text-slate-500 min-w-48">{addressText || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{user.role}</td>
                     <td className="px-4 py-3">
                       <span
@@ -216,6 +299,22 @@ export default async function UsersPage({
                       >
                         {statusLabel}
                       </span>
+                      {user.role === 'TIDYPRO' && (() => {
+                        const signature = signatureByProId.get(user.id)
+                        if (!signature) return <p className="text-xs text-slate-400 mt-1 whitespace-nowrap">Agreement not signed</p>
+                        return (
+                          <div className="mt-1 text-xs whitespace-nowrap">
+                            <a href={`/admin/agreements/${signature.id}`} target="_blank" rel="noopener noreferrer" className="text-slate-500 underline">
+                              Agreement signed {new Date(signature.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </a>
+                            {!signature.emailed_at && (
+                              <form action={resendSignedAgreementAction.bind(null, signature.id)} className="inline ml-1">
+                                <button type="submit" className="text-amber-600 underline">Email failed, resend</button>
+                              </form>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       {user.role === 'TIDYPRO' && (
@@ -261,7 +360,7 @@ export default async function UsersPage({
                       {new Date(user.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3">
-                      {user.role === 'USER' && (
+                      {!user.suspended_at && user.role === 'USER' && (
                         user.booking_access_status === 'booking_allowed' ? (
                           <form action={revokeAccessAction.bind(null, user.id)}>
                             <button
@@ -275,10 +374,10 @@ export default async function UsersPage({
                           <WaitlistDecision profileId={user.id} canDeny={user.booking_access_status === 'waitlisted'} />
                         )
                       )}
-                      {cleanerWaitlisted && (
+                      {!user.suspended_at && cleanerWaitlisted && (
                         <WaitlistDecision profileId={user.id} canDeny={user.booking_access_status === 'waitlisted'} />
                       )}
-                      {user.role === 'TIDYPRO' && !cleanerWaitlisted && (
+                      {!user.suspended_at && user.role === 'TIDYPRO' && !cleanerWaitlisted && (
                         cleaner?.active_for_booking ? (
                           <form action={pauseCleanerAction.bind(null, user.id)}>
                             <button
@@ -301,6 +400,9 @@ export default async function UsersPage({
                           </form>
                         )
                       )}
+                      {user.role !== 'ADMIN' && (
+                        <RowAccountActions profileId={user.id} name={name} suspended={Boolean(user.suspended_at)} banned={Boolean(ban)} />
+                      )}
                     </td>
                   </tr>
                 )
@@ -314,7 +416,57 @@ export default async function UsersPage({
           )}
         </div>
       </div>
+
+      <DeletedAccounts accounts={deletedAccounts ?? []} />
     </div>
+  )
+}
+
+// Accounts deleted from this page. They're gone from the database; this is the log
+// kept in deleted_accounts.
+function DeletedAccounts({
+  accounts,
+}: {
+  accounts: { id: string; email: string; first_name: string | null; last_name: string | null; role: string; deleted_at: string }[]
+}) {
+  return (
+    <section className="mt-10">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-bold text-slate-900">Deleted Accounts</h2>
+        <p className="text-sm text-slate-400">{accounts.length} shown</p>
+      </div>
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Name</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Email</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Role</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Deleted</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {accounts.map(account => (
+                <tr key={account.id}>
+                  <td className="px-4 py-3 font-medium text-slate-500 whitespace-nowrap">
+                    {[account.first_name, account.last_name].filter(Boolean).join(' ') || '—'}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{account.email}</td>
+                  <td className="px-4 py-3 text-xs text-slate-500">{account.role}</td>
+                  <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+                    {new Date(account.deleted_at).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {accounts.length === 0 && (
+            <div className="text-center py-12 text-slate-400 text-sm">No deleted accounts yet.</div>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }
 

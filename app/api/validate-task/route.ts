@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { estimateTaskDuration } from '@/lib/aiTaskEstimate'
+import { getSession } from '@/lib/auth/session'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { RATE_LIMITS, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 
 export async function POST(req: NextRequest) {
+  // Every estimate is a paid OpenAI call, so only signed-in customers get them.
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+
+  const admin = createAdminClient()
+  const key = `task-estimate:user:${session.profileId}`
+  if (await isRateLimited(admin, key, RATE_LIMITS.taskEstimatePerUser)) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+  }
+  await recordRateLimitEvent(admin, key)
+
   const { name, notes, room, dirtLevel, unusual } = await req.json() as {
     name?: string
     notes?: string

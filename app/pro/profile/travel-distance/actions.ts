@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { MAX_TRAVEL_RADIUS_MILES } from '@/lib/cleanerMatching'
+import { userFacingError } from '@/lib/userFacingError'
 
 export async function saveTravelRadiusAction(miles: number): Promise<{ error?: string }> {
   const session = await getSession()
@@ -19,7 +20,7 @@ export async function saveTravelRadiusAction(miles: number): Promise<{ error?: s
     .update({ travel_radius_miles: miles })
     .eq('id', session.profileId)
 
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   revalidatePath('/pro/profile/travel-distance')
   revalidatePath('/pro/dashboard')

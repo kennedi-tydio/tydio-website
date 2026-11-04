@@ -6,7 +6,9 @@ import { useEffect } from 'react'
 
 export function PHProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_POSTHOG_KEY && process.env.NEXT_PUBLIC_APP_ENV === 'production') {
+    // NODE_ENV is 'production' in any `next build` and 'development' under
+    // `next dev`, so local testing never reaches analytics.
+    if (process.env.NEXT_PUBLIC_POSTHOG_KEY && process.env.NODE_ENV === 'production') {
       posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
         api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? '/ingest',
         ui_host: 'https://us.posthog.com',

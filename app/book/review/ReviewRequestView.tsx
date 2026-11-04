@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
+import { lateCancelRefund } from '@/lib/pricingRules'
 import {
   updateTaskNoteAction,
   removeTaskFromBookingAction,
@@ -359,7 +360,7 @@ export default function ReviewRequestView({
               </span>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed px-4 pb-3.5">
-              The ${processingFee.toFixed(2)} Stripe processing fee is nonrefundable. If your booking is canceled, you&apos;ll be refunded ${servicePrice.toFixed(2)}.
+              The ${processingFee.toFixed(2)} Stripe processing fee is nonrefundable. If your booking is canceled, you&apos;ll be refunded ${servicePrice.toFixed(2)}. If you cancel an accepted booking less than 12 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(totalPrice).toFixed(2)}).
             </p>
           </div>
 

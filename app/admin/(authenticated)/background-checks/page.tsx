@@ -1,29 +1,36 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { backgroundCheckStage, type BackgroundCheckStage } from '@/lib/backgroundCheck'
+import { backgroundCheckStage, type BackgroundCheckStage, type ScreeningPart } from '@/lib/backgroundCheck'
 import { feeStatusLabel, formatFeeCents } from '@/lib/backgroundCheckFee'
 import {
   denyCleanerAction,
-  markBackgroundCheckSubmittedAction,
   passBackgroundCheckAction,
   removeBanAction,
   sendBackgroundCheckLinkAction,
+  setScreeningPartCompletedAction,
 } from '../../actions'
 
 type Tab = BackgroundCheckStage | 'banned'
 
+// Each cleaner gets one link that covers both parts of the screening. Once both
+// are ticked off as completed, they move to Processing to be approved or denied.
+const SCREENING_PART_LABELS: { part: ScreeningPart; label: string }[] = [
+  { part: 'background_check', label: 'Background check' },
+  { part: 'id_verification', label: 'ID verification' },
+]
+
 const STAGE_TABS: { label: string; value: BackgroundCheckStage }[] = [
   { label: 'Paid', value: 'needs_link' },
-  { label: 'Form sent', value: 'link_sent' },
-  { label: 'Pending', value: 'pending' },
+  { label: 'Link sent', value: 'link_sent' },
+  { label: 'Processing', value: 'pending' },
   { label: 'Approved', value: 'passed' },
   { label: 'Not paid', value: 'not_started' },
 ]
 
 const STAGE_BADGES: Record<BackgroundCheckStage, { label: string; color: string }> = {
   not_started: { label: 'Not paid', color: '#64748b' },
-  needs_link: { label: 'Paid · send form', color: '#ef4444' },
-  link_sent: { label: 'Form sent', color: '#f59e0b' },
-  pending: { label: 'Submitted · awaiting result', color: '#f59e0b' },
+  needs_link: { label: 'Paid · send link', color: '#ef4444' },
+  link_sent: { label: 'Link sent', color: '#f59e0b' },
+  pending: { label: 'Processing · decide', color: '#f59e0b' },
   passed: { label: 'Approved', color: '#22c55e' },
   failed: { label: 'Not approved', color: '#ef4444' },
 }
@@ -49,7 +56,7 @@ export default async function AdminBackgroundChecksPage({
     admin
       .from('background_checks')
       .select(
-        'pro_id, status, requested_at, link_sent_at, submitted_at, completed_at, background_check_link, manual_decision_note, fee_paid_at, fee_amount_cents, fee_refunded_at, fee_refund_reason'
+        'pro_id, status, requested_at, link_sent_at, submitted_at, completed_at, background_check_link, manual_decision_note, fee_paid_at, fee_amount_cents, fee_refunded_at, fee_refund_reason, background_check_completed_at, id_verification_completed_at'
       )
       .order('requested_at', { ascending: true, nullsFirst: false }),
     admin
@@ -80,7 +87,8 @@ export default async function AdminBackgroundChecksPage({
         <a href="https://dashboard.checkr.com" target="_blank" rel="noopener noreferrer" className="underline">
           Checkr dashboard
         </a>
-        , then approve or deny here. Nothing updates automatically.
+        , and send each cleaner their link here (one link covers the background check and ID verification). Tick off each part as
+        it&apos;s completed, then approve or deny under Processing. Nothing updates automatically.
       </p>
 
       {loadError && (
@@ -154,8 +162,8 @@ export default async function AdminBackgroundChecksPage({
                   <th className={TH}>Email</th>
                   <th className={TH}>Status</th>
                   <th className={TH}>Paid</th>
-                  <th className={TH}>Form sent</th>
-                  <th className={TH}>Submitted</th>
+                  <th className={TH}>Link sent</th>
+                  <th className={TH}>Progress</th>
                   <th className={TH}>Decided</th>
                   <th className={TH}>Actions</th>
                 </tr>
@@ -163,9 +171,25 @@ export default async function AdminBackgroundChecksPage({
               <tbody className="divide-y divide-slate-50">
                 {rows.map((row) => {
                   const profile = profileById.get(row.pro_id)
-                  const badge = row.status === 'in_review' ? { label: 'Needs review', color: '#ef4444' } : STAGE_BADGES[tab]
+                  const stage = backgroundCheckStage(row)
+                  const badge = row.status === 'in_review' ? { label: 'Needs review', color: '#ef4444' } : STAGE_BADGES[stage]
                   const name = profile ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || '—' : '—'
-                  const undecided = tab === 'needs_link' || tab === 'link_sent' || tab === 'pending'
+                  const linkForm = (
+                    <form action={sendBackgroundCheckLinkAction.bind(null, row.pro_id)} className="flex flex-col gap-1.5">
+                      <input
+                        aria-label="Background check and ID verification link"
+                        name="link"
+                        type="url"
+                        required
+                        defaultValue={row.background_check_link ?? ''}
+                        placeholder="Paste this cleaner's link"
+                        className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-brand"
+                      />
+                      <button type="submit" className={`${BUTTON_SECONDARY} self-start`}>
+                        {stage === 'needs_link' ? 'Send link' : 'Resend link'}
+                      </button>
+                    </form>
+                  )
                   return (
                     <tr key={row.pro_id} className="hover:bg-slate-50 transition-colors align-top">
                       <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">{name}</td>
@@ -182,63 +206,106 @@ export default async function AdminBackgroundChecksPage({
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(row.fee_paid_at)}</td>
                       <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(row.link_sent_at)}</td>
-                      <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(row.submitted_at)}</td>
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        {stage === 'not_started' || stage === 'needs_link' ? (
+                          <span className="text-slate-400">—</span>
+                        ) : (
+                          <ul className="flex flex-col gap-1.5">
+                            {SCREENING_PART_LABELS.map(({ part, label }) => {
+                              const completedAt = part === 'background_check' ? row.background_check_completed_at : row.id_verification_completed_at
+                              // Past the link stage both parts are done, even if a tick was never recorded.
+                              const completed = stage !== 'link_sent' || Boolean(completedAt)
+                              return (
+                                <li key={part}>
+                                  {stage === 'link_sent' ? (
+                                    <form action={setScreeningPartCompletedAction.bind(null, row.pro_id, part, !completed)}>
+                                      <button
+                                        type="submit"
+                                        aria-pressed={completed}
+                                        className={`flex items-center gap-1.5 hover:underline ${completed ? 'text-slate-500' : 'text-slate-700 font-medium'}`}
+                                      >
+                                        <span
+                                          aria-hidden
+                                          className={`inline-flex h-4 w-4 items-center justify-center rounded border ${completed ? 'bg-brand border-brand text-white' : 'border-slate-300 bg-white'}`}
+                                        >
+                                          {completed ? '✓' : ''}
+                                        </span>
+                                        {label} completed
+                                      </button>
+                                    </form>
+                                  ) : (
+                                    <span className="text-slate-500">
+                                      ✓ {label}
+                                      {completedAt ? `: ${formatDate(completedAt)}` : ''}
+                                    </span>
+                                  )}
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(row.completed_at)}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-2 min-w-[240px]">
-                          {undecided && (
-                            <form action={passBackgroundCheckAction.bind(null, row.pro_id)}>
-                              <button type="submit" className={BUTTON_PRIMARY} style={{ backgroundColor: '#22c55e' }}>
+                          {stage === 'pending' && (
+                            <form action={passBackgroundCheckAction.bind(null, row.pro_id)} className="flex flex-col gap-1.5">
+                              <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                                <input type="checkbox" name="backgroundCheckPassed" required />
+                                Background check passed
+                              </label>
+                              <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                                <input type="checkbox" name="idVerificationPassed" required />
+                                ID verification passed
+                              </label>
+                              <button type="submit" className={`${BUTTON_PRIMARY} self-start`} style={{ backgroundColor: '#22c55e' }}>
                                 Approve
                               </button>
                             </form>
                           )}
-                          {(tab === 'needs_link' || tab === 'link_sent') && (
+                          {stage === 'needs_link' && linkForm}
+                          {stage === 'link_sent' && (
                             <details className="text-xs text-slate-500">
-                              <summary className="cursor-pointer">Record progress (optional)</summary>
-                              <div className="flex flex-col gap-2 mt-2">
-                                <form action={sendBackgroundCheckLinkAction.bind(null, row.pro_id)} className="flex flex-col gap-1.5">
-                                  <input
-                                    aria-label="Background check form link"
-                                    name="link"
-                                    type="url"
-                                    defaultValue={row.background_check_link ?? ''}
-                                    placeholder="Form link (blank if Checkr emailed it)"
-                                    className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-brand"
-                                  />
-                                  <button type="submit" className={`${BUTTON_SECONDARY} self-start`}>
-                                    {tab === 'needs_link' ? 'Send form to cleaner from Tydio' : 'Resend from Tydio'}
-                                  </button>
-                                </form>
-                                <form action={markBackgroundCheckSubmittedAction.bind(null, row.pro_id)}>
-                                  <button type="submit" className={BUTTON_SECONDARY}>
-                                    Mark form as submitted
-                                  </button>
-                                </form>
-                              </div>
+                              <summary className="cursor-pointer">Resend link</summary>
+                              <div className="mt-2">{linkForm}</div>
                             </details>
                           )}
-                          {tab !== 'not_started' && (
+                          {stage !== 'not_started' && (
                             <form action={denyCleanerAction.bind(null, row.pro_id)} className="flex flex-col gap-1.5">
+                              {stage === 'pending' && (
+                                <select
+                                  aria-label="Which check failed"
+                                  name="failedCheck"
+                                  defaultValue=""
+                                  className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand"
+                                >
+                                  <option value="">Which check failed? (optional)</option>
+                                  <option value="background_check">Background check</option>
+                                  <option value="id_verification">ID verification</option>
+                                  <option value="both">Both</option>
+                                </select>
+                              )}
                               <textarea
-                                aria-label="Internal note"
-                                name="note"
-                                placeholder="Internal note (optional)…"
+                                aria-label="Reason, sent to the cleaner"
+                                name="reason"
+                                required={stage !== 'pending'}
+                                placeholder={stage === 'pending' ? 'Reason, sent to the cleaner…' : 'Reason, sent to the cleaner (required)…'}
                                 rows={2}
                                 className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-brand resize-none"
                               />
                               <label className="flex items-start gap-1.5 text-xs text-slate-500">
                                 <input type="checkbox" name="noticesConfirmed" required className="mt-0.5" />
                                 <span>
-                                  Checkr&apos;s pre-adverse and final notices have been sent, or this denial isn&apos;t based on the report. I understand
-                                  this bans them and permanently deletes their account.
+                                  Checkr&apos;s pre-adverse notice has been sent, or this denial isn&apos;t based on the report. I understand the
+                                  cleaner is emailed this reason and has 7 days to appeal, after which they&apos;re banned and their account is
+                                  permanently deleted.
                                 </span>
                               </label>
                               <button
                                 type="submit"
                                 className="text-xs font-medium text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors self-start"
                               >
-                                Deny and ban
+                                Deny
                               </button>
                             </form>
                           )}

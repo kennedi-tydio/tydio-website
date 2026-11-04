@@ -9,6 +9,7 @@ import { OPEN_BOOKINGS_MESSAGE, UNPAID_PAYOUT_MESSAGE, deleteOwnAccount } from '
 type Options = {
   openBookings?: number
   openGroups?: number
+  openIncidents?: number
   unpaidBookings?: number
   deleteError?: boolean
   stripeCustomerId?: string | null
@@ -25,19 +26,26 @@ function fakeAdmin(opts: Options = {}) {
       const filters: Record<string, unknown> = {}
       let deleting = false
       const result = () => {
-        if (deleting) return { error: opts.deleteError ? { message: 'boom' } : null }
+        if (deleting) return opts.deleteError ? { data: null, error: { message: 'boom' } } : { data: [{ id: 'p1' }], error: null }
         if (table === 'booking_request_groups') return { data: rows(opts.openGroups) }
         if (table === 'bookings' && filters.status === 'completed') return { data: rows(opts.unpaidBookings) }
+        if (table === 'bookings' && filters.incident) return { data: rows(opts.openIncidents) }
         if (table === 'bookings' && filters.in) return { data: rows(opts.openBookings) }
         if (table === 'bookings') return { data: (opts.ownBookingIds ?? []).map(id => ({ id })) }
         return { data: null }
       }
       const chain: any = {
         select: () => chain,
-        or: () => chain,
+        or: (expr: string) => {
+          if (expr.includes('status.eq.completed')) filters.status = 'completed'
+          return chain
+        },
         is: () => chain,
         gt: () => chain,
-        not: () => chain,
+        not: (column: string) => {
+          if (column === 'incident_type') filters.incident = true
+          return chain
+        },
         in: () => { filters.in = true; return chain },
         eq: (column: string, value: unknown) => {
           filters[column] = value
@@ -67,6 +75,12 @@ beforeEach(() => customersDel.mockClear())
 describe('deleteOwnAccount', () => {
   it('refuses while a booking is pending or scheduled', async () => {
     const { admin, deletedProfiles } = fakeAdmin({ openBookings: 1 })
+    expect(await deleteOwnAccount(admin, 'p1')).toEqual({ error: OPEN_BOOKINGS_MESSAGE })
+    expect(deletedProfiles).toEqual([])
+  })
+
+  it('refuses while a reported incident is still unsettled', async () => {
+    const { admin, deletedProfiles } = fakeAdmin({ openIncidents: 1 })
     expect(await deleteOwnAccount(admin, 'p1')).toEqual({ error: OPEN_BOOKINGS_MESSAGE })
     expect(deletedProfiles).toEqual([])
   })

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import Link from 'next/link'
 import { arriveAndStartCleaningAction } from './actions'
+import { markArrivedAction } from '@/app/pro/messages/[bookingId]/actions'
 
 function IconBack() {
   return (
@@ -117,10 +118,12 @@ export default function OnTheWayView({
     window.open(provider.buildUrl(address), '_blank', 'noopener,noreferrer')
   }
 
-  async function handleImHere() {
+  // "Can't get in" marks them arrived without starting the job, which starts the wait
+  // before they can report no access (see NoAccessView).
+  async function handleImHere(startCleaning: boolean) {
     setWorking(true)
     setError(null)
-    const result = await arriveAndStartCleaningAction(bookingId)
+    const result = await (startCleaning ? arriveAndStartCleaningAction(bookingId) : markArrivedAction(bookingId))
     setWorking(false)
     if ('error' in result) {
       setError(result.error)
@@ -211,12 +214,20 @@ export default function OnTheWayView({
       <div className="px-5 pb-8 max-w-sm mx-auto w-full">
         <button
           type="button"
-          onClick={handleImHere}
+          onClick={() => handleImHere(true)}
           disabled={working}
           className="w-full py-3.5 rounded-2xl text-center text-sm font-semibold text-white disabled:opacity-60"
           style={{ backgroundColor: 'var(--color-brand)' }}
         >
           {working ? 'Letting them know…' : "I'm here"}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleImHere(false)}
+          disabled={working}
+          className="w-full mt-3 py-2 text-center text-sm font-medium text-slate-500 disabled:opacity-60"
+        >
+          I&apos;m here but can&apos;t get in
         </button>
       </div>
     </main>

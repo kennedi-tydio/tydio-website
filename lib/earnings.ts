@@ -1,4 +1,5 @@
-// A Tidy Pro's earnings are added up from their completed bookings rather than
+// A Tidy Pro's earnings are added up from their completed bookings (and late
+// cancellations, which pay part of a booking) rather than
 // read from the *_earnings columns on tidypro_profiles, which nothing keeps up
 // to date. Tips count in full, since the cleaner receives 100% of them.
 

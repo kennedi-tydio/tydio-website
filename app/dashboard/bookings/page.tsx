@@ -18,7 +18,7 @@ export default async function BookingsPage() {
 
   const { data: rows } = await admin
     .from('bookings')
-    .select('id, tidy_pro_name, scheduled_date, scheduled_time, estimated_duration_minutes, status, scheduled_location, request_group_id, time_zone')
+    .select('id, tidy_pro_name, scheduled_date, scheduled_time, estimated_duration_minutes, status, decision_status, scheduled_location, request_group_id, time_zone')
     .eq('user_id', session.profileId)
     // A request isn't a booking until the Tidy Pro accepts it — until then it
     // lives in Messages, same as on the Tidy Pro's side.

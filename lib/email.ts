@@ -4,6 +4,9 @@ type EmailOptions = {
   to: { email: string; name?: string }[]
   subject: string
   htmlContent: string
+  bcc?: { email: string; name?: string }[]
+  // Base64 file contents; Brevo takes them as-is.
+  attachment?: { name: string; content: string }[]
 }
 
 export const TYDIO_ADMIN_EMAIL = 'kennedicoats@tydioapp.com'
@@ -22,7 +25,7 @@ export async function sendEmail(opts: EmailOptions): Promise<void> {
     body: JSON.stringify({
       sender: {
         name: process.env.BREVO_SENDER_NAME ?? 'Tydio',
-        email: process.env.BREVO_SENDER_EMAIL ?? 'hello@tydio.com',
+        email: process.env.BREVO_SENDER_EMAIL ?? 'kennedicoats@tydioapp.com',
       },
       ...opts,
     }),
@@ -37,6 +40,8 @@ export async function sendEmail(opts: EmailOptions): Promise<void> {
 // ── Shared HTML shell ─────────────────────────────────────────────────────────
 
 export function emailShell(body: string): string {
+  // Email clients need an absolute image URL; alt text is styled to match the old text header when images are blocked.
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000').replace(/\/$/, '')
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/></head>
@@ -46,7 +51,7 @@ export function emailShell(body: string): string {
       <table width="100%" style="max-width:560px;background:white;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);">
         <!-- Header -->
         <tr><td style="background:#EDFFFF;padding:20px 32px;">
-          <span style="font-size:24px;font-weight:800;letter-spacing:-0.5px;color:#38C7CA;">Tydio</span>
+          <img src="${siteUrl}/email-logo.png" alt="Tydio" width="140" height="48" style="display:block;border:0;outline:none;text-decoration:none;font-size:24px;font-weight:800;letter-spacing:-0.5px;color:#38C7CA;" />
         </td></tr>
         <!-- Body -->
         <tr><td style="padding:32px;">
@@ -54,7 +59,7 @@ export function emailShell(body: string): string {
         </td></tr>
         <!-- Footer -->
         <tr><td style="padding:16px 32px 24px;border-top:1px solid #e2e8f0;">
-          <p style="margin:0;color:#94a3b8;font-size:12px;">Cleaning, tailored to your to-do list.</p>
+          <p style="margin:0;color:#94a3b8;font-size:12px;">Cleaning made simple.</p>
         </td></tr>
       </table>
     </td></tr>

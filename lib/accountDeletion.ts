@@ -1,5 +1,6 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { stripe } from '@/lib/stripe'
+import { LATE_CANCEL_REASON } from '@/lib/bookingRequestGroups'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -27,20 +28,22 @@ const PROFILE_BUCKETS = ['profile-photos', 'insurance-documents']
 export async function deleteOwnAccount(admin: Admin, profileId: string): Promise<{ error: string } | { success: true }> {
   const asEitherSide = `user_id.eq.${profileId},tidy_pro_id.eq.${profileId}`
 
-  const [{ data: open }, { data: openGroups }, { data: unpaid }] = await Promise.all([
+  const [{ data: open }, { data: openGroups }, { data: openIncidents }, { data: unpaid }] = await Promise.all([
     admin.from('bookings').select('id').or(asEitherSide).in('status', ['pending', 'scheduled']).limit(1),
     admin.from('booking_request_groups').select('id').eq('user_id', profileId).eq('status', 'open').limit(1),
+    // A reported no-access or no-show the admin hasn't settled yet still has money to move.
+    admin.from('bookings').select('id').or(asEitherSide).not('incident_type', 'is', null).is('incident_resolved_at', null).limit(1),
     admin
       .from('bookings')
       .select('id')
       .or(asEitherSide)
-      .eq('status', 'completed')
+      .or(`status.eq.completed,cancelled_reason.eq.${LATE_CANCEL_REASON},incident_resolved_at.not.is.null`)
       .is('stripe_transfer_id', null)
       .gt('cleaner_pay', 0)
       .not('tidy_pro_id', 'is', null)
       .limit(1),
   ])
-  if (open?.length || openGroups?.length) return { error: OPEN_BOOKINGS_MESSAGE }
+  if (open?.length || openGroups?.length || openIncidents?.length) return { error: OPEN_BOOKINGS_MESSAGE }
   if (unpaid?.length) return { error: UNPAID_PAYOUT_MESSAGE }
 
   const [{ data: profile }, { data: bookings }] = await Promise.all([
@@ -48,8 +51,9 @@ export async function deleteOwnAccount(admin: Admin, profileId: string): Promise
     admin.from('bookings').select('id').eq('user_id', profileId),
   ])
 
-  const { error } = await admin.from('profiles').delete().eq('id', profileId)
-  if (error) return { error: 'We could not delete your account. Please try again.' }
+  // Selecting the deleted row confirms it's really gone: a delete matching nothing isn't an error.
+  const { data: removedRows, error } = await admin.from('profiles').delete().eq('id', profileId).select('id')
+  if (error || !removedRows?.length) return { error: 'We could not delete your account. Please try again.' }
 
   const folders = [
     ...PROFILE_BUCKETS.map(bucket => ({ bucket, prefix: profileId })),

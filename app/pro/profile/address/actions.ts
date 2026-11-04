@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { userFacingError } from '@/lib/userFacingError'
 
 export interface AddressInput {
   streetAddress: string
@@ -51,7 +52,7 @@ export async function saveAddressAction(
     })
     .eq('id', session.profileId)
 
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   revalidatePath('/pro/profile/address')
   return {

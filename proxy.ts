@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { jwtVerify } from 'jose'
+import { isSessionCurrent } from '@/lib/auth/sessionFingerprint'
 
 function secret() {
   const key = process.env.JWT_SECRET
@@ -12,7 +13,7 @@ async function getSessionFromRequest(req: NextRequest) {
   if (!token) return null
   try {
     const { payload } = await jwtVerify(token, secret())
-    return payload as { profileId: string; role: string; email: string }
+    return payload as { profileId: string; role: string; email: string; pv?: string }
   } catch {
     return null
   }
@@ -42,7 +43,14 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Redirect logged-in users away from auth pages
+  // Redirect logged-in users away from auth pages. A session ended by a
+  // password reset or ban still has a valid signature, so check it's current
+  // here; otherwise the page sends them to /login and this sends them back.
+  if (isAuth && session && !(await isSessionCurrent(session))) {
+    const res = NextResponse.next()
+    res.cookies.delete('tydio_session')
+    return res
+  }
   if (isAuth && session) {
     const dest = session.role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard'
     return NextResponse.redirect(new URL(dest, request.url))

@@ -3,19 +3,33 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { startMaskedCall } from '@/lib/maskedCalls'
 import { completeBookingPayout, sendBookingMessage } from '@/lib/bookings'
-import { cancelOtherRequests, closeGroupIfNoRequestsLeft } from '@/lib/bookingRequestGroups'
-import { hasAcceptanceWindowClosed } from '@/lib/bookingTime'
+import type { TidyTask } from '@/app/dashboard/types'
+import {
+  CLEANER_CANCELLED_REASON,
+  cancelOtherRequests,
+  closeGroupIfNoRequestsLeft,
+  refundBookingInFull,
+  restoreBookingTasks,
+} from '@/lib/bookingRequestGroups'
+import { canReportNoAccess, hasAcceptanceWindowClosed } from '@/lib/bookingTime'
+import { reportBookingIncident } from '@/lib/bookingIncidents'
 import { canChangeStartTime, proposedTimeInBookingZone, withdrawPendingProposals } from '@/lib/bookingTimeProposals'
 import { notifyCustomer } from '@/lib/customerNotifications'
 import {
   notifyBookingAccepted,
   notifyBookingDeclined,
+  notifyCleanerCancelled,
+  notifyCleanerCancelledRefunded,
+  notifyCustomerNoAccess,
   notifyOnTheWay,
   notifyBookingDone,
   notifyNewMessage,
   notifyNewTimeProposed,
 } from '@/lib/notifications'
+import { userFacingError } from '@/lib/userFacingError'
+import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
 
 export async function sendMessageAction(bookingId: string, body: string): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
@@ -58,6 +72,9 @@ export async function acceptBookingRequestAction(bookingId: string): Promise<{ s
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
 
   const admin = createAdminClient()
+  const suspended = await bookingBlockedBySuspension(admin, session.profileId)
+  if (suspended) return { error: suspended }
+
   const booking = await loadOwnedPendingBooking(admin, bookingId, session.profileId)
   if (!booking) return { error: 'Booking not found.' }
   if (booking.status !== 'pending') return { error: 'This request has already been resolved.' }
@@ -75,7 +92,7 @@ export async function acceptBookingRequestAction(bookingId: string): Promise<{ s
     p_tidy_pro_id: session.profileId,
   })
 
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
   if (outcome === 'conflict') return { error: 'You already have a booking at this time, so you can’t accept this one.' }
   if (outcome === 'taken') return { error: 'Another Tidy Pro accepted this booking first.' }
   if (outcome === 'not_pending') return { error: 'This request has already been resolved.' }
@@ -136,7 +153,7 @@ export async function proposeStartTimeAction(bookingId: string, time: string): P
     proposed_time: proposed.time,
     proposal_status: 'pending',
   })
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   await admin.from('bookings').update({ user_unread: true }).eq('id', bookingId)
 
@@ -165,7 +182,7 @@ export async function markOnTheWayAction(bookingId: string): Promise<{ success: 
   if (booking.status !== 'scheduled') return { error: 'This booking has not been accepted yet.' }
 
   const { error } = await admin.from('bookings').update({ progress_status: 'on_the_way' }).eq('id', bookingId)
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   const { data: proProfile } = await admin.from('profiles').select('first_name').eq('id', session.profileId).maybeSingle()
   await notifyCustomer(admin, booking.user_id, notifyOnTheWay(proProfile?.first_name ?? 'Your Tidy Pro', bookingId))
@@ -198,8 +215,8 @@ export async function markArrivedAction(bookingId: string): Promise<{ success: t
     return { error: 'This booking is not on the way yet.' }
   }
 
-  const { error } = await admin.from('bookings').update({ progress_status: 'arrived' }).eq('id', bookingId)
-  if (error) return { error: error.message }
+  const { error } = await admin.from('bookings').update({ progress_status: 'arrived', arrived_at: new Date().toISOString() }).eq('id', bookingId)
+  if (error) return { error: userFacingError(error) }
 
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/dashboard')
@@ -225,7 +242,7 @@ export async function startCleaningAction(bookingId: string): Promise<{ success:
   }
 
   const { error } = await admin.from('bookings').update({ progress_status: 'cleaning' }).eq('id', bookingId)
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/dashboard')
@@ -251,7 +268,7 @@ export async function markBookingDoneAction(bookingId: string): Promise<{ succes
   }
 
   const { error } = await admin.from('bookings').update({ progress_status: 'done' }).eq('id', bookingId)
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   // Marking progress_status 'done' is the real completion signal — this
   // immediately processes the payout rather than waiting for someone to
@@ -286,7 +303,7 @@ export async function declineBookingRequestAction(bookingId: string): Promise<{ 
       .from('bookings')
       .update({ decision_status: 'declined', status: 'declined', tidy_pro_unread: false })
       .eq('id', bookingId)
-    if (error) return { error: error.message }
+    if (error) return { error: userFacingError(error) }
 
     await closeGroupIfNoRequestsLeft(admin, booking.request_group_id)
 
@@ -301,11 +318,130 @@ export async function declineBookingRequestAction(bookingId: string): Promise<{ 
     .from('bookings')
     .update({ decision_status: 'declined', status: 'declined', tidy_pro_unread: false, user_unread: true })
     .eq('id', bookingId)
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   await notifyCustomer(admin, booking.user_id, notifyBookingDeclined(bookingId))
 
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/pro/messages')
   return { success: true }
+}
+
+// A cleaner backing out of a booking they accepted, any time before they arrive. With an
+// hour or more to go, the booking goes back to the customer like a decline: their payment
+// stays held, and they can choose up to 3 other cleaners, whoever accepts being paid from
+// it when they finish. Any later and there's no time for anyone else to accept, so the
+// customer is refunded in full. decision_status stays 'accepted', which keeps a canceled
+// replacement visible to the customer (see isHiddenGroupRequest).
+export async function cancelAcceptedBookingAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+  const { data: booking } = await admin
+    .from('bookings')
+    .select('id, user_id, status, progress_status, scheduled_date, scheduled_time, time_zone, stripe_payment_intent_id, task_list')
+    .eq('id', bookingId)
+    .eq('tidy_pro_id', session.profileId)
+    .maybeSingle()
+
+  if (!booking) return { error: 'Booking not found.' }
+  if (booking.status !== 'scheduled' || (booking.progress_status != null && booking.progress_status !== 'on_the_way')) {
+    return { error: 'This booking can no longer be canceled.' }
+  }
+
+  const { data: proProfile } = await admin.from('profiles').select('first_name').eq('id', session.profileId).maybeSingle()
+  const cleanerName = proProfile?.first_name ?? 'Your Tidy Pro'
+  const tooLateToReplace = hasAcceptanceWindowClosed(booking.scheduled_date, booking.scheduled_time, new Date(), booking.time_zone)
+
+  await withdrawPendingProposals(admin, bookingId)
+
+  if (tooLateToReplace) {
+    let refundId: string | null = null
+    if (booking.stripe_payment_intent_id) {
+      try {
+        refundId = await refundBookingInFull(booking.stripe_payment_intent_id)
+      } catch (err) {
+        return { error: userFacingError(err, 'Failed to refund this booking.') }
+      }
+    }
+
+    const { data: updated, error } = await admin
+      .from('bookings')
+      .update({ status: 'cancelled', cancelled_reason: CLEANER_CANCELLED_REASON, progress_status: null, stripe_refund_id: refundId, user_unread: true, tidy_pro_unread: false })
+      .eq('id', bookingId)
+      .eq('status', 'scheduled')
+      .select('id')
+    if (error) return { error: userFacingError(error) }
+    if (!updated?.length) return { error: 'This booking can no longer be canceled.' }
+
+    await restoreBookingTasks(admin, booking.user_id, (booking.task_list as TidyTask[] | null) ?? [])
+    await notifyCustomer(admin, booking.user_id, notifyCleanerCancelledRefunded(cleanerName))
+  } else {
+    const { data: updated, error } = await admin
+      .from('bookings')
+      .update({ status: 'declined', cancelled_reason: CLEANER_CANCELLED_REASON, progress_status: null, user_unread: true, tidy_pro_unread: false })
+      .eq('id', bookingId)
+      .eq('status', 'scheduled')
+      .select('id')
+    if (error) return { error: userFacingError(error) }
+    if (!updated?.length) return { error: 'This booking can no longer be canceled.' }
+
+    await notifyCustomer(admin, booking.user_id, notifyCleanerCancelled(cleanerName, bookingId))
+  }
+
+  revalidatePath(`/pro/messages/${bookingId}`)
+  revalidatePath('/pro/messages')
+  revalidatePath('/pro/bookings')
+  revalidatePath(`/dashboard/messages/${bookingId}`)
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidatePath('/dashboard')
+  return { success: true }
+}
+
+// The cleaner arrived but couldn't get in, and has waited NO_ACCESS_WAIT_MINUTES past the
+// start or their arrival, whichever was later. The booking is canceled with no money
+// moved; the admin settles the refund and their pay (see lib/bookingIncidents).
+export async function reportNoAccessAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+  const { data: booking } = await admin
+    .from('bookings')
+    .select('id, user_id, tidy_pro_id, status, progress_status, scheduled_date, scheduled_time, time_zone, arrived_at, task_list')
+    .eq('id', bookingId)
+    .eq('tidy_pro_id', session.profileId)
+    .maybeSingle()
+
+  if (!booking) return { error: 'Booking not found.' }
+  if (booking.status !== 'scheduled' || booking.progress_status !== 'arrived') {
+    return { error: 'You can only report this once you’ve arrived.' }
+  }
+  if (!canReportNoAccess(booking.scheduled_date, booking.scheduled_time, booking.arrived_at, new Date(), booking.time_zone)) {
+    return { error: 'Please wait the full 15 minutes before reporting this.' }
+  }
+
+  const result = await reportBookingIncident(admin, booking, 'no_access', session.profileId)
+  if ('error' in result) return result
+
+  await restoreBookingTasks(admin, booking.user_id, (booking.task_list as TidyTask[] | null) ?? [])
+  await notifyCustomer(admin, booking.user_id, notifyCustomerNoAccess())
+
+  revalidatePath(`/pro/messages/${bookingId}`)
+  revalidatePath(`/pro/bookings/${bookingId}`)
+  revalidatePath('/pro/messages')
+  revalidatePath('/pro/bookings')
+  revalidatePath('/pro/dashboard')
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidatePath('/dashboard')
+  return { success: true }
+}
+
+// Rings the Tidy Pro's phone from Tydio's number, then connects them to the customer.
+// Neither side sees the other's number.
+export async function startCallAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
+  return startMaskedCall(createAdminClient(), bookingId, { role: 'TIDYPRO', profileId: session.profileId })
 }

@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('background_checks')
-    .select('pro_id, status, requested_at, link_sent_at, submitted_at, completed_at, fee_paid_at, fee_refunded_at')
+    .select('pro_id, status, requested_at, link_sent_at, submitted_at, completed_at, fee_paid_at, fee_refunded_at, background_check_completed_at, id_verification_completed_at')
   if (error) return NextResponse.json({ error: 'Failed to load background checks' }, { status: 500 })
 
   const rows = (data ?? []).filter((c) => !stage || backgroundCheckStage(c) === stage)
@@ -44,6 +44,8 @@ export async function GET(req: NextRequest) {
         feePaid: Boolean(row.fee_paid_at) && !row.fee_refunded_at,
         requestedAt: row.requested_at,
         linkSentAt: row.link_sent_at,
+        backgroundCheckCompletedAt: row.background_check_completed_at,
+        idVerificationCompletedAt: row.id_verification_completed_at,
         submittedAt: row.submitted_at,
         completedAt: row.completed_at,
       }

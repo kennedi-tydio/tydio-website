@@ -1,9 +1,11 @@
+import { randomBytes } from 'node:crypto'
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
-import { normalizePhone } from '@/lib/bannedUsers'
 import { notifyBackgroundCheckLinkSent, notifyBackgroundCheckPassed, type NotificationPayload } from '@/lib/notifications'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
+import { pauseCleaner } from '@/lib/cleanerStatus'
+import { BAN_APPEAL_DAYS, appealDeadline, formatDeadline } from '@/lib/appealWindow'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -165,22 +167,24 @@ export async function emailAdminCleanerPaid(admin: Admin, proId: string): Promis
 
 // Tells the admin the outcome, so a decision recorded by an automation or at another
 // time doesn't go unseen. Failing to send doesn't undo the decision.
-async function emailAdminDecision(
+export async function emailAdminDecision(
   person: { first_name: string | null; last_name: string | null; email: string },
-  decision: 'cleared' | 'denied',
+  decision: 'cleared' | 'denied' | 'banned',
   note?: string | null
 ): Promise<void> {
   const plainName = [person.first_name, person.last_name].filter(Boolean).join(' ') || 'A cleaner'
   const outcome =
     decision === 'cleared'
       ? 'was cleared, and they are now approved. They can receive bookings once the rest of their onboarding is done.'
-      : 'was denied. Their account has been deleted and they have been added to the banned list.'
+      : decision === 'denied'
+      ? `was denied. They have been emailed the reason and have ${BAN_APPEAL_DAYS} days to appeal (see Ban Appeals) before they are banned and their account deleted.`
+      : 'denial is final. They have been added to the banned list and their account deleted.'
 
   await sendEmail({
     to: [{ email: TYDIO_ADMIN_EMAIL }],
-    subject: `${plainName}'s background check was ${decision}`,
+    subject: decision === 'banned' ? `${plainName} has been banned after a background check denial` : `${plainName}'s background check was ${decision}`,
     htmlContent: emailShell(`
-      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">Background check ${decision}</h2>
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">Background check ${decision === 'banned' ? 'denial final' : decision}</h2>
       <p style="margin:0 0 12px;font-size:15px;color:#475569;line-height:1.6;">
         ${escapeHtml(plainName)} (${escapeHtml(person.email)})'s background check ${outcome}
       </p>
@@ -191,7 +195,7 @@ async function emailAdminDecision(
 
 // Can be repeated to resend, or to replace an expired link. Email is sent as well
 // as a text and push, since it doesn't depend on notification consent and this is
-// a step the cleaner asked for.
+// a step the cleaner asked for. The one link covers identity verification too.
 export async function sendBackgroundCheckLink(admin: Admin, proId: string, rawLink: string | null | undefined): Promise<void> {
   const link = parseBackgroundCheckLink(rawLink)
   await requireStage(admin, proId, ['needs_link', 'link_sent'], 'send a form for')
@@ -215,11 +219,38 @@ export async function sendBackgroundCheckLink(admin: Admin, proId: string, rawLi
         <p style="margin:0 0 16px;font-size:15px;color:#475569;line-height:1.6;">${payload.body}</p>
         ${
           link
-            ? `<a href="${link}" style="display:inline-block;padding:12px 24px;background:#38C7CA;color:white;border-radius:12px;text-decoration:none;font-weight:600;">Complete your background check</a>`
+            ? `<a href="${link}" style="display:inline-block;padding:12px 24px;background:#38C7CA;color:white;border-radius:12px;text-decoration:none;font-weight:600;">Complete your background check and ID verification</a>`
             : ''
         }
       `),
     }).catch((err) => console.error('Background check email failed', err))
+  }
+}
+
+// The one link the cleaner gets covers both a background check and identity
+// verification. The admin ticks each part off as the provider shows it done (or
+// unticks a mistake), and once both are, the check counts as submitted and moves
+// on to be decided. Nobody is contacted.
+export const SCREENING_PARTS = ['background_check', 'id_verification'] as const
+export type ScreeningPart = (typeof SCREENING_PARTS)[number]
+
+export async function setScreeningPartCompleted(admin: Admin, proId: string, part: ScreeningPart, completed: boolean): Promise<void> {
+  await requireStage(admin, proId, ['link_sent'], 'record progress for')
+
+  const at = completed ? new Date().toISOString() : null
+  const { error } = await admin
+    .from('background_checks')
+    .update(part === 'background_check' ? { background_check_completed_at: at } : { id_verification_completed_at: at })
+    .eq('pro_id', proId)
+  if (error) throw new Error(error.message)
+
+  const { data: check } = await admin
+    .from('background_checks')
+    .select('background_check_completed_at, id_verification_completed_at')
+    .eq('pro_id', proId)
+    .maybeSingle()
+  if (check?.background_check_completed_at && check.id_verification_completed_at) {
+    await markBackgroundCheckSubmitted(admin, proId)
   }
 }
 
@@ -289,14 +320,17 @@ async function sendApproval(admin: Admin, proId: string): Promise<void> {
   }).catch((err) => console.error('Background check approval email failed', err))
 }
 
-// Bans the cleaner and deletes their account, which can't be undone from the app.
-// Refused while they have open bookings: deleting them would leave those customers,
-// who may have paid, with no cleaner. The ban is written first so that if the delete
-// fails they're still locked out, rather than deleted-but-able-to-return.
+// Leaves the cleaner unapproved and paused, and emails them the reason with a link
+// to appeal. They can still sign in. If no appeal is accepted within BAN_APPEAL_DAYS
+// of the denial, expireBackgroundCheckDenials bans them and deletes the account.
+// Refused while they have open bookings: banning them later would leave those
+// customers, who may have paid, with no cleaner.
 //
-// Deliberately sends the cleaner nothing. The notices a denial requires come through
-// the provider's adverse action process, and must be finished before this runs.
-export async function denyCleaner(admin: Admin, proId: string, note: string | null): Promise<void> {
+// The reason goes to the cleaner. Any notices the provider's adverse action process
+// requires still come through the provider.
+export async function denyCleaner(admin: Admin, proId: string, reason: string): Promise<void> {
+  const trimmed = reason.trim()
+  if (!trimmed) throw new BackgroundCheckStateError('Give a reason for the denial. It is sent to the cleaner.')
   await requireStage(admin, proId, ['needs_link', 'link_sent', 'pending', 'passed', 'failed'], 'deny')
 
   const { data: openBookings } = await admin
@@ -309,31 +343,48 @@ export async function denyCleaner(admin: Admin, proId: string, note: string | nu
     throw new BackgroundCheckStateError('This cleaner has open bookings. Cancel or reassign them before denying.')
   }
 
-  const [{ data: profile }, { data: tidyPro }, { data: check }] = await Promise.all([
-    admin.from('profiles').select('email, first_name, last_name, phone').eq('id', proId).maybeSingle(),
-    admin.from('tidypro_profiles').select('phone').eq('id', proId).maybeSingle(),
-    admin.from('background_checks').select('fee_amount_cents, stripe_payment_intent_id').eq('pro_id', proId).maybeSingle(),
-  ])
+  const { data: profile } = await admin.from('profiles').select('email, first_name, last_name').eq('id', proId).maybeSingle()
   if (!profile) throw new BackgroundCheckStateError('This cleaner no longer has an account.')
 
-  const phones = [profile.phone, tidyPro?.phone].filter((p): p is string => Boolean(p)).map(normalizePhone)
+  const now = new Date()
+  const appealToken = randomBytes(32).toString('hex')
+  const { error } = await admin
+    .from('background_checks')
+    .update({
+      status: 'failed',
+      completed_at: now.toISOString(),
+      manual_decision_at: now.toISOString(),
+      manual_decision_note: trimmed,
+      denied_at: now.toISOString(),
+      denial_reason: trimmed,
+      appeal_token: appealToken,
+      appeal_message: null,
+      appeal_submitted_at: null,
+    })
+    .eq('pro_id', proId)
+  if (error) throw new Error(error.message)
 
-  const { error: banError } = await admin.from('banned_users').insert({
-    email: profile.email.trim().toLowerCase(),
-    phones_normalized: [...new Set(phones)],
-    first_name: profile.first_name,
-    last_name: profile.last_name,
-    note,
-    former_profile_id: proId,
-    fee_amount_cents: check?.fee_amount_cents ?? null,
-    stripe_payment_intent_id: check?.stripe_payment_intent_id ?? null,
-  })
-  if (banError) throw new Error(banError.message)
+  await pauseCleaner(admin, proId, 'Background check denied', now)
 
-  const { error: deleteError } = await admin.from('profiles').delete().eq('id', proId)
-  if (deleteError) throw new Error(deleteError.message)
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+  await sendEmail({
+    to: [{ email: profile.email, name: profile.first_name ?? undefined }],
+    subject: 'Your Tydio background check was not approved',
+    htmlContent: emailShell(`
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">Hi ${escapeHtml(profile.first_name ?? 'there')},</h2>
+      <p style="margin:0 0 12px;font-size:15px;color:#475569;line-height:1.6;">
+        We weren't able to approve your background check, so you can't take bookings on Tydio:
+      </p>
+      <p style="margin:0 0 16px;padding:12px 16px;background:#fef2f2;border-radius:10px;color:#ef4444;font-size:14px;line-height:1.5;">${escapeHtml(trimmed)}</p>
+      <p style="margin:0 0 12px;font-size:15px;color:#475569;line-height:1.6;">
+        If you think this is a mistake, you can appeal by ${formatDeadline(appealDeadline(now.toISOString()))}. Unless your
+        appeal is accepted by then, your account will be closed and its data permanently deleted.
+      </p>
+      <a href="${siteUrl}/appeal?token=${appealToken}" style="display:inline-block;margin:8px 0 20px;padding:14px 28px;background:#38C7CA;color:white;text-decoration:none;border-radius:12px;font-weight:700;font-size:15px;">Appeal this decision</a>
+    `),
+  }).catch((err) => console.error('Background check denial email failed', err))
 
-  await emailAdminDecision(profile, 'denied', note)
+  await emailAdminDecision(profile, 'denied', trimmed)
 }
 
 // For a report an automation can't call clear, so a person makes the decision.

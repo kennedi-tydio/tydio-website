@@ -3,13 +3,18 @@
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hashPassword } from '@/lib/auth/password'
-import { sendEmail, emailShell } from '@/lib/email'
+import { sendEmail, emailShell, escapeHtml } from '@/lib/email'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/database.types'
 import { BANNED_MESSAGE, isBanned, normalizePhone } from '@/lib/bannedUsers'
+import { RATE_LIMITED_MESSAGE, RATE_LIMITS, clientIp, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
+import { userFacingError } from '@/lib/userFacingError'
 
 export type SignupState = {
   error?: string
+  // Set with `error` when the email is already registered for this role, so the
+  // form can follow the message with a link to the Sign in tab.
+  accountExists?: boolean
   waitlisted?: boolean
   needsVerification?: boolean
 }
@@ -60,7 +65,7 @@ async function sendVerificationEmail(
       to: [{ email, name: firstName }],
       subject: 'Verify your Tydio email',
       htmlContent: emailShell(`
-        <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">Almost there, ${firstName}!</h2>
+        <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">Almost there, ${escapeHtml(firstName)}!</h2>
         <p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;">
           Click the button below to verify your email and activate your Tydio account.
           This link expires in 24 hours.
@@ -81,6 +86,14 @@ async function sendVerificationEmail(
       return { error: `Dev — email send failed: ${err instanceof Error ? err.message : String(err)}. Verify URL: ${verifyUrl}` }
     }
   }
+}
+
+// The checks above catch most duplicates; this covers two signups racing each other.
+function signupInsertError(error: { code?: string; message: string } | null, role: 'USER' | 'TIDYPRO' | 'ADMIN'): string {
+  const account = role === 'TIDYPRO' ? 'A Tidy Pro account' : 'A customer account'
+  if (error?.code === '23505' && error.message.includes('phone')) return `${account} already exists with this phone number.`
+  if (error?.code === '23505' && error.message.includes('email')) return `${account} already exists for this email.`
+  return userFacingError(error, "We couldn't create your account. Please try again.")
 }
 
 export async function signupAction(
@@ -119,6 +132,11 @@ export async function signupAction(
   }
 
   const admin = createAdminClient()
+
+  // Each signup sends a verification email, so cap how many one caller can start.
+  const ipKey = `signup:ip:${await clientIp()}`
+  if (await isRateLimited(admin, ipKey, RATE_LIMITS.signupPerIp)) return { error: RATE_LIMITED_MESSAGE }
+  await recordRateLimitEvent(admin, ipKey)
   const now = new Date().toISOString()
 
   if (await isBanned(admin, { email, phone })) return { error: BANNED_MESSAGE }
@@ -135,9 +153,9 @@ export async function signupAction(
       return { waitlisted: true }
     }
     if (role === 'TIDYPRO') {
-      return { error: 'A Tidy Pro account already exists for this email. To create a customer account instead, click "Join as a customer".' }
+      return { error: 'A Tidy Pro account already exists for this email. To create a customer account instead, click "Join as a customer"', accountExists: true }
     }
-    return { error: 'A customer account already exists for this email. To sign up as a cleaner instead, click "Be a cleaner".' }
+    return { error: 'A customer account already exists for this email. To sign up as a cleaner instead, click "Be a cleaner"', accountExists: true }
   }
 
   if (phone) {
@@ -184,7 +202,7 @@ export async function signupAction(
       privacy_policy_accepted_at: privacyAccepted ? now : null,
     })
 
-    if (insertError) return { error: `Something went wrong: ${insertError.message}` }
+    if (insertError) return { error: signupInsertError(insertError, role) }
     if (role === 'TIDYPRO') {
       await admin.from('tidypro_profiles').insert({ id: newId, phone })
     }
@@ -219,7 +237,7 @@ export async function signupAction(
     .single()
 
   if (insertError || !profile) {
-    return { error: `Failed to create account: ${insertError?.message ?? 'unknown error'}` }
+    return { error: signupInsertError(insertError, role) }
   }
 
   if (role === 'TIDYPRO') {

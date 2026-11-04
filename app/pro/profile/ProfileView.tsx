@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { usePostHog } from 'posthog-js/react'
 import { logoutAction, deleteAccountAction } from '../actions'
 import ModalShell from '@/app/components/ModalShell'
 
@@ -122,6 +123,7 @@ export default function ProfileView({
 }: Props) {
   const initials = `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase()
   const fullName = [firstName, lastName].filter(Boolean).join(' ')
+  const posthog = usePostHog()
   const [showLogout, setShowLogout] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -184,6 +186,16 @@ export default function ProfileView({
         <MenuLink label="Accessibility" href="/pro/profile/accessibility" />
         <MenuLink label="Manage Address" href="/pro/profile/address" />
         <MenuLink label="Insurance" href="/pro/profile/insurance" />
+        {/* A file download rather than a page, so a plain link instead of MenuLink */}
+        <a
+          href="/pro/onboarding/agreements/document?signed=1"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full bg-white rounded-2xl px-5 py-4 mb-3 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
+        >
+          <span className="font-semibold text-slate-800 text-sm">Signed contractor agreement</span>
+          <IconChevronRight />
+        </a>
 
         {/* Logout */}
         <button
@@ -240,7 +252,7 @@ export default function ProfileView({
           body="You'll need to sign back in to access your account."
           confirmLabel="Logout"
           onCancel={() => setShowLogout(false)}
-          onConfirm={async () => { await logoutAction() }}
+          onConfirm={async () => { posthog?.reset(); await logoutAction() }}
         />
       )}
 
@@ -253,6 +265,7 @@ export default function ProfileView({
           onCancel={() => { setShowDelete(false); setDeleteError(null) }}
           error={deleteError}
           onConfirm={async () => {
+            posthog?.reset()
             const result = await deleteAccountAction()
             if (result?.error) setDeleteError(result.error)
           }}

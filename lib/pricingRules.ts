@@ -245,10 +245,11 @@ export function servicePriceForCleaner(
   )
 }
 
-// A cleaner earns 80% of the total the customer pays for the booking, including
-// surcharges and the card processing fee. Tips are separate and go to them in full.
-export function cleanerPayoutForTotal(totalCustomerCharge: number): number {
-  return round2(totalCustomerCharge * CLEANER_PAYOUT_RATE)
+// A cleaner earns 80% of the booking's price before Stripe's fee (task price plus
+// their surcharges); Tydio keeps the other 20%. The card processing fee is passed
+// through to Stripe and isn't split. Tips are separate and go to them in full.
+export function cleanerPayoutForServicePrice(servicePrice: number): number {
+  return round2(servicePrice * CLEANER_PAYOUT_RATE)
 }
 
 // Stripe keeps its fee on a refund, so it's nonrefundable and disclosed as such on the
@@ -259,4 +260,18 @@ export function stripeProcessingFee(totalCharge: number, percentage: number = ST
 
 export function refundableAmount(totalCharge: number, percentage: number = STRIPE_PERCENTAGE_FEE): number {
   return round2(totalCharge - stripeProcessingFee(totalCharge, percentage))
+}
+
+// A customer canceling an accepted booking within LATE_CANCEL_WINDOW_HOURS of its start
+// (see lib/bookingTime) gets half of what they paid back. The cleaner, who held that time
+// for them, is paid their usual 80% of the half of the booking price Tydio keeps, i.e.
+// half of the booking's `cleaner_pay`.
+export const LATE_CANCEL_REFUND_RATE = 0.5
+
+export function lateCancelRefund(totalCharge: number): number {
+  return round2(totalCharge * LATE_CANCEL_REFUND_RATE)
+}
+
+export function lateCancelCleanerPay(cleanerPay: number): number {
+  return round2(cleanerPay * (1 - LATE_CANCEL_REFUND_RATE))
 }

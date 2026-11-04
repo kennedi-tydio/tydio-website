@@ -1,5 +1,6 @@
 'use server'
 
+import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import type Stripe from 'stripe'
 import { getSession } from '@/lib/auth/session'
@@ -8,6 +9,9 @@ import { stripe } from '@/lib/stripe'
 import { backgroundCheckStage } from '@/lib/backgroundCheck'
 import { backgroundCheckChargeCents, feeAcceptanceError } from '@/lib/backgroundCheckFee'
 import { createFeeCheckoutSession, recordFeePaymentIfPaid } from '@/lib/stripe/backgroundCheckFee'
+import { clientIp } from '@/lib/rateLimit'
+import { normalizeAddress, normalizeOptionalField, normalizeSignedName, safeReturnPath } from '@/lib/legal/contractorAgreement'
+import { emailSignedAgreement, signCurrentAgreement } from '@/lib/legal/agreementSigning'
 
 async function requireTidyProSession() {
   const session = await getSession()
@@ -15,16 +19,44 @@ async function requireTidyProSession() {
   return session
 }
 
-export async function acceptAgreementsAction(): Promise<void> {
+// The cleaner's electronic signature on the Independent Contractor Agreement: the
+// Provider fields they typed, the checked box, and pressing Agree and Continue. A
+// failed email doesn't undo the signature; the admin can resend it.
+export async function acceptAgreementsAction(formData: FormData): Promise<{ error: string } | void> {
   const session = await requireTidyProSession()
+
+  if (formData.get('agreed') !== 'on') return { error: 'Check the box to sign the agreement.' }
+  const signedName = normalizeSignedName(formData.get('legal_name'))
+  if (!signedName) return { error: 'Enter your full legal name as your signature.' }
+  const address = normalizeAddress(formData.get('address'))
+  if (!address) return { error: 'Enter your full street address, city, state, and ZIP code.' }
+  const businessEntity = normalizeOptionalField(formData.get('business_entity'))
+  const authorizedRepresentative = normalizeOptionalField(formData.get('authorized_representative'))
+  if (businessEntity === false || authorizedRepresentative === false) {
+    return { error: 'Check the business entity and authorized representative fields.' }
+  }
+
   const admin = createAdminClient()
+  const h = await headers()
+  const result = await signCurrentAgreement(
+    admin,
+    session.profileId,
+    { signedName, businessEntity, authorizedRepresentative, address },
+    { ipAddress: await clientIp(), userAgent: h.get('user-agent')?.slice(0, 500) ?? null }
+  )
+  if ('error' in result) return result
+
+  if (!result.alreadySigned) {
+    const emailed = await emailSignedAgreement(admin, result.signatureId)
+    if ('error' in emailed) console.error(`Signed agreement ${result.signatureId} not emailed:`, emailed.error)
+  }
 
   await admin
     .from('tidypro_profiles')
     .update({ terms_accepted: true, terms_accepted_at: new Date().toISOString() })
     .eq('id', session.profileId)
 
-  redirect('/pro/onboarding/setup')
+  redirect(safeReturnPath(formData.get('next')) ?? '/pro/onboarding/setup')
 }
 
 // Sends the cleaner to Stripe Checkout. Paying queues them for the admin, who is

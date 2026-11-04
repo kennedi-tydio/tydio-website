@@ -11,8 +11,11 @@ const NAV_ITEMS = [
   { label: 'Service Areas', href: '/admin/service-areas' },
   { label: 'State Pricing', href: '/admin/state-pricing' },
   { label: 'Users', href: '/admin/users' },
+  { label: 'Bookings', href: '/admin/bookings' },
+  { label: 'Incidents', href: '/admin/incidents' },
   { label: 'Insurance', href: '/admin/insurance' },
   { label: 'Background Checks', href: '/admin/background-checks' },
+  { label: 'Appeals', href: '/admin/appeals' },
 ]
 
 export default async function AdminAuthenticatedLayout({

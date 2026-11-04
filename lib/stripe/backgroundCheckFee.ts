@@ -21,7 +21,7 @@ export async function createFeeCheckoutSession(proId: string, amountCents: numbe
         price_data: {
           currency: 'usd',
           unit_amount: amountCents,
-          product_data: { name: 'Tydio background-screening fee' },
+          product_data: { name: 'Tydio identity verification and background-screening fee' },
         },
       },
     ],

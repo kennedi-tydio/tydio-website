@@ -25,16 +25,22 @@ export async function deleteAccountAction(): Promise<{ error: string }> {
 }
 
 export async function deleteDraft(draftId: string): Promise<void> {
+  const session = await getSession()
+  if (!session) return
+
   const admin = createAdminClient()
-  await admin.from('booking_drafts').delete().eq('id', draftId)
+  await admin.from('booking_drafts').delete().eq('id', draftId).eq('customer_user_id', session.profileId)
   revalidatePath('/dashboard')
 }
 
 export async function saveTasks(
-  userId: string,
   tasks: TidyTask[],
   draftId: string | null
 ): Promise<string | null> {
+  const session = await getSession()
+  if (!session) return null
+  const userId = session.profileId
+
   const admin = createAdminClient()
 
   // Persist any custom rooms (non-default) to the user's profile
@@ -61,6 +67,7 @@ export async function saveTasks(
       .from('booking_drafts')
       .update({ task_list: tasks as never })
       .eq('id', draftId)
+      .eq('customer_user_id', userId)
     revalidatePath('/dashboard')
     return draftId
   }

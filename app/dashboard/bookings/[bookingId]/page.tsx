@@ -3,7 +3,9 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { stripe } from '@/lib/stripe'
-import { netOfStripeFee, stripePercentageForCardCountry } from '@/lib/pricingRules'
+import { lateCancelRefund, netOfStripeFee, stripePercentageForCardCountry } from '@/lib/pricingRules'
+import { isAwaitingReplacements } from '@/lib/bookingRequestGroups'
+import { isLateCancellation, noShowReportableAt } from '@/lib/bookingTime'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import { cancelBookingRequestAction } from '@/app/dashboard/messages/[bookingId]/actions'
 import { completeBookingPayout } from '@/lib/bookings'
@@ -34,7 +36,7 @@ export default async function CurrentBookingPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, tidy_pro_id, tidy_pro_name, tidy_pro_photo_url, status, decision_status, progress_status, notes, pets, will_provide_supplies, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, total_customer_charge, cleaner_marked_complete_at, stripe_payment_intent_id'
+      'id, tidy_pro_id, tidy_pro_name, tidy_pro_photo_url, status, decision_status, progress_status, notes, pets, will_provide_supplies, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, total_customer_charge, cleaner_marked_complete_at, stripe_payment_intent_id, stripe_refund_id, request_group_id, cancelled_reason, time_zone'
     )
     .eq('id', bookingId)
     .eq('user_id', session.profileId)
@@ -46,6 +48,11 @@ export default async function CurrentBookingPage({
   // A still-pending request (awaiting the Tidy Pro's accept/decline) belongs
   // on the request-summary thread, not this detail page.
   if (booking.decision_status !== 'accepted') {
+    redirect(`/dashboard/messages/${bookingId}`)
+  }
+
+  // Its cleaner canceled, and the customer can still choose others from the thread.
+  if (isAwaitingReplacements(booking) && !booking.stripe_refund_id) {
     redirect(`/dashboard/messages/${bookingId}`)
   }
 
@@ -108,6 +115,13 @@ export default async function CurrentBookingPage({
     { label: 'Processing fee', amount: Math.round((totalPrice - bookingPrice) * 100) / 100 },
   ]
 
+  // Shown on the cancel button, so the customer knows before they tap it.
+  const lateCancelRefundAmount = isLateCancellation(booking.scheduled_date, booking.scheduled_time, new Date(), booking.time_zone)
+    ? lateCancelRefund(totalPrice)
+    : null
+
+  const noShowReportableAtMs = noShowReportableAt(booking.scheduled_date, booking.scheduled_time, booking.time_zone)?.getTime() ?? null
+
   const pastBookingProps = {
     cardFeePercentage,
     bookingId: booking.id,
@@ -146,6 +160,8 @@ export default async function CurrentBookingPage({
         notes={booking.notes}
         orderLines={orderLines}
         totalPrice={totalPrice}
+        lateCancelRefund={lateCancelRefundAmount}
+        noShowReportableAtMs={noShowReportableAtMs}
         cancelBookingRequestAction={cancelBookingRequestAction}
       />
     )
@@ -162,6 +178,8 @@ export default async function CurrentBookingPage({
         tasks={taskRows}
         totalPrice={totalPrice}
         alreadyReviewed={alreadyReviewed}
+        lateCancelRefund={lateCancelRefundAmount}
+        noShowReportableAtMs={noShowReportableAtMs}
       />
     )
   }

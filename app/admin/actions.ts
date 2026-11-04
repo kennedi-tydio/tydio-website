@@ -2,9 +2,10 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import { setAdminCookie, clearAdminCookie, isAdminAuthed } from '@/lib/auth/admin'
+import { setAdminCookie, clearAdminCookie, isAdminAuthed, isAdminSecret } from '@/lib/auth/admin'
+import { RATE_LIMITED_MESSAGE, RATE_LIMITS, clientIp, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendEmail, emailShell } from '@/lib/email'
+import { sendEmail, emailShell, escapeHtml } from '@/lib/email'
 import { researchAreaMarketPrice, researchStateMedianPrice } from '@/lib/marketPricing'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
@@ -12,8 +13,24 @@ import { notifyInsuranceDenied } from '@/lib/notifications'
 import { stripe } from '@/lib/stripe'
 import { hasPaidFee, isFeeRefundReason } from '@/lib/backgroundCheckFee'
 import { expirationDateError } from '@/lib/insuranceExpiration'
-import { denyCleaner, markBackgroundCheckSubmitted, passBackgroundCheck, sendBackgroundCheckLink } from '@/lib/backgroundCheck'
+import {
+  BackgroundCheckStateError,
+  SCREENING_PARTS,
+  denyCleaner,
+  passBackgroundCheck,
+  sendBackgroundCheckLink,
+  setScreeningPartCompleted,
+  type ScreeningPart,
+} from '@/lib/backgroundCheck'
 import { recordFeeRefund } from '@/lib/stripe/backgroundCheckFee'
+import { emailSignedAgreement } from '@/lib/legal/agreementSigning'
+import { suspendAccounts, unsuspendAccounts } from '@/lib/accountSuspension'
+import { OPEN_BOOKINGS_MESSAGE, UNPAID_PAYOUT_MESSAGE, deleteOwnAccount } from '@/lib/accountDeletion'
+import { acceptBackgroundCheckAppeal, denyBackgroundCheckAppeal } from '@/lib/backgroundCheckAppeals'
+import { ALREADY_BANNED_MESSAGE, BAN_APPEAL_DAYS, BanAppealError, acceptAppeal, banAccount, denyAppeal, liftBan } from '@/lib/banAccount'
+import { pauseCleaner } from '@/lib/cleanerStatus'
+import { isRefundLevel, resolveBookingIncident } from '@/lib/bookingIncidents'
+import { ADMIN_REFUND_LABELS, cancelBookingAsAdmin, isAdminRefund } from '@/lib/bookingRequestGroups'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -22,7 +39,11 @@ export async function adminLoginAction(
   formData: FormData
 ): Promise<{ error?: string }> {
   const secret = formData.get('secret') as string
-  if (!secret || secret !== process.env.ADMIN_SECRET) {
+  const admin = createAdminClient()
+  const ipKey = `admin-login:ip:${await clientIp()}`
+  if (await isRateLimited(admin, ipKey, RATE_LIMITS.adminLoginPerIp)) return { error: RATE_LIMITED_MESSAGE }
+  if (!isAdminSecret(secret)) {
+    await recordRateLimitEvent(admin, ipKey)
     return { error: 'Invalid password' }
   }
   await setAdminCookie()
@@ -428,7 +449,7 @@ export async function grantAccessAction(
         subject: "You're off the Tydio waitlist!",
         htmlContent: emailShell(`
           <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">
-            You're in, ${profile.first_name ?? 'there'}!
+            You're in, ${escapeHtml(profile.first_name ?? 'there')}!
           </h2>
           <p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;">
             ${isPro
@@ -476,7 +497,7 @@ export async function denyAccessAction(
         subject: 'An update on your Tydio account',
         htmlContent: emailShell(`
           <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">
-            Hi ${profile.first_name ?? 'there'},
+            Hi ${escapeHtml(profile.first_name ?? 'there')},
           </h2>
           <p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;">
             Thanks for your interest in Tydio. We're only able to bring a limited number of people on
@@ -513,6 +534,144 @@ export async function revokeAccessAction(
   revalidatePath('/admin')
 }
 
+// ─── Suspending, Deleting & Banning Accounts ────────────────────────────────
+
+export type AccountActionState = { error?: string; message?: string }
+
+const ACCOUNT_INTENTS = ['suspend', 'unsuspend', 'delete', 'ban'] as const
+type AccountIntent = (typeof ACCOUNT_INTENTS)[number]
+
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`
+}
+
+// One action for the row buttons and the bulk bar on /admin/users: `ids` holds one
+// profile id or many. Admin accounts are always skipped. Deleting goes through the
+// same rules as deleting your own account, so anyone with an open booking or an
+// unpaid payout is left in place and named in the result. Banning suspends the
+// account and emails them a link to appeal; see lib/banAccount.
+export async function manageAccountsAction(
+  _prev: AccountActionState,
+  formData: FormData
+): Promise<AccountActionState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const intent = formData.get('intent') as AccountIntent
+  if (!ACCOUNT_INTENTS.includes(intent)) return { error: 'Unknown action.' }
+
+  const requestedIds = [...new Set(formData.getAll('ids').map(String).filter(Boolean))]
+  if (requestedIds.length === 0) return { error: 'Select at least one account.' }
+
+  const admin = createAdminClient()
+  const { data: profiles, error: lookupError } = await admin
+    .from('profiles')
+    .select('id, role, first_name, last_name, email')
+    .in('id', requestedIds)
+  if (lookupError) return { error: lookupError.message }
+
+  const targets = (profiles ?? []).filter(p => p.role !== 'ADMIN')
+  const skippedAdmins = (profiles ?? []).length - targets.length
+  const adminNote = skippedAdmins > 0 ? ` Skipped ${plural(skippedAdmins, 'admin account')}.` : ''
+  if (targets.length === 0) return { error: `No accounts to change.${adminNote}` }
+  const ids = targets.map(p => p.id)
+
+  let result: AccountActionState
+  try {
+    if (intent === 'suspend') {
+      const count = await suspendAccounts(admin, ids)
+      result = { message: `Suspended ${plural(count, 'account')}.${adminNote}` }
+    } else if (intent === 'unsuspend') {
+      const count = await unsuspendAccounts(admin, ids)
+      const proNote = targets.some(p => p.role === 'TIDYPRO') ? ' Tidy Pros stay paused until you approve them.' : ''
+      result = { message: `Unsuspended ${plural(count, 'account')}.${proNote}${adminNote}` }
+    } else if (intent === 'delete') {
+      result = await deleteAccounts(admin, targets, adminNote)
+    } else {
+      const note = (formData.get('note') as string | null)?.trim() || null
+      result = await banAccounts(admin, targets, note, adminNote)
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Something went wrong.' }
+  }
+
+  revalidatePath('/admin/users')
+  revalidatePath('/admin/background-checks')
+  revalidatePath('/admin')
+  return result
+}
+
+type AccountTarget = { id: string; role: string; first_name: string | null; last_name: string | null; email: string }
+
+function displayName(profile: AccountTarget): string {
+  return [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.email
+}
+
+function deleteRefusalReason(error: string): string {
+  return error === OPEN_BOOKINGS_MESSAGE ? 'open bookings'
+    : error === UNPAID_PAYOUT_MESSAGE ? 'Tidy Pro payout still owed'
+    : 'delete failed'
+}
+
+// One at a time, so a failure partway through still reports what was deleted.
+// Each deleted account is logged for the Deleted Accounts list; a failed log
+// doesn't undo the delete, it's only reported.
+async function deleteAccounts(
+  admin: ReturnType<typeof createAdminClient>,
+  targets: AccountTarget[],
+  adminNote: string
+): Promise<AccountActionState> {
+  let deleted = 0
+  const refused: string[] = []
+  for (const profile of targets) {
+    const outcome = await deleteOwnAccount(admin, profile.id)
+    if ('success' in outcome) {
+      deleted++
+      const { error: logError } = await admin.from('deleted_accounts').insert({
+        former_profile_id: profile.id,
+        email: profile.email,
+        first_name: profile.first_name,
+        last_name: profile.last_name,
+        role: profile.role,
+      })
+      if (logError) console.error('[Tydio] Logging deleted account failed:', logError)
+      continue
+    }
+    refused.push(`${displayName(profile)} (${deleteRefusalReason(outcome.error)})`)
+  }
+
+  const deletedNote = `Deleted ${plural(deleted, 'account')}.${adminNote}`
+  if (refused.length === 0) return { message: deletedNote }
+  return { error: `${deletedNote} Couldn't delete ${refused.length}: ${refused.join(', ')}.` }
+}
+
+// One at a time, so a failure partway through still reports who was banned.
+async function banAccounts(
+  admin: ReturnType<typeof createAdminClient>,
+  targets: AccountTarget[],
+  note: string | null,
+  adminNote: string
+): Promise<AccountActionState> {
+  let banned = 0
+  const failed: string[] = []
+  for (const profile of targets) {
+    try {
+      await banAccount(admin, profile.id, note)
+      banned++
+    } catch (err) {
+      failed.push(`${displayName(profile)} (${err instanceof Error ? err.message : 'ban failed'})`)
+    }
+  }
+
+  // A single account that was already banned reads better as just the reason.
+  if (targets.length === 1 && failed.length === 1) {
+    return { error: failed[0].endsWith(`(${ALREADY_BANNED_MESSAGE})`) ? ALREADY_BANNED_MESSAGE : `Couldn't ban ${failed[0]}.` }
+  }
+
+  const message = `Banned ${plural(banned, 'account')}. They've been signed out and emailed a link to appeal; each account is deleted ${BAN_APPEAL_DAYS} days after its ban unless an appeal is accepted first.${adminNote}`
+  if (failed.length > 0) return { error: `${message} Couldn't ban ${failed.length}: ${failed.join(', ')}.` }
+  return { message }
+}
+
 // ─── Cleaners (Tidy Pros) ───────────────────────────────────────────────────
 
 export async function approveCleanerAction(
@@ -532,6 +691,14 @@ export async function approveCleanerAction(
 
   revalidatePath('/admin/users')
   revalidatePath('/admin')
+}
+
+// For a signed contractor agreement whose email didn't go out at signing.
+export async function resendSignedAgreementAction(signatureId: string): Promise<void> {
+  if (!(await isAdminAuthed())) return
+  const result = await emailSignedAgreement(createAdminClient(), signatureId)
+  if ('error' in result) throw new Error(result.error)
+  revalidatePath('/admin/users')
 }
 
 // Only for the refund cases in the cleaner agreement, which the admin must pick
@@ -567,12 +734,7 @@ export async function pauseCleanerAction(
 ): Promise<void> {
   if (!(await isAdminAuthed())) return
 
-  const admin = createAdminClient()
-  await admin.from('tidypro_profiles').update({
-    cleaner_status: 'paused',
-    active_for_booking: false,
-    paused_at: new Date().toISOString(),
-  }).eq('id', profileId)
+  await pauseCleaner(createAdminClient(), profileId)
 
   revalidatePath('/admin/users')
   revalidatePath('/admin')
@@ -586,33 +748,55 @@ function revalidateBackgroundCheckPages() {
   revalidatePath('/admin')
 }
 
+// Each cleaner's link is unique to them, so there's no default to fall back on.
 export async function sendBackgroundCheckLinkAction(profileId: string, formData: FormData): Promise<void> {
   if (!(await isAdminAuthed())) return
 
-  await sendBackgroundCheckLink(createAdminClient(), profileId, formData.get('link') as string | null)
+  const link = (formData.get('link') as string | null)?.trim()
+  if (!link) throw new Error("Paste this cleaner's background check link to send.")
+
+  await sendBackgroundCheckLink(createAdminClient(), profileId, link)
 
   revalidateBackgroundCheckPages()
 }
 
-export async function markBackgroundCheckSubmittedAction(profileId: string, _formData: FormData): Promise<void> {
+export async function setScreeningPartCompletedAction(
+  profileId: string,
+  part: ScreeningPart,
+  completed: boolean,
+  _formData: FormData
+): Promise<void> {
   if (!(await isAdminAuthed())) return
+  if (!SCREENING_PARTS.includes(part)) throw new Error('Unknown screening step.')
 
-  await markBackgroundCheckSubmitted(createAdminClient(), profileId)
+  await setScreeningPartCompleted(createAdminClient(), profileId, part, completed)
 
   revalidateBackgroundCheckPages()
 }
 
-export async function passBackgroundCheckAction(profileId: string, _formData: FormData): Promise<void> {
+// Approving clears both parts of the screening at once, so both have to be
+// confirmed as passed.
+export async function passBackgroundCheckAction(profileId: string, formData: FormData): Promise<void> {
   if (!(await isAdminAuthed())) return
+
+  if (formData.get('backgroundCheckPassed') !== 'on' || formData.get('idVerificationPassed') !== 'on') {
+    throw new Error('Confirm both the background check and ID verification passed before approving.')
+  }
 
   await passBackgroundCheck(createAdminClient(), profileId)
 
   revalidateBackgroundCheckPages()
 }
 
+const FAILED_CHECK_LABELS: Record<string, string> = {
+  background_check: 'Background check not passed',
+  id_verification: 'ID verification not passed',
+  both: 'Background check and ID verification not passed',
+}
+
 // The required confirmation is there because denying someone over a report has to
-// go through the pre-adverse and final notices first. This button bans them and
-// deletes their account; it doesn't send those notices.
+// go through the provider's adverse action notices. Denying emails the cleaner the
+// reason and a link to appeal; it doesn't send those notices.
 export async function denyCleanerAction(profileId: string, formData: FormData): Promise<void> {
   if (!(await isAdminAuthed())) return
 
@@ -620,19 +804,70 @@ export async function denyCleanerAction(profileId: string, formData: FormData): 
     throw new Error('Confirm the adverse action requirement before denying.')
   }
 
-  await denyCleaner(createAdminClient(), profileId, (formData.get('note') as string | null)?.trim() || null)
+  const failed = FAILED_CHECK_LABELS[formData.get('failedCheck') as string]
+  const reason = (formData.get('reason') as string | null)?.trim()
+  await denyCleaner(createAdminClient(), profileId, [failed, reason].filter(Boolean).join(': '))
 
   revalidateBackgroundCheckPages()
+  revalidatePath('/admin/appeals')
 }
 
-// Lets them sign up again. Their old account stays deleted.
+// Lets them sign up again. If their account hasn't been deleted yet (still in the
+// appeal window), its suspension is lifted too.
 export async function removeBanAction(banId: string, _formData: FormData): Promise<void> {
   if (!(await isAdminAuthed())) return
 
-  const { error } = await createAdminClient().from('banned_users').delete().eq('id', banId)
+  const admin = createAdminClient()
+  const { data: ban, error } = await admin
+    .from('banned_users')
+    .delete()
+    .eq('id', banId)
+    .select('former_profile_id, account_deleted_at')
+    .maybeSingle()
   if (error) throw new Error(error.message)
+  if (ban?.former_profile_id && !ban.account_deleted_at) await liftBan(admin, ban.former_profile_id)
 
   revalidateBackgroundCheckPages()
+  revalidatePath('/admin/appeals')
+}
+
+// ─── Ban Appeals ────────────────────────────────────────────────────────────
+
+function revalidateAppealPages() {
+  revalidatePath('/admin/appeals')
+  revalidateBackgroundCheckPages()
+}
+
+export async function acceptAppealAction(banId: string, _prev: AccountActionState, _formData: FormData): Promise<AccountActionState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  try {
+    await acceptAppeal(createAdminClient(), banId)
+  } catch (err) {
+    if (err instanceof BanAppealError) return { error: err.message }
+    throw err
+  }
+
+  revalidateAppealPages()
+  return { message: 'Appeal accepted. Their account is reinstated and they have been emailed.' }
+}
+
+export async function denyAppealAction(banId: string, _prev: AccountActionState, _formData: FormData): Promise<AccountActionState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  let result: Awaited<ReturnType<typeof denyAppeal>>
+  try {
+    result = await denyAppeal(createAdminClient(), banId)
+  } catch (err) {
+    if (err instanceof BanAppealError) return { error: err.message }
+    throw err
+  }
+
+  revalidateAppealPages()
+  if (result.deleted) return { message: 'Appeal denied. Their account has been deleted and they have been emailed.' }
+  return {
+    message: `Appeal denied and they have been emailed. Their account is kept suspended until it can be deleted (${deleteRefusalReason(result.deleteError ?? '')}); this is retried hourly.`,
+  }
 }
 
 // ─── Insurance ──────────────────────────────────────────────────────────────
@@ -742,4 +977,98 @@ export async function denyInsuranceAction(
 
   revalidatePath('/admin/insurance')
   revalidatePath('/admin')
+}
+
+// ─── Incidents (no access, no-show) ─────────────────────────────────────────
+
+export type ResolveIncidentState = { error?: string; message?: string }
+
+export async function resolveIncidentAction(
+  bookingId: string,
+  _prev: ResolveIncidentState,
+  formData: FormData
+): Promise<ResolveIncidentState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const level = String(formData.get('refund_level') ?? '')
+  if (!isRefundLevel(level)) return { error: 'Choose a refund.' }
+  const note = String(formData.get('note') ?? '').trim() || null
+  const pause = formData.get('pause_cleaner') === 'on'
+
+  const result = await resolveBookingIncident(createAdminClient(), bookingId, level, note, pause)
+  if ('error' in result) return { error: result.error }
+
+  revalidatePath('/admin/incidents')
+  revalidatePath(`/admin/incidents/${bookingId}`)
+  revalidatePath('/admin/users')
+  return { message: result.warning ? `Settled. ${result.warning}` : 'Settled. The customer and cleaner have been emailed.' }
+}
+
+// ─── Bookings ───────────────────────────────────────────────────────────────
+
+export type CancelBookingState = { error?: string; message?: string }
+
+export async function cancelBookingAction(
+  bookingId: string,
+  _prev: CancelBookingState,
+  formData: FormData
+): Promise<CancelBookingState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const refund = String(formData.get('refund') ?? '')
+  if (!isAdminRefund(refund)) return { error: 'Choose a refund.' }
+  const reason = String(formData.get('reason') ?? '').trim().slice(0, 1000) || null
+
+  const result = await cancelBookingAsAdmin(createAdminClient(), bookingId, refund, reason)
+  if ('error' in result) return { error: result.error }
+
+  revalidatePath('/admin/bookings')
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidatePath(`/dashboard/messages/${bookingId}`)
+  revalidatePath('/dashboard/messages')
+  revalidatePath('/dashboard')
+  revalidatePath(`/pro/messages/${bookingId}`)
+  revalidatePath('/pro/messages')
+  revalidatePath('/pro/bookings')
+  return { message: `Canceled. ${ADMIN_REFUND_LABELS[refund]}. The customer has been emailed.` }
+}
+
+export async function acceptBackgroundCheckAppealAction(
+  profileId: string,
+  _prev: AccountActionState,
+  _formData: FormData
+): Promise<AccountActionState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  try {
+    await acceptBackgroundCheckAppeal(createAdminClient(), profileId)
+  } catch (err) {
+    if (err instanceof BanAppealError || err instanceof BackgroundCheckStateError) return { error: err.message }
+    throw err
+  }
+
+  revalidateAppealPages()
+  return { message: 'Appeal accepted. Their background check is approved and they have been emailed.' }
+}
+
+export async function denyBackgroundCheckAppealAction(
+  profileId: string,
+  _prev: AccountActionState,
+  _formData: FormData
+): Promise<AccountActionState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  let result: Awaited<ReturnType<typeof denyBackgroundCheckAppeal>>
+  try {
+    result = await denyBackgroundCheckAppeal(createAdminClient(), profileId)
+  } catch (err) {
+    if (err instanceof BanAppealError || err instanceof BackgroundCheckStateError) return { error: err.message }
+    throw err
+  }
+
+  revalidateAppealPages()
+  if (result.deleted) return { message: 'Appeal denied. They have been banned, their account deleted, and they have been emailed.' }
+  return {
+    message: `Appeal denied. They have been banned and emailed. Their account is kept suspended until it can be deleted (${deleteRefusalReason(result.deleteError ?? '')}); this is retried hourly.`,
+  }
 }

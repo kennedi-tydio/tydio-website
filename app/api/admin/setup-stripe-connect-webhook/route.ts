@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isAdminSecret } from '@/lib/auth/admin'
 import { ensureAccountEventDestination } from '@/lib/stripe/connect'
 
 // POST /api/admin/setup-stripe-connect-webhook
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
   const { secret, webhookUrl: webhookUrlOverride } = body as { secret?: string; webhookUrl?: string }
-  if (!secret || secret !== process.env.ADMIN_SECRET) {
+  if (!isAdminSecret(secret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

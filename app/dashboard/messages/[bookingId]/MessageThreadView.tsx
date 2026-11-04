@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
-import { cancelBookingRequestAction, respondToTimeProposalAction, sendMessageAction } from './actions'
+import { cancelBookingRequestAction, respondToTimeProposalAction, sendMessageAction, startCallAction } from './actions'
 
 export type ChatMessage = {
   id: string
@@ -173,7 +173,8 @@ type Props = {
   bookingId: string
   cleanerName: string
   cleanerPhotoUrl: string | null
-  cleanerPhone: string | null
+  // Calls go through Tydio's number, so the other side's phone is never sent here.
+  canCall: boolean
   scheduledDate: string | null
   scheduledTime: string | null
   durationMinutes: number
@@ -186,6 +187,8 @@ type Props = {
   suppliesProvided: boolean
   totalPrice: number
   canChooseReplacements: boolean
+  // The cleaner accepted, then canceled. Shown like a decline otherwise.
+  cleanerCancelled: boolean
   cancelledNote: string | null
   status: string
   decisionStatus: string
@@ -197,7 +200,7 @@ export default function MessageThreadView({
   bookingId,
   cleanerName,
   cleanerPhotoUrl,
-  cleanerPhone,
+  canCall,
   scheduledDate,
   scheduledTime,
   durationMinutes,
@@ -210,6 +213,7 @@ export default function MessageThreadView({
   suppliesProvided,
   totalPrice,
   canChooseReplacements,
+  cleanerCancelled,
   cancelledNote,
   status: initialStatus,
   decisionStatus,
@@ -242,6 +246,22 @@ export default function MessageThreadView({
     const interval = setInterval(() => router.refresh(), 4000)
     return () => clearInterval(interval)
   }, [router])
+
+  const [calling, setCalling] = useState(false)
+  const [callNote, setCallNote] = useState<{ message: string; error: boolean } | null>(null)
+
+  async function handleCall() {
+    if (calling) return
+    setCalling(true)
+    setCallNote(null)
+    const result = await startCallAction(bookingId)
+    setCalling(false)
+    setCallNote(
+      'error' in result
+        ? { message: result.error, error: true }
+        : { message: "We're calling your phone now. Answer and press 1 to be connected.", error: false }
+    )
+  }
 
   async function handleSend() {
     const body = draft.trim()
@@ -322,12 +342,26 @@ export default function MessageThreadView({
         </button>
         <Avatar name={cleanerName} photoUrl={cleanerPhotoUrl} />
         <p className="font-semibold text-slate-900 flex-1 truncate">{cleanerName}</p>
-        {cleanerPhone && (
-          <a href={`tel:${cleanerPhone}`} aria-label={`Call ${cleanerName}`} className="w-8 h-8 flex items-center justify-center">
+        {canCall && (
+          <button
+            type="button"
+            onClick={handleCall}
+            disabled={calling}
+            aria-label={`Call ${cleanerName}`}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 disabled:opacity-50"
+          >
             <IconPhone />
-          </a>
+          </button>
         )}
       </div>
+      {callNote && (
+        <p
+          role={callNote.error ? 'alert' : 'status'}
+          className={`px-5 py-2 text-xs border-b border-slate-100 ${callNote.error ? 'text-red-600' : 'text-slate-600'}`}
+        >
+          {callNote.message}
+        </p>
+      )}
 
       <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
         <div className="max-w-sm mx-auto w-full">
@@ -440,7 +474,7 @@ export default function MessageThreadView({
           )}
           {outcome === 'declined' && (
             <div className="flex items-center justify-center gap-1.5 w-full mt-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-bold text-red-600">
-              <IconX /> Declined
+              <IconX /> {cleanerCancelled ? 'Canceled' : 'Declined'}
             </div>
           )}
           {outcome === 'accepted' && (
@@ -463,7 +497,7 @@ export default function MessageThreadView({
             className="rounded-2xl rounded-bl-sm px-4 py-3 mt-4 mr-auto max-w-[85%] text-sm leading-relaxed text-white"
             style={{ backgroundColor: '#1a2332' }}
           >
-            {`${firstName} declined your booking request`}
+            {cleanerCancelled ? `${firstName} canceled your booking` : `${firstName} declined your booking request`}
           </div>
         )}
         {outcome === 'declined' && canChooseReplacements && (

@@ -3,12 +3,12 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
 import {
   canRequestReplacements,
   getReplacementOptions,
   validateReplacementSelection,
 } from '@/lib/bookingRequestGroups'
-import { cleanerPayoutForTotal } from '@/lib/pricingRules'
 import { notifyNewBookingRequest } from '@/lib/notifications'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
@@ -16,7 +16,8 @@ import type { TidyTask } from '@/app/dashboard/types'
 
 // Sends the booking to up to 3 other cleaners. Nothing is charged: the customer's
 // original payment carries over to whoever accepts, at the price they already paid,
-// and each cleaner's payout is 80% of it. See lib/bookingRequestGroups.
+// and each cleaner's payout is the same as the original booking's: 80% of that price
+// before Stripe's fee. See lib/bookingRequestGroups.
 export async function sendReplacementRequestsAction(
   bookingId: string,
   cleanerIds: string[]
@@ -26,10 +27,13 @@ export async function sendReplacementRequestsAction(
 
   const admin = createAdminClient()
 
+  const suspended = await bookingBlockedBySuspension(admin, session.profileId)
+  if (suspended) return { error: suspended }
+
   const { data: booking } = await admin
     .from('bookings')
     .select(
-      'id, tidy_pro_id, status, request_group_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, task_list, pricing_version, pricing_breakdown, customer_subtotal, total_customer_charge, will_provide_supplies, pets, notes, entry_instructions, stripe_payment_intent_id, stripe_refund_id, time_zone'
+      'id, tidy_pro_id, status, request_group_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, task_list, pricing_version, pricing_breakdown, customer_subtotal, total_customer_charge, cleaner_pay, will_provide_supplies, pets, notes, entry_instructions, stripe_payment_intent_id, stripe_refund_id, cancelled_reason, time_zone'
     )
     .eq('id', bookingId)
     .eq('user_id', session.profileId)
@@ -88,7 +92,7 @@ export async function sendReplacementRequestsAction(
         pricing_breakdown: booking.pricing_breakdown,
         customer_subtotal: booking.customer_subtotal,
         total_customer_charge: total,
-        cleaner_pay: cleanerPayoutForTotal(total),
+        cleaner_pay: booking.cleaner_pay,
         tip: 0,
         will_provide_supplies: booking.will_provide_supplies,
         pets: booking.pets,

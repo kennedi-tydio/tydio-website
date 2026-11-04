@@ -100,3 +100,69 @@ export function shiftDateISO(date: string, days: number): string {
 export function hourInZone(timeZone: string, now: Date = new Date()): number {
   return Number(zonedParts(now, timeZone).hour)
 }
+
+// A customer canceling an accepted booking this close to its start only gets part of
+// their payment back (see lateCancelRefund).
+export const LATE_CANCEL_WINDOW_HOURS = 12
+
+export function isLateCancellation(
+  date: string | null,
+  time: string | null,
+  now: Date = new Date(),
+  timeZone: string | null = DEFAULT_BOOKING_TIME_ZONE
+): boolean {
+  return hasBookingStarted(date, time, new Date(now.getTime() + LATE_CANCEL_WINDOW_HOURS * 60 * 60 * 1000), timeZone)
+}
+
+// A cleaner who can't get in waits this long, from the start time or when they arrived,
+// whichever is later, before they can report "Customer unavailable — no access". An
+// "anytime" booking has no start time, so the wait runs from their arrival.
+export const NO_ACCESS_WAIT_MINUTES = 15
+
+export function noAccessReportableAt(
+  date: string | null,
+  time: string | null,
+  arrivedAt: string | null,
+  timeZone: string | null = DEFAULT_BOOKING_TIME_ZONE
+): Date | null {
+  const starts = [
+    date && time ? bookingStartInstant(date, time, timeZone ?? DEFAULT_BOOKING_TIME_ZONE).getTime() : null,
+    arrivedAt ? new Date(arrivedAt).getTime() : null,
+  ].filter((t): t is number => t != null)
+  if (starts.length === 0) return null
+  return new Date(Math.max(...starts) + NO_ACCESS_WAIT_MINUTES * 60 * 1000)
+}
+
+export function canReportNoAccess(
+  date: string | null,
+  time: string | null,
+  arrivedAt: string | null,
+  now: Date = new Date(),
+  timeZone: string | null = DEFAULT_BOOKING_TIME_ZONE
+): boolean {
+  const at = noAccessReportableAt(date, time, arrivedAt, timeZone)
+  return at != null && at.getTime() <= now.getTime()
+}
+
+// A customer whose cleaner still hasn't arrived this long after the start time can report
+// a no-show. "Anytime" bookings have no start time to measure from.
+export const NO_SHOW_REPORT_AFTER_MINUTES = 30
+
+export function noShowReportableAt(
+  date: string | null,
+  time: string | null,
+  timeZone: string | null = DEFAULT_BOOKING_TIME_ZONE
+): Date | null {
+  if (!date || !time) return null
+  return new Date(bookingStartInstant(date, time, timeZone ?? DEFAULT_BOOKING_TIME_ZONE).getTime() + NO_SHOW_REPORT_AFTER_MINUTES * 60 * 1000)
+}
+
+export function canReportNoShow(
+  date: string | null,
+  time: string | null,
+  now: Date = new Date(),
+  timeZone: string | null = DEFAULT_BOOKING_TIME_ZONE
+): boolean {
+  const at = noShowReportableAt(date, time, timeZone)
+  return at != null && at.getTime() <= now.getTime()
+}

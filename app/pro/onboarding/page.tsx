@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isBackgroundCheckStepDone, shouldShowVerifiedScreen } from '@/lib/backgroundCheck'
+import { hasSignedCurrentAgreement } from '@/lib/legal/contractorAgreement'
 
 export const metadata: Metadata = { title: 'Get Started — Tydio' }
 
@@ -27,7 +28,9 @@ export default async function OnboardingPage() {
     redirect('/pro/onboarding/verified')
   }
 
+  // Accepted the old checklist but hasn't signed the current agreement: straight to signing.
   if (tidyPro?.terms_accepted) {
+    if (!(await hasSignedCurrentAgreement(admin, session.profileId))) redirect('/pro/onboarding/agreements')
     redirect(isBackgroundCheckStepDone(tidyPro.cleaner_status, backgroundCheck) ? '/pro/dashboard' : '/pro/onboarding/setup')
   }
 

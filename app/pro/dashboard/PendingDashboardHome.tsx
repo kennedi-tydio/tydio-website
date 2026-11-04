@@ -75,7 +75,7 @@ export default function PendingDashboardHome({
             <p className="text-sm font-bold text-slate-900 mb-1">Your background check was not approved</p>
             <p className="text-sm text-slate-500 leading-relaxed">
               You can&apos;t accept jobs on Tydio right now. Any notices about your report come from Checkr by email. Questions? Contact
-              hello@tydio.com.
+              kennedicoats@tydioapp.com.
             </p>
           </div>
         ) : (

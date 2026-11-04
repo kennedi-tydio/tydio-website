@@ -2,11 +2,12 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { bookingStartInstant, scheduleForViewer } from '@/lib/bookingTime'
+import { bookingStartInstant, noAccessReportableAt, scheduleForViewer } from '@/lib/bookingTime'
 import { cityAndState } from '@/lib/address'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import OnTheWayView from './OnTheWayView'
 import TaskListView from './TaskListView'
+import NoAccessView from './NoAccessView'
 import PastBookingDetailView from './PastBookingDetailView'
 import { canLeaveCustomerReview } from '@/lib/cleanerReviewWindow'
 
@@ -27,7 +28,7 @@ export default async function ProActiveBookingPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, user_id, status, progress_status, cleaner_marked_complete_at, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, notes, entry_instructions, pets, will_provide_supplies, cleaner_pay, tip, time_zone'
+      'id, user_id, status, progress_status, cleaner_marked_complete_at, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, notes, entry_instructions, pets, will_provide_supplies, cleaner_pay, tip, time_zone, arrived_at'
     )
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
@@ -48,7 +49,7 @@ export default async function ProActiveBookingPage({
 
   const { data: customerProfile } = await admin
     .from('profiles')
-    .select('first_name, last_name, phone, photo_url')
+    .select('first_name, last_name, photo_url')
     .eq('id', booking.user_id)
     .maybeSingle()
 
@@ -141,7 +142,19 @@ export default async function ProActiveBookingPage({
     )
   }
 
-  // arrived / cleaning
+  // Arrived without starting the job: they couldn't get in.
+  if (booking.progress_status === 'arrived') {
+    return (
+      <NoAccessView
+        bookingId={booking.id}
+        customerName={customerProfile?.first_name ?? customerName}
+        entryInstructions={booking.entry_instructions}
+        reportableAtMs={noAccessReportableAt(booking.scheduled_date, booking.scheduled_time, booking.arrived_at, booking.time_zone)?.getTime() ?? null}
+      />
+    )
+  }
+
+  // cleaning
   return (
     <TaskListView
       bookingId={booking.id}

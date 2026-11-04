@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { stripe } from '@/lib/stripe'
 import { getOrCreateStripeCustomerId } from '@/lib/stripe/customer'
 import type Stripe from 'stripe'
+import { userFacingError } from '@/lib/userFacingError'
 
 export interface SavedPaymentMethod {
   id: string
@@ -105,7 +106,7 @@ export async function savePaymentMethodAction(
     .select('id, brand:card_brand, last4:card_last4, exp_month:card_exp_month, exp_year:card_exp_year, is_default')
     .single()
 
-  if (error || !data) return { error: error?.message ?? 'Failed to save payment method.' }
+  if (error || !data) return { error: userFacingError(error, 'Failed to save payment method.') }
 
   revalidatePath('/dashboard/profile/payment-methods')
   return data
@@ -137,7 +138,7 @@ export async function removePaymentMethodAction(
   }
 
   const { error } = await admin.from('payment_methods').delete().eq('id', pm.id)
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   if (pm.is_default) {
     const { data: next } = await admin
@@ -171,7 +172,7 @@ export async function selectPaymentMethodForDraftAction(
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)
 
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   revalidatePath('/book/review')
   return { success: true }

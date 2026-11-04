@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { usePostHog } from 'posthog-js/react'
 import { logoutAction, deleteAccountAction } from '../actions'
 import { updatePetsAction } from './actions'
 import ModalShell from '@/app/components/ModalShell'
@@ -99,6 +100,7 @@ type Props = {
 export default function ProfileView({ firstName, lastName, email, pets: initialPets, unreadMessageCount }: Props) {
   const initials = `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase()
   const fullName = [firstName, lastName].filter(Boolean).join(' ')
+  const posthog = usePostHog()
   const [showLogout, setShowLogout] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -233,7 +235,7 @@ export default function ProfileView({ firstName, lastName, email, pets: initialP
           body="You'll need to sign back in to access your account."
           confirmLabel="Logout"
           onCancel={() => setShowLogout(false)}
-          onConfirm={async () => { await logoutAction() }}
+          onConfirm={async () => { posthog?.reset(); await logoutAction() }}
         />
       )}
 
@@ -246,6 +248,7 @@ export default function ProfileView({ firstName, lastName, email, pets: initialP
           onCancel={() => { setShowDelete(false); setDeleteError(null) }}
           error={deleteError}
           onConfirm={async () => {
+            posthog?.reset()
             const result = await deleteAccountAction()
             if (result?.error) setDeleteError(result.error)
           }}

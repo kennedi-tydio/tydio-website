@@ -8,10 +8,12 @@ import TimeSelect from '@/app/components/form/TimeSelect'
 import { useStartBookingWindow } from '@/app/pro/useStartBookingWindow'
 import {
   acceptBookingRequestAction,
+  cancelAcceptedBookingAction,
   declineBookingRequestAction,
   markOnTheWayAction,
   proposeStartTimeAction,
   sendMessageAction,
+  startCallAction,
 } from './actions'
 
 export type ChatMessage = {
@@ -186,7 +188,8 @@ type Props = {
   bookingId: string
   customerName: string
   customerPhotoUrl: string | null
-  customerPhone: string | null
+  // Calls go through Tydio's number, so the other side's phone is never sent here.
+  canCall: boolean
   scheduledDate: string | null
   scheduledTime: string | null
   // The real start instant, so "Start booking" appears at the right moment
@@ -204,6 +207,8 @@ type Props = {
   payout: number
   status: string
   cancelledNote: string | null
+  // They accepted this booking, then canceled it themselves.
+  cancelledByMe: boolean
   decisionStatus: string
   progressStatus: string | null
   messages: ChatMessage[]
@@ -213,7 +218,7 @@ export default function ProMessageThreadView({
   bookingId,
   customerName,
   customerPhotoUrl,
-  customerPhone,
+  canCall,
   scheduledDate,
   scheduledTime,
   startsAtMs,
@@ -229,6 +234,7 @@ export default function ProMessageThreadView({
   payout,
   status: initialStatus,
   cancelledNote,
+  cancelledByMe: initialCancelledByMe,
   decisionStatus: initialDecisionStatus,
   progressStatus: initialProgressStatus,
   messages: initialMessages,
@@ -237,7 +243,10 @@ export default function ProMessageThreadView({
   const [status, setStatus] = useState(initialStatus)
   const [decisionStatus, setDecisionStatus] = useState(initialDecisionStatus)
   const [progressStatus, setProgressStatus] = useState(initialProgressStatus)
-  const [working, setWorking] = useState<'accept' | 'decline' | 'on_the_way' | 'start' | 'propose' | null>(null)
+  const [working, setWorking] = useState<'accept' | 'decline' | 'cancel' | 'on_the_way' | 'start' | 'propose' | null>(null)
+  const [cancelledByMe, setCancelledByMe] = useState(initialCancelledByMe)
+  // What canceling will mean for the customer, worked out when they tap Cancel.
+  const [cancelWarning, setCancelWarning] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [editingTime, setEditingTime] = useState(false)
   const [newTime, setNewTime] = useState(scheduledTime?.slice(0, 5) ?? '09:00')
@@ -265,6 +274,22 @@ export default function ProMessageThreadView({
     return () => clearInterval(interval)
   }, [router])
 
+  const [calling, setCalling] = useState(false)
+  const [callNote, setCallNote] = useState<{ message: string; error: boolean } | null>(null)
+
+  async function handleCall() {
+    if (calling) return
+    setCalling(true)
+    setCallNote(null)
+    const result = await startCallAction(bookingId)
+    setCalling(false)
+    setCallNote(
+      'error' in result
+        ? { message: result.error, error: true }
+        : { message: "We're calling your phone now. Answer and press 1 to be connected.", error: false }
+    )
+  }
+
   async function handleSend() {
     const body = draft.trim()
     if (!body || sending) return
@@ -283,8 +308,16 @@ export default function ProMessageThreadView({
     router.refresh()
   }
 
-  const outcome: 'pending' | 'cancelled' | 'declined' | 'accepted' =
-    status === 'cancelled' ? 'cancelled' : status === 'declined' ? 'declined' : decisionStatus === 'accepted' ? 'accepted' : 'pending'
+  const outcome: 'pending' | 'cancelled' | 'declined' | 'accepted' | 'cancelled_by_me' =
+    cancelledByMe
+      ? 'cancelled_by_me'
+      : status === 'cancelled'
+        ? 'cancelled'
+        : status === 'declined'
+          ? 'declined'
+          : decisionStatus === 'accepted'
+            ? 'accepted'
+            : 'pending'
   const isAccepted = outcome === 'accepted'
   const isOnTheWay = progressStatus === 'on_the_way'
   const isInProgress = progressStatus === 'on_the_way' || progressStatus === 'arrived' || progressStatus === 'cleaning'
@@ -300,7 +333,7 @@ export default function ProMessageThreadView({
       ? 'Accepted'
       : outcome === 'declined'
         ? 'Declined'
-        : outcome === 'cancelled'
+        : outcome === 'cancelled' || outcome === 'cancelled_by_me'
           ? 'Canceled'
           : 'Pending'
 
@@ -341,6 +374,32 @@ export default function ProMessageThreadView({
     }
     setStatus('declined')
     setDecisionStatus('declined')
+  }
+
+  // Matches cancelAcceptedBookingAction: within an hour of the start, the customer is
+  // refunded rather than offered other cleaners.
+  function handleCancelTapped() {
+    setActionError(null)
+    const withinHour = startsAtMs != null && startsAtMs - Date.now() <= 60 * 60 * 1000
+    setCancelWarning(
+      withinHour
+        ? `It's less than an hour until this booking, so ${firstName} will be refunded in full.`
+        : `${firstName} will be asked to choose another Tidy Pro.`
+    )
+  }
+
+  async function handleCancelConfirmed() {
+    setWorking('cancel')
+    setActionError(null)
+    const result = await cancelAcceptedBookingAction(bookingId)
+    setWorking(null)
+    setCancelWarning(null)
+    if ('error' in result) {
+      setActionError(result.error)
+      return
+    }
+    setCancelledByMe(true)
+    setProgressStatus(null)
   }
 
   async function handleStartBooking() {
@@ -385,12 +444,26 @@ export default function ProMessageThreadView({
           <Avatar name={customerName} photoUrl={customerPhotoUrl} />
         </Link>
         <p className="font-semibold text-slate-900 flex-1 truncate">{customerName}</p>
-        {customerPhone && (
-          <a href={`tel:${customerPhone}`} aria-label={`Call ${customerName}`} className="w-8 h-8 flex items-center justify-center">
+        {canCall && (
+          <button
+            type="button"
+            onClick={handleCall}
+            disabled={calling}
+            aria-label={`Call ${customerName}`}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 disabled:opacity-50"
+          >
             <IconPhone />
-          </a>
+          </button>
         )}
       </div>
+      {callNote && (
+        <p
+          role={callNote.error ? 'alert' : 'status'}
+          className={`px-5 py-2 text-xs border-b border-slate-100 ${callNote.error ? 'text-red-600' : 'text-slate-600'}`}
+        >
+          {callNote.message}
+        </p>
+      )}
 
       {isInProgress && (
         <button
@@ -586,7 +659,7 @@ export default function ProMessageThreadView({
               </button>
             </div>
           )}
-          {outcome === 'cancelled' && (
+          {(outcome === 'cancelled' || outcome === 'cancelled_by_me') && (
             <div className="flex items-center justify-center gap-1.5 w-full mt-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-bold text-red-600">
               <IconX /> Canceled
             </div>
@@ -617,6 +690,39 @@ export default function ProMessageThreadView({
               {`You've let ${firstName} know you're on the way`}
             </p>
           )}
+          {outcome === 'accepted' && (isNotStarted || isOnTheWay) && !cancelWarning && (
+            <button
+              type="button"
+              onClick={handleCancelTapped}
+              disabled={working !== null}
+              className="block mx-auto mt-3 text-xs text-slate-500 underline disabled:opacity-50"
+            >
+              Cancel booking
+            </button>
+          )}
+          {outcome === 'accepted' && cancelWarning && (
+            <div className="mt-3 rounded-xl border border-slate-200 p-3">
+              <p className="text-xs text-slate-600 text-center">{`Cancel this booking? ${cancelWarning}`}</p>
+              <div className="flex gap-3 mt-3">
+                <button
+                  type="button"
+                  onClick={() => setCancelWarning(null)}
+                  disabled={working !== null}
+                  className="flex-1 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
+                >
+                  Keep it
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelConfirmed}
+                  disabled={working !== null}
+                  className="flex-1 py-2 rounded-xl bg-red-600 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {working === 'cancel' ? 'Canceling…' : 'Yes, cancel'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {outcome === 'cancelled' && (
@@ -633,6 +739,14 @@ export default function ProMessageThreadView({
             style={{ backgroundColor: 'var(--color-brand)' }}
           >
             You declined the booking request
+          </div>
+        )}
+        {outcome === 'cancelled_by_me' && (
+          <div
+            className="rounded-2xl rounded-br-sm px-4 py-3 mt-4 ml-auto max-w-[85%] text-sm leading-relaxed text-white"
+            style={{ backgroundColor: 'var(--color-brand)' }}
+          >
+            You canceled this booking
           </div>
         )}
         {outcome === 'accepted' && isNotStarted && (

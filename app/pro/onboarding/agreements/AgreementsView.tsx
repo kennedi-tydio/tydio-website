@@ -8,8 +8,7 @@ import BackgroundCheckFeeTerms from '../BackgroundCheckFeeTerms'
 function CustomCheckbox({ checked }: { checked: boolean }) {
   return (
     <span
-      role="checkbox"
-      aria-checked={checked}
+      aria-hidden="true"
       className="w-5 h-5 rounded-md border flex items-center justify-center flex-shrink-0 mt-0.5"
       style={{
         borderColor: checked ? 'var(--color-brand)' : '#cbd5e1',
@@ -34,15 +33,48 @@ function IconBack() {
 }
 
 const LINK_CLASS = 'font-semibold text-slate-900 underline underline-offset-2'
+const INPUT_CLASS =
+  'w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-400'
+const AGREEMENT_HREF = '/pro/onboarding/agreements/document'
 
-export default function AgreementsView({ feeCents }: { feeCents: number | null }) {
+type Props = {
+  feeCents: number | null
+  agreementTitle: string
+  consentText: string
+  email: string
+  defaultName: string
+  next: string | null
+  signedToday: string
+}
+
+function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-medium text-slate-700">
+        {label}
+        {hint && <span className="font-normal text-slate-400"> {hint}</span>}
+      </label>
+      {children}
+    </div>
+  )
+}
+
+export default function AgreementsView({ feeCents, agreementTitle, consentText, email, defaultName, next, signedToday }: Props) {
   const [agreed, setAgreed] = useState(false)
+  const [legalName, setLegalName] = useState(defaultName)
+  const [address, setAddress] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const ready = agreed && legalName.trim().length >= 2 && address.trim().length >= 8
 
-  function handleContinue() {
-    if (!agreed || isPending) return
-    startTransition(() => {
-      acceptAgreementsAction()
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!ready || isPending) return
+    const formData = new FormData(e.currentTarget)
+    setError(null)
+    startTransition(async () => {
+      const result = await acceptAgreementsAction(formData)
+      if (result?.error) setError(result.error)
     })
   }
 
@@ -97,9 +129,9 @@ export default function AgreementsView({ feeCents }: { feeCents: number | null }
           </li>
           <li>
             I have read and agree to the{' '}
-            <Link href="/terms" className={LINK_CLASS}>
-              Independent Contractor Agreement
-            </Link>{' '}
+            <a href={AGREEMENT_HREF} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+              {agreementTitle}
+            </a>{' '}
             and{' '}
             <Link href="/privacy" className={LINK_CLASS}>
               Privacy Policy
@@ -118,24 +150,99 @@ export default function AgreementsView({ feeCents }: { feeCents: number | null }
 
         <div className="flex-1" />
 
-        <label className="flex items-start gap-3 cursor-pointer mb-8" onClick={() => setAgreed((v) => !v)}>
-          <CustomCheckbox checked={agreed} />
-          <span className="text-sm text-slate-700 leading-relaxed">
-            I have read and agree to the Tidy Pro Independent Contractor &amp; Platform Agreement. I understand
-            that checking this box and selecting &ldquo;Agree &amp; Continue&rdquo; constitutes my electronic
-            signature.
-          </span>
-        </label>
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          {next && <input type="hidden" name="next" value={next} />}
 
-        <button
-          type="button"
-          onClick={handleContinue}
-          disabled={!agreed || isPending}
-          className="w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide disabled:opacity-40 transition-opacity"
-          style={{ backgroundColor: 'var(--color-brand)' }}
-        >
-          {isPending ? 'Please wait…' : 'Agree & Continue'}
-        </button>
+          <p className="text-base font-bold mb-1" style={{ color: 'var(--color-brand)' }}>
+            Sign the agreement
+          </p>
+          <p className="text-sm text-slate-500 leading-relaxed mb-4">
+            These details fill in the Provider section of the{' '}
+            <a href={AGREEMENT_HREF} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+              agreement
+            </a>
+            . Your typed legal name is your signature.
+          </p>
+
+          <div className="flex flex-col gap-4 mb-6">
+            <Field id="legal_name" label="Legal name">
+              <input
+                id="legal_name"
+                name="legal_name"
+                required
+                autoComplete="name"
+                value={legalName}
+                onChange={(e) => setLegalName(e.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field id="business_entity" label="Business entity" hint="(if applicable)">
+              <input id="business_entity" name="business_entity" autoComplete="organization" placeholder="e.g. Rivera Cleaning LLC" className={INPUT_CLASS} />
+            </Field>
+            <Field id="authorized_representative" label="Authorized representative" hint="(if applicable)">
+              <input id="authorized_representative" name="authorized_representative" className={INPUT_CLASS} />
+            </Field>
+            <Field id="address" label="Address">
+              <input
+                id="address"
+                name="address"
+                required
+                autoComplete="street-address"
+                placeholder="Street address, city, state, ZIP"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field id="email" label="Email" hint="(from your account)">
+              <input id="email" value={email} readOnly className={`${INPUT_CLASS} bg-slate-50 text-slate-500`} />
+            </Field>
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm">
+              <div className="flex items-baseline gap-2">
+                <span className="text-slate-500">Signature:</span>
+                <span className="font-serif italic text-lg text-slate-900 truncate">
+                  {legalName.trim() ? `/s/ ${legalName.trim()}` : '—'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2 mt-1">
+                <span className="text-slate-500">Date:</span>
+                <span className="text-slate-900">{signedToday}</span>
+              </div>
+            </div>
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer mb-3">
+            <input
+              type="checkbox"
+              name="agreed"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="sr-only peer"
+            />
+            <span className="rounded-md peer-focus-visible:ring-2 peer-focus-visible:ring-sky-400">
+              <CustomCheckbox checked={agreed} />
+            </span>
+            <span className="text-sm text-slate-700 leading-relaxed">{consentText}</span>
+          </label>
+          <p className="text-xs text-slate-400 leading-relaxed mb-6 pl-8">
+            A signed copy will be emailed to you and to Tydio, and you can download it from your profile.
+          </p>
+
+          {error && (
+            <p role="alert" className="text-sm text-red-600 mb-4">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={!ready || isPending}
+            className="w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide disabled:opacity-40 transition-opacity"
+            style={{ backgroundColor: 'var(--color-brand)' }}
+          >
+            {isPending ? 'Signing…' : 'Agree and Continue'}
+          </button>
+        </form>
       </div>
     </main>
   )

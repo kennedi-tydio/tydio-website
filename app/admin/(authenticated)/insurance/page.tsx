@@ -2,6 +2,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { formatExpirationDate } from '@/lib/insuranceExpiration'
 import { DEFAULT_BOOKING_TIME_ZONE, shiftDateISO, todayInZone } from '@/lib/bookingTime'
 import { approveInsuranceAction, denyInsuranceAction, updateInsuranceExpirationAction } from '../../actions'
+import InsuranceSearch, { type SearchField } from './InsuranceSearch'
+
+const SEARCH_BY: SearchField[] = ['name', 'email', 'expires', 'submitted']
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#f59e0b',
@@ -28,9 +31,11 @@ function insuranceStatusBadge(status: string | null): { label: string; color: st
 export default async function AdminInsurancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>
+  searchParams: Promise<{ status?: string; by?: string; q?: string }>
 }) {
-  const { status = 'pending' } = await searchParams
+  const { status = 'pending', by: byParam, q: rawQ = '' } = await searchParams
+  const by: SearchField = SEARCH_BY.includes(byParam as SearchField) ? (byParam as SearchField) : 'name'
+  const q = rawQ.trim()
   const admin = createAdminClient()
   const earliestExpiration = shiftDateISO(todayInZone(DEFAULT_BOOKING_TIME_ZONE), 1)
 
@@ -45,14 +50,30 @@ export default async function AdminInsurancePage({
   else if (status === 'expired') query = query.eq('insurance_status', 'expired')
   else if (status === 'all') query = query.not('insurance_status', 'is', null)
 
-  const { data: insuranceRows } = await query
-  const rows = insuranceRows ?? []
+  if (q && by === 'expires') {
+    // A malformed date would make the query error and look like no results.
+    query = /^\d{4}-\d{2}-\d{2}$/.test(q) ? query.eq('insurance_policy_expiration_date', q) : query.limit(0)
+  }
 
-  const proIds = rows.map((r) => r.id)
+  const { data: insuranceRows } = await query
+  const statusRows = insuranceRows ?? []
+
+  const proIds = statusRows.map((r) => r.id)
   const { data: profiles } = proIds.length
     ? await admin.from('profiles').select('id, first_name, last_name, email').in('id', proIds)
     : { data: [] }
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
+
+  // Names live on profiles, so these are matched here rather than in the query.
+  const needle = q.toLowerCase()
+  const rows = statusRows.filter((row) => {
+    if (!q) return true
+    const profile = profileById.get(row.id)
+    if (by === 'name') return [profile?.first_name, profile?.last_name].filter(Boolean).join(' ').toLowerCase().includes(needle)
+    if (by === 'email') return (profile?.email ?? '').toLowerCase().includes(needle)
+    if (by === 'submitted') return !!row.insurance_submitted_at && todayInZone(DEFAULT_BOOKING_TIME_ZONE, new Date(row.insurance_submitted_at)) === q
+    return true
+  })
 
   const signedUrls = await Promise.all(
     rows.map(async (row) => {
@@ -82,7 +103,7 @@ export default async function AdminInsurancePage({
         ].map((opt) => (
           <a
             key={opt.value}
-            href={`/admin/insurance?status=${opt.value}`}
+            href={`/admin/insurance?${new URLSearchParams(q ? { status: opt.value, by, q } : { status: opt.value })}`}
             className="px-3 py-2 rounded-xl text-sm border transition-colors"
             style={
               status === opt.value
@@ -94,6 +115,8 @@ export default async function AdminInsurancePage({
           </a>
         ))}
       </div>
+
+      <InsuranceSearch key={`${by}:${q}`} status={status} by={by} q={q} />
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -219,7 +242,7 @@ export default async function AdminInsurancePage({
             </tbody>
           </table>
           {rows.length === 0 && (
-            <div className="text-center py-12 text-slate-400 text-sm">No submissions in this view.</div>
+            <div className="text-center py-12 text-slate-400 text-sm">{q ? 'No matches for this search.' : 'No submissions in this view.'}</div>
           )}
         </div>
       </div>

@@ -3,9 +3,19 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendBookingMessage } from '@/lib/bookings'
-import { cancelGroupForCustomer, cancelOtherRequests, refundBookingPayment, restoreBookingTasks } from '@/lib/bookingRequestGroups'
-import { hasAcceptanceWindowClosed } from '@/lib/bookingTime'
+import { startMaskedCall } from '@/lib/maskedCalls'
+import { completeBookingPayout, sendBookingMessage } from '@/lib/bookings'
+import {
+  LATE_CANCEL_REASON,
+  cancelGroupForCustomer,
+  cancelOtherRequests,
+  isAwaitingReplacements,
+  refundBookingPayment,
+  refundLateCancellation,
+  restoreBookingTasks,
+} from '@/lib/bookingRequestGroups'
+import { hasAcceptanceWindowClosed, isLateCancellation } from '@/lib/bookingTime'
+import { lateCancelCleanerPay, lateCancelRefund } from '@/lib/pricingRules'
 import { canChangeStartTime, hasScheduleConflict } from '@/lib/bookingTimeProposals'
 import type { TidyTask } from '@/app/dashboard/types'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
@@ -13,10 +23,13 @@ import { sendPushForPayload } from '@/lib/push'
 import {
   notifyBookingCancelledConfirmation,
   notifyCustomerCancelled,
+  notifyCustomerCancelledLate,
+  notifyLateCancelConfirmation,
   notifyNewMessage,
   notifyTimeProposalAnswered,
 } from '@/lib/notifications'
 import { notifyCustomer } from '@/lib/customerNotifications'
+import { userFacingError } from '@/lib/userFacingError'
 
 async function notifyTidyPro(
   admin: ReturnType<typeof createAdminClient>,
@@ -63,8 +76,12 @@ export async function sendMessageAction(bookingId: string, body: string): Promis
   return { success: true }
 }
 
+// `acceptLateFee` is the customer having been shown that canceling now only refunds half.
+// Without it, a booking that crossed into the late window while they had the page open
+// isn't canceled on terms they never saw.
 export async function cancelBookingRequestAction(
-  bookingId: string
+  bookingId: string,
+  acceptLateFee = false
 ): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
@@ -73,7 +90,7 @@ export async function cancelBookingRequestAction(
 
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, tidy_pro_id, status, progress_status, stripe_payment_intent_id, stripe_refund_id, request_group_id, task_list')
+    .select('id, tidy_pro_id, status, progress_status, stripe_payment_intent_id, stripe_refund_id, request_group_id, cancelled_reason, task_list, scheduled_date, scheduled_time, time_zone, total_customer_charge, cleaner_pay')
     .eq('id', bookingId)
     .eq('user_id', session.profileId)
     .maybeSingle()
@@ -99,7 +116,7 @@ export async function cancelBookingRequestAction(
   // A declined booking whose payment is still held, where no replacements were chosen.
   // Once they have been, the customer cancels from those requests instead.
   let declinedAndHeld = false
-  if (booking.status === 'declined' && !booking.request_group_id && !booking.stripe_refund_id) {
+  if (isAwaitingReplacements(booking) && !booking.stripe_refund_id) {
     const { data: group } = await admin.from('booking_request_groups').select('id').eq('original_booking_id', bookingId).maybeSingle()
     declinedAndHeld = group == null
   }
@@ -112,27 +129,54 @@ export async function cancelBookingRequestAction(
     (booking.status === 'scheduled' && (booking.progress_status == null || booking.progress_status === 'on_the_way'))
   if (!cancellable) return { error: 'This booking can no longer be cancelled.' }
 
+  // Only an accepted booking: until a cleaner has committed to it, nobody has held the time.
+  const isLate =
+    booking.status === 'scheduled' &&
+    isLateCancellation(booking.scheduled_date, booking.scheduled_time, new Date(), booking.time_zone)
+  if (isLate && !acceptLateFee) {
+    return { error: 'Your booking is now less than 12 hours away, so canceling refunds 50%. Refresh the page to see your refund.' }
+  }
+
   let refundId: string | null = null
   if (booking.stripe_payment_intent_id) {
     try {
-      refundId = await refundBookingPayment(booking.stripe_payment_intent_id)
+      refundId = isLate
+        ? await refundLateCancellation(booking.stripe_payment_intent_id)
+        : await refundBookingPayment(booking.stripe_payment_intent_id)
     } catch (err) {
-      return { error: err instanceof Error ? err.message : 'Failed to refund this booking.' }
+      return { error: userFacingError(err, 'Failed to refund this booking.') }
     }
   }
 
   const { error } = await admin
     .from('bookings')
-    .update({ status: 'cancelled', stripe_refund_id: refundId, user_unread: false, tidy_pro_unread: !declinedAndHeld })
+    .update({
+      status: 'cancelled',
+      stripe_refund_id: refundId,
+      user_unread: false,
+      tidy_pro_unread: !declinedAndHeld,
+      ...(isLate ? { cancelled_reason: LATE_CANCEL_REASON, cleaner_pay: lateCancelCleanerPay(booking.cleaner_pay ?? 0) } : {}),
+    })
     .eq('id', bookingId)
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
+
+  // Pays the cleaner their share now. If the transfer fails, the scheduled job retries it.
+  if (isLate) {
+    const payout = await completeBookingPayout(admin, bookingId)
+    if ('error' in payout) console.error(`Late cancellation payout for ${bookingId}:`, payout.error)
+  }
 
   await restoreBookingTasks(admin, session.profileId, (booking.task_list as TidyTask[] | null) ?? [])
 
   // The cleaner who declined has already moved on, so they don't need to hear about it.
-  if (booking.tidy_pro_id && !declinedAndHeld) await notifyTidyPro(admin, booking.tidy_pro_id, cancelledPayload)
-  await notifyCustomer(admin, session.profileId, notifyBookingCancelledConfirmation())
+  const total = booking.total_customer_charge ?? 0
+  if (booking.tidy_pro_id && !declinedAndHeld) {
+    const firstName = customer?.first_name ?? 'The customer'
+    await notifyTidyPro(admin, booking.tidy_pro_id, isLate ? notifyCustomerCancelledLate(firstName, lateCancelCleanerPay(booking.cleaner_pay ?? 0), bookingId) : cancelledPayload)
+  }
+  await notifyCustomer(admin, session.profileId, isLate ? notifyLateCancelConfirmation(lateCancelRefund(total)) : notifyBookingCancelledConfirmation())
 
+  revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath(`/dashboard/messages/${bookingId}`)
   revalidatePath(`/dashboard/bookings/${bookingId}`)
   revalidatePath('/dashboard/messages')
@@ -194,7 +238,7 @@ export async function respondToTimeProposalAction(
       // Move the request to the new time, then accept it through the same database check
       // as the cleaner's Accept button, which refuses a double booking. Put it back if that fails.
       const { error: moveError } = await admin.from('bookings').update(newTime).eq('id', bookingId).eq('status', 'pending')
-      if (moveError) return { error: moveError.message }
+      if (moveError) return { error: userFacingError(moveError) }
 
       const { data: outcome, error } = await admin.rpc('accept_booking_request', {
         p_booking_id: bookingId,
@@ -206,7 +250,7 @@ export async function respondToTimeProposalAction(
           .update({ scheduled_date: booking.scheduled_date, scheduled_time: booking.scheduled_time })
           .eq('id', bookingId)
           .eq('status', 'pending')
-        if (error) return { error: error.message }
+        if (error) return { error: userFacingError(error) }
         if (outcome === 'conflict') return { error: 'Your Tidy Pro already has a booking at that time.' }
         if (outcome === 'taken') return { error: 'Another Tidy Pro already accepted this booking.' }
         return { error: 'This booking can no longer be changed.' }
@@ -226,7 +270,7 @@ export async function respondToTimeProposalAction(
         .eq('id', bookingId)
         .eq('status', 'scheduled')
         .is('progress_status', null)
-      if (error) return { error: error.message }
+      if (error) return { error: userFacingError(error) }
     }
 
     await answer('approved')
@@ -243,4 +287,12 @@ export async function respondToTimeProposalAction(
   revalidatePath('/pro/messages')
   revalidatePath('/dashboard')
   return { success: true }
+}
+
+// Rings the customer's phone from Tydio's number, then connects them to their Tidy Pro.
+// Neither side sees the other's number.
+export async function startCallAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+  return startMaskedCall(createAdminClient(), bookingId, { role: 'USER', profileId: session.profileId })
 }

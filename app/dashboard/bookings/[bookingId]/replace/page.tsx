@@ -17,7 +17,7 @@ export default async function ReplacementPage({ params }: { params: Promise<{ bo
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, tidy_pro_id, status, request_group_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, stripe_payment_intent_id, stripe_refund_id, time_zone'
+      'id, tidy_pro_id, status, request_group_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, stripe_payment_intent_id, stripe_refund_id, cancelled_reason, time_zone'
     )
     .eq('id', bookingId)
     .eq('user_id', session.profileId)

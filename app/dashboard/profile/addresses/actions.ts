@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isSquareFootage, type SquareFootage } from '@/lib/squareFootage'
+import { userFacingError } from '@/lib/userFacingError'
 
 const ADDRESS_COLUMNS = 'id, label, street_address, unit_number, city, state, zip_code, latitude, longitude, is_default, square_footage'
 
@@ -78,7 +79,7 @@ export async function createAddressAction(
     .select(ADDRESS_COLUMNS)
     .single()
 
-  if (error || !data) return { error: error?.message ?? 'Failed to save address.' }
+  if (error || !data) return { error: userFacingError(error, 'Failed to save address.') }
 
   revalidatePath('/dashboard/profile/addresses')
   revalidatePath('/book/schedule')
@@ -103,7 +104,7 @@ export async function updateAddressSquareFootageAction(
     .select(ADDRESS_COLUMNS)
     .single()
 
-  if (error || !data) return { error: error?.message ?? 'Failed to save square footage.' }
+  if (error || !data) return { error: userFacingError(error, 'Failed to save square footage.') }
 
   revalidatePath('/dashboard/profile/addresses')
   revalidatePath('/book/schedule')

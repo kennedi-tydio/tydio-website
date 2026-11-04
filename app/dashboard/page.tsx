@@ -162,7 +162,6 @@ export default async function DashboardPage({
   return (
     <DashboardHome
       firstName={profile.first_name ?? 'Your'}
-      userId={session.profileId}
       initialTasks={(draft?.task_list as TidyTask[] | null) ?? []}
       draftId={draft?.id ?? null}
       bookingAccessStatus={profile.booking_access_status ?? 'waitlisted'}

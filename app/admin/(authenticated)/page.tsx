@@ -1,9 +1,13 @@
 import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+}
+
 export default async function AdminOverviewPage() {
   const admin = createAdminClient()
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const sevenDaysAgo = daysAgoIso(7)
 
   const [
     { data: customers },

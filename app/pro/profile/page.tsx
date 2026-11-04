@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getUnreadMessageCountForTidyPro } from '@/lib/bookings'
+import { LATE_CANCEL_REASON } from '@/lib/bookingRequestGroups'
 import { summarizeEarnings, unpaidStripeBalance } from '@/lib/earnings'
 import { stripe } from '@/lib/stripe'
 import ProfileView from './ProfileView'
@@ -36,7 +37,9 @@ export default async function ProProfilePage() {
     .from('bookings')
     .select('cleaner_pay, tip, stripe_transfer_id')
     .eq('tidy_pro_id', session.profileId)
-    .eq('status', 'completed')
+    // A customer canceling late, or a settled no-access or no-show, can still pay the
+    // cleaner part of the booking.
+    .or(`status.eq.completed,cancelled_reason.eq.${LATE_CANCEL_REASON},incident_resolved_at.not.is.null`)
 
   const accountId = tidyPro?.stripe_account_id ?? null
   const earnings = summarizeEarnings(completedBookings ?? [], accountId != null)

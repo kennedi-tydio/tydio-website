@@ -35,6 +35,8 @@ export interface Database {
           stripe_customer_id: string | null
           sms_consent: 'opted_in' | 'declined' | null
           push_consent: 'opted_in' | 'declined' | null
+          suspended_at: string | null
+          banned_at: string | null
           created_at: string
         }
         Insert: {
@@ -68,6 +70,8 @@ export interface Database {
           stripe_customer_id?: string | null
           sms_consent?: 'opted_in' | 'declined' | null
           push_consent?: 'opted_in' | 'declined' | null
+          suspended_at?: string | null
+          banned_at?: string | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['profiles']['Insert']>
@@ -229,6 +233,15 @@ export interface Database {
           requested_at: string | null
           link_sent_at: string | null
           background_check_link: string | null
+          id_verification_sent_at: string | null
+          id_verification_link: string | null
+          background_check_completed_at: string | null
+          id_verification_completed_at: string | null
+          denied_at: string | null
+          denial_reason: string | null
+          appeal_token: string | null
+          appeal_message: string | null
+          appeal_submitted_at: string | null
           invited_at: string | null
           completed_at: string | null
           created_at: string
@@ -259,6 +272,15 @@ export interface Database {
           requested_at?: string | null
           link_sent_at?: string | null
           background_check_link?: string | null
+          id_verification_sent_at?: string | null
+          id_verification_link?: string | null
+          background_check_completed_at?: string | null
+          id_verification_completed_at?: string | null
+          denied_at?: string | null
+          denial_reason?: string | null
+          appeal_token?: string | null
+          appeal_message?: string | null
+          appeal_submitted_at?: string | null
           invited_at?: string | null
           completed_at?: string | null
           created_at?: string
@@ -319,6 +341,12 @@ export interface Database {
           reminder_sent_at: string | null
           on_the_way_reminder_sent_at: string | null
           unresponsive_alert_sent_at: string | null
+          arrived_at: string | null
+          incident_type: 'no_access' | 'cleaner_no_show' | null
+          incident_reported_at: string | null
+          incident_resolved_at: string | null
+          incident_refund_level: 'full' | 'half' | 'none' | null
+          incident_note: string | null
           created_at: string
           updated_at: string
         }
@@ -372,6 +400,12 @@ export interface Database {
           reminder_sent_at?: string | null
           on_the_way_reminder_sent_at?: string | null
           unresponsive_alert_sent_at?: string | null
+          arrived_at?: string | null
+          incident_type?: 'no_access' | 'cleaner_no_show' | null
+          incident_reported_at?: string | null
+          incident_resolved_at?: string | null
+          incident_refund_level?: 'full' | 'half' | 'none' | null
+          incident_note?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -786,6 +820,11 @@ export interface Database {
           fee_amount_cents: number | null
           stripe_payment_intent_id: string | null
           banned_at: string
+          appeal_token: string | null
+          appeal_message: string | null
+          appeal_submitted_at: string | null
+          appeal_denied_at: string | null
+          account_deleted_at: string | null
         }
         Insert: {
           id?: string
@@ -798,8 +837,111 @@ export interface Database {
           fee_amount_cents?: number | null
           stripe_payment_intent_id?: string | null
           banned_at?: string
+          appeal_token?: string | null
+          appeal_message?: string | null
+          appeal_submitted_at?: string | null
+          appeal_denied_at?: string | null
+          account_deleted_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['banned_users']['Insert']>
+        Relationships: []
+      }
+      booking_calls: {
+        Row: {
+          id: string
+          booking_id: string
+          caller_role: 'USER' | 'TIDYPRO'
+          twilio_call_sid: string
+          status: string | null
+          duration_seconds: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          booking_id: string
+          caller_role: 'USER' | 'TIDYPRO'
+          twilio_call_sid: string
+          status?: string | null
+          duration_seconds?: number | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['booking_calls']['Insert']>
+        Relationships: []
+      }
+      deleted_accounts: {
+        Row: {
+          id: string
+          former_profile_id: string
+          email: string
+          first_name: string | null
+          last_name: string | null
+          role: string
+          deleted_at: string
+        }
+        Insert: {
+          id?: string
+          former_profile_id: string
+          email: string
+          first_name?: string | null
+          last_name?: string | null
+          role: string
+          deleted_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['deleted_accounts']['Insert']>
+        Relationships: []
+      }
+      rate_limit_events: {
+        Row: {
+          id: string
+          key: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          key: string
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['rate_limit_events']['Insert']>
+        Relationships: []
+      }
+      agreement_signatures: {
+        Row: {
+          id: string
+          pro_id: string | null
+          agreement_version: string
+          document_sha256: string
+          signed_name: string
+          business_entity: string | null
+          authorized_representative: string | null
+          address: string
+          account_name: string | null
+          account_email: string
+          ip_address: string | null
+          user_agent: string | null
+          consent_text: string
+          signed_pdf_path: string
+          signed_at: string
+          emailed_at: string | null
+        }
+        Insert: {
+          id?: string
+          pro_id?: string | null
+          agreement_version: string
+          document_sha256: string
+          signed_name: string
+          business_entity?: string | null
+          authorized_representative?: string | null
+          address: string
+          account_name?: string | null
+          account_email: string
+          ip_address?: string | null
+          user_agent?: string | null
+          consent_text: string
+          signed_pdf_path: string
+          signed_at?: string
+          emailed_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['agreement_signatures']['Insert']>
         Relationships: []
       }
       user_addresses: {

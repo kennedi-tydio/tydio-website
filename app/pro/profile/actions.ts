@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isBanned, normalizePhone } from '@/lib/bannedUsers'
+import { extensionForType } from '@/lib/uploadExtension'
+import { userFacingError } from '@/lib/userFacingError'
 
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 const MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024
@@ -59,13 +61,13 @@ export async function updateProfileAction(input: {
     .from('profiles')
     .update({ first_name: firstName, last_name: lastName, phone })
     .eq('id', session.profileId)
-  if (profileError) return { error: profileError.message }
+  if (profileError) return { error: userFacingError(profileError) }
 
   const { error: tidyProError } = await admin
     .from('tidypro_profiles')
     .update({ bio: input.bio.trim() || null, phone, allergies })
     .eq('id', session.profileId)
-  if (tidyProError) return { error: tidyProError.message }
+  if (tidyProError) return { error: userFacingError(tidyProError) }
 
   revalidateProfilePages(session.profileId)
   return { success: true }
@@ -84,7 +86,7 @@ export async function updateProfilePhotoAction(
 
   const admin = createAdminClient()
 
-  const extension = file.name.split('.').pop() ?? 'jpg'
+  const extension = extensionForType(file.type)
   const path = `${session.profileId}/${Date.now()}.${extension}`
 
   const { error: uploadError } = await admin.storage
@@ -99,7 +101,7 @@ export async function updateProfilePhotoAction(
     .from('tidypro_profiles')
     .update({ profile_photo_url: photoUrl })
     .eq('id', session.profileId)
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   revalidateProfilePages(session.profileId)
   return { photoUrl }

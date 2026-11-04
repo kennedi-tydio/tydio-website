@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { userFacingError } from '@/lib/userFacingError'
 
 export async function updatePetsAction(pets: string): Promise<{ error: string } | { success: true }> {
   const session = await getSession()
@@ -14,7 +15,7 @@ export async function updatePetsAction(pets: string): Promise<{ error: string } 
     .update({ pets: pets.trim() || null })
     .eq('id', session.profileId)
 
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   revalidatePath('/dashboard/profile')
   return { success: true }

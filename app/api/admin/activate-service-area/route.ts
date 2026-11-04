@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isAdminSecret } from '@/lib/auth/admin'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendEmail, emailShell } from '@/lib/email'
+import { sendEmail, emailShell, escapeHtml } from '@/lib/email'
 
 // POST /api/admin/activate-service-area
 // Body: { service_area_id: string, secret: string }
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   const { service_area_id, secret } = body as { service_area_id?: string; secret?: string }
 
-  if (!secret || secret !== process.env.ADMIN_SECRET) {
+  if (!isAdminSecret(secret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
           subject: 'Tydio is now available in your area! 🎉',
           htmlContent: emailShell(`
             <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">
-              Great news, ${user.first_name ?? 'neighbor'}!
+              Great news, ${escapeHtml(user.first_name ?? 'neighbor')}!
             </h2>
             <p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;">
               Tydio Beta is now live in your area. You can now browse vetted Tidy Pros

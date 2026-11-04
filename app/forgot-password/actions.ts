@@ -2,7 +2,8 @@
 
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendEmail, emailShell } from '@/lib/email'
+import { sendEmail, emailShell, escapeHtml } from '@/lib/email'
+import { RATE_LIMITED_MESSAGE, allowEmailSend } from '@/lib/rateLimit'
 
 export type ForgotState = { error?: string; sent?: boolean }
 
@@ -16,6 +17,8 @@ export async function forgotPasswordAction(
   if (!email) return { error: 'Email is required.' }
 
   const admin = createAdminClient()
+
+  if (!(await allowEmailSend(admin, 'reset', email))) return { error: RATE_LIMITED_MESSAGE }
 
   const { data: profile } = await admin
     .from('profiles')
@@ -58,7 +61,7 @@ export async function forgotPasswordAction(
       htmlContent: emailShell(`
         <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">Reset your password</h2>
         <p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;">
-          Hi ${firstName}, we received a request to reset your Tydio password.
+          Hi ${escapeHtml(firstName)}, we received a request to reset your Tydio password.
           Click the button below — this link expires in 1 hour.
         </p>
         <a href="${resetUrl}"

@@ -5,6 +5,7 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import Link from 'next/link'
 import type { BookingTaskRow } from './CurrentBookingView'
 import BookingSummary, { type OrderLine } from './BookingSummary'
+import ReportNoShowButton from './ReportNoShowButton'
 
 type Props = {
   bookingId: string
@@ -20,7 +21,11 @@ type Props = {
   notes: string | null
   orderLines: OrderLine[]
   totalPrice: number
-  cancelBookingRequestAction: (bookingId: string) => Promise<{ success: true } | { error: string }>
+  // Set when canceling now would only refund this much (see isLateCancellation).
+  lateCancelRefund: number | null
+  // When a no-show can be reported (see noShowReportableAt).
+  noShowReportableAtMs: number | null
+  cancelBookingRequestAction: (bookingId: string, acceptLateFee?: boolean) => Promise<{ success: true } | { error: string }>
 }
 
 export default function UpcomingBookingDetailView({
@@ -37,6 +42,8 @@ export default function UpcomingBookingDetailView({
   notes,
   orderLines,
   totalPrice,
+  lateCancelRefund,
+  noShowReportableAtMs,
   cancelBookingRequestAction,
 }: Props) {
   const router = useRouter()
@@ -46,7 +53,7 @@ export default function UpcomingBookingDetailView({
   async function handleCancel() {
     setCancelling(true)
     setCancelError(null)
-    const result = await cancelBookingRequestAction(bookingId)
+    const result = await cancelBookingRequestAction(bookingId, lateCancelRefund != null)
     setCancelling(false)
     if ('error' in result) {
       setCancelError(result.error)
@@ -71,7 +78,13 @@ export default function UpcomingBookingDetailView({
       orderLines={orderLines}
       totalPrice={totalPrice}
     >
+      <ReportNoShowButton bookingId={bookingId} cleanerFirstName={cleanerName.split(' ')[0]} reportableAtMs={noShowReportableAtMs} />
       {cancelError && <p role="alert" className="text-xs text-red-600 mb-3">{cancelError}</p>}
+      {lateCancelRefund != null && (
+        <p className="text-xs text-slate-500 mb-3">
+          Your booking is less than 12 hours away, so canceling refunds 50% (${lateCancelRefund.toFixed(2)}).
+        </p>
+      )}
 
       <div className="flex flex-col gap-3">
         <button

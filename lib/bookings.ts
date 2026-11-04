@@ -2,6 +2,8 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 import { stripe } from '@/lib/stripe'
 import { excludeHiddenReviews } from '@/lib/cleanerReviewWindow'
 import { getHiddenReviews } from '@/lib/cleanerReviews'
+import { LATE_CANCEL_REASON } from '@/lib/bookingRequestGroups'
+import { userFacingError } from '@/lib/userFacingError'
 
 // Shared by both sides' "send message" actions — inserts the chat message
 // and flips the *other* side's unread dot on the Messages list. Doesn't
@@ -22,7 +24,7 @@ export async function sendBookingMessage(
     sender_role: senderRole,
     body: trimmed,
   })
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   const unreadColumn = senderRole === 'USER' ? 'tidy_pro_unread' : 'user_unread'
   await admin
@@ -86,12 +88,15 @@ export async function getRatingVisibleToTidyPro(
 // direct edits, etc.) — not just the one call site that happened to set it.
 //
 // Also retries the transfer on an already-completed booking that still has
-// no stripe_transfer_id — e.g. Stripe test mode holds a fresh charge as
-// "pending" balance for a while, so the very first transfer attempt right
-// after completion routinely fails with insufficient available funds. Since
-// completion itself must not roll back once the service has happened, that
-// first failure leaves the booking correctly completed but unpaid; calling
-// this again (another page load, a cron, whatever) is how it catches up.
+// no stripe_transfer_id — the transfer is tied to the customer's charge, so
+// a still-pending balance doesn't block it, but any other Stripe failure
+// does. Since completion itself must not roll back once the service has
+// happened, that failure leaves the booking correctly completed but unpaid;
+// calling this again (another page load, a cron, whatever) is how it catches up.
+//
+// A booking the customer canceled late is paid the same way, through the retry path:
+// its cleaner_pay is set to their share of what Tydio kept when it's canceled. So is an
+// incident (no access, no-show) once the admin settles it (see lib/bookingIncidents).
 //
 // Idempotent and race-safe: the status flip from 'scheduled' to 'completed'
 // is a single conditional UPDATE that only one caller can ever win, so two
@@ -110,10 +115,10 @@ export async function completeBookingPayout(
     .eq('id', bookingId)
     .eq('status', 'scheduled')
     .eq('progress_status', 'done')
-    .select('id, tidy_pro_id, cleaner_pay, stripe_transfer_id')
+    .select('id, tidy_pro_id, cleaner_pay, stripe_transfer_id, stripe_payment_intent_id')
     .maybeSingle()
 
-  if (claimError) return { error: claimError.message }
+  if (claimError) return { error: userFacingError(claimError) }
 
   let booking = claimed
   if (!booking) {
@@ -121,10 +126,11 @@ export async function completeBookingPayout(
     // or already completed. Check the latter case for a missing transfer.
     const { data: existing } = await admin
       .from('bookings')
-      .select('id, status, tidy_pro_id, cleaner_pay, stripe_transfer_id')
+      .select('id, status, cancelled_reason, incident_resolved_at, tidy_pro_id, cleaner_pay, stripe_transfer_id, stripe_payment_intent_id')
       .eq('id', bookingId)
       .maybeSingle()
-    if (!existing || existing.status !== 'completed' || existing.stripe_transfer_id) {
+    const owesCleaner = existing?.status === 'completed' || existing?.cancelled_reason === LATE_CANCEL_REASON || existing?.incident_resolved_at != null
+    if (!existing || !owesCleaner || existing.stripe_transfer_id) {
       return { success: true }
     }
     booking = existing
@@ -134,28 +140,88 @@ export async function completeBookingPayout(
 
   const { data: tidyPro } = await admin
     .from('tidypro_profiles')
-    .select('stripe_account_id')
+    .select('stripe_account_id, stripe_onboarding_completed')
     .eq('id', booking.tidy_pro_id)
     .maybeSingle()
 
   // If the Tidy Pro hasn't finished payouts onboarding, the booking still
   // completes — the transfer is skipped and retried the next time this runs.
-  if (!tidyPro?.stripe_account_id) return { success: true }
+  // The account exists as soon as they start onboarding, so its id alone
+  // doesn't mean Stripe will accept a transfer to it yet.
+  if (!tidyPro?.stripe_account_id || !tidyPro.stripe_onboarding_completed) return { success: true }
 
   try {
+    // Tied to the customer's charge, so the transfer goes through even while that
+    // charge is still pending in our balance; Stripe releases it once the charge settles.
+    let sourceCharge: string | undefined
+    if (booking.stripe_payment_intent_id) {
+      const paymentIntent = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id)
+      const latestCharge = paymentIntent.latest_charge
+      sourceCharge = typeof latestCharge === 'string' ? latestCharge : latestCharge?.id
+    }
+
     const transfer = await stripe.transfers.create({
       amount: Math.round(booking.cleaner_pay * 100),
       currency: 'usd',
       destination: tidyPro.stripe_account_id,
       transfer_group: bookingId,
+      ...(sourceCharge ? { source_transaction: sourceCharge } : {}),
     })
     await admin.from('bookings').update({ stripe_transfer_id: transfer.id }).eq('id', bookingId)
   } catch (err) {
     // The booking is already marked completed at this point (correctly —
     // the service did happen) — a failed transfer needs a retry, not a
     // rollback of completion. The next call to this function will retry it.
-    return { error: err instanceof Error ? err.message : 'Completed, but the payout transfer failed.' }
+    return { error: userFacingError(err, 'Completed, but the payout transfer failed.') }
   }
 
   return { success: true }
+}
+
+// Pays out everything a Tidy Pro was owed while they had no finished payout
+// account — called the moment their onboarding completes, since nothing else
+// would revisit those bookings.
+export async function retryPayoutsForTidyPro(
+  admin: ReturnType<typeof createAdminClient>,
+  tidyProId: string
+): Promise<void> {
+  const { data: unpaid } = await admin
+    .from('bookings')
+    .select('id')
+    .eq('tidy_pro_id', tidyProId)
+    .or(`status.eq.completed,cancelled_reason.eq.${LATE_CANCEL_REASON},incident_resolved_at.not.is.null`)
+    .is('stripe_transfer_id', null)
+    .gt('cleaner_pay', 0)
+
+  for (const booking of unpaid ?? []) {
+    const result = await completeBookingPayout(admin, booking.id).catch((err) => ({ error: String(err) }))
+    if ('error' in result) console.error(`Payout for ${booking.id}:`, result.error)
+  }
+}
+
+// A late cancellation pays the cleaner when it's canceled, and a settled incident when
+// it's settled, so unlike a completed booking there's no page load to retry a failed
+// transfer. The scheduled job does it.
+export async function retryLateCancellationPayouts(
+  admin: ReturnType<typeof createAdminClient>
+): Promise<{ paid: number; failed: number }> {
+  const { data: unpaid } = await admin
+    .from('bookings')
+    .select('id')
+    .or(`cancelled_reason.eq.${LATE_CANCEL_REASON},incident_resolved_at.not.is.null`)
+    .is('stripe_transfer_id', null)
+    .gt('cleaner_pay', 0)
+
+  let paid = 0
+  let failed = 0
+  for (const booking of unpaid ?? []) {
+    const result = await completeBookingPayout(admin, booking.id).catch((err) => ({ error: String(err) }))
+    if ('error' in result) {
+      console.error(`Late cancellation payout for ${booking.id}:`, result.error)
+      failed++
+    } else {
+      paid++
+    }
+  }
+  return { paid, failed }
 }

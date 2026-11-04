@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import ProgressStepper from './ProgressStepper'
 import ReportTidyProSheet from './ReportTidyProSheet'
+import ReportNoShowButton from './ReportNoShowButton'
 import ReviewForm from './ReviewForm'
 import PhotoViewer, { type TaskPhoto } from './PhotoViewer'
 import { CategoryIcon, groupByCategory } from './BookingSummary'
@@ -20,6 +21,10 @@ export type BookingTaskRow = {
 
 type Props = {
   cardFeePercentage?: number
+  // Set when canceling now would only refund this much (see isLateCancellation).
+  lateCancelRefund?: number | null
+  // When a no-show can be reported (see noShowReportableAt).
+  noShowReportableAtMs?: number | null
   bookingId: string
   cleanerName: string
   cleanerPhotoUrl: string | null
@@ -117,6 +122,8 @@ export default function CurrentBookingView({
   totalPrice,
   alreadyReviewed,
   cardFeePercentage,
+  lateCancelRefund = null,
+  noShowReportableAtMs = null,
 }: Props) {
   const router = useRouter()
   const firstName = cleanerName.split(' ')[0]
@@ -144,7 +151,7 @@ export default function CurrentBookingView({
   async function handleCancel() {
     setCancelling(true)
     setCancelError(null)
-    const result = await cancelBookingRequestAction(bookingId)
+    const result = await cancelBookingRequestAction(bookingId, lateCancelRefund != null)
     setCancelling(false)
     if ('error' in result) {
       setCancelError(result.error)
@@ -333,7 +340,13 @@ export default function CurrentBookingView({
 
         {progressStatus === 'on_the_way' && (
           <div className="text-center mt-6">
+            <ReportNoShowButton bookingId={bookingId} cleanerFirstName={firstName} reportableAtMs={noShowReportableAtMs} />
             {cancelError && <p role="alert" className="text-xs text-red-600 mb-2">{cancelError}</p>}
+            {lateCancelRefund != null && (
+              <p className="text-xs text-slate-500 mb-2">
+                Your booking is less than 12 hours away, so canceling refunds 50% (${lateCancelRefund.toFixed(2)}).
+              </p>
+            )}
             <button
               type="button"
               onClick={handleCancel}

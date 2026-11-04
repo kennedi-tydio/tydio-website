@@ -1,5 +1,5 @@
-import Twilio from 'twilio'
 import type { NotificationPayload } from '@/lib/notifications'
+import { twilioClient } from '@/lib/twilio'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/bannedUsers'
 import { TYDIO_ADMIN_EMAIL } from '@/lib/email'
@@ -47,15 +47,10 @@ export async function setSmsConsentForPhone(admin: Admin, phone: string, consent
 }
 
 export async function sendSms(to: string, body: string): Promise<void> {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID
-  const authToken = process.env.TWILIO_AUTH_TOKEN
-  const from = process.env.TWILIO_PHONE_NUMBER
-  if (!accountSid || !authToken || !from) throw new Error('Twilio env vars are not set')
-
-  const client = Twilio(accountSid, authToken)
+  const client = twilioClient()
 
   try {
-    await client.messages.create({ to, from, body })
+    await client.messages.create({ to, from: process.env.TWILIO_PHONE_NUMBER!, body })
   } catch (err) {
     // Catches anyone who replied STOP before the inbound webhook existed, or
     // whose STOP the webhook missed, so we stop trying them.
@@ -69,5 +64,5 @@ export async function sendSms(to: string, body: string): Promise<void> {
 }
 
 export async function sendSmsForPayload(to: string, payload: NotificationPayload): Promise<void> {
-  await sendSms(to, `${payload.body} ${payload.url}`)
+  await sendSms(to, `Tydio: ${payload.body} ${payload.url}`)
 }

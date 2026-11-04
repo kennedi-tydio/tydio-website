@@ -1,5 +1,7 @@
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { setPushConsentAction, subscribeToPushAction } from '@/app/actions/notificationConsent'
+import { userFacingError } from '@/lib/userFacingError'
+import { createDeviceFlag } from './deviceFlag'
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -38,14 +40,22 @@ export function useIsStandalone(): boolean {
 // records both the subscription and the consent flag. Used by both the
 // first-login consent modal and the Profile notifications settings page
 // so the subscribe flow only lives in one place.
-export async function enablePushNotifications(): Promise<{ success: true } | { error: string }> {
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+// On a second device for an account that's already opted in, a refused
+// permission prompt shouldn't turn push off for the account's other devices,
+// so callers pass declineOnRefusal: false there.
+export async function enablePushNotifications({ declineOnRefusal = true } = {}): Promise<{ success: true } | { error: string }> {
+  if (typeof window === 'undefined') return { error: 'Push notifications are not supported on this device.' }
+  // Push is only offered in the installed app: iOS has no push in a browser
+  // tab at all, and keeping every platform the same avoids subscribing a
+  // tab the person later closes for good.
+  if (!getStandaloneSnapshot()) return { error: 'Add Tydio to your home screen first, then open it from there.' }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     return { error: 'Push notifications are not supported on this device.' }
   }
 
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') {
-    await setPushConsentAction('declined')
+    if (declineOnRefusal) await setPushConsentAction('declined')
     return { error: 'Permission was not granted.' }
   }
 
@@ -71,10 +81,45 @@ export async function enablePushNotifications(): Promise<{ success: true } | { e
     await setPushConsentAction('opted_in')
     return { success: true }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Could not enable push notifications.' }
+    return { error: userFacingError(err, 'Could not enable push notifications.') }
   }
 }
 
+// "Not on this device" answer to the new-device push prompt, so it isn't
+// asked again here while the account stays opted in elsewhere.
+const pushPromptFlag = createDeviceFlag('tydio:push-prompt-dismissed')
+export const dismissDevicePushPrompt = pushPromptFlag.set
+export const useDevicePushPromptDismissed = pushPromptFlag.useFlag
+
+// Unsubscribes this device in the browser; the server action then removes
+// every stored subscription for the profile so no device gets pushes.
 export async function disablePushNotifications(): Promise<{ success: true } | { error: string }> {
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration()
+    const subscription = await registration?.pushManager?.getSubscription()
+    await subscription?.unsubscribe()
+  } catch {
+    // The server-side delete below is what actually stops sends.
+  }
   return setPushConsentAction('declined')
+}
+
+// Whether this browser currently holds a push subscription. Null while
+// checking, or when push isn't available here (e.g. not installed on iOS).
+export function useDevicePushSubscribed(enabled: boolean): boolean | null {
+  const [subscribed, setSubscribed] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!enabled || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+    let cancelled = false
+    navigator.serviceWorker.ready
+      .then((registration) => registration.pushManager.getSubscription())
+      .then((subscription) => {
+        if (!cancelled) setSubscribed(subscription !== null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [enabled])
+  return subscribed
 }

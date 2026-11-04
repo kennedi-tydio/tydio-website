@@ -5,7 +5,7 @@ import Footer from '../components/Footer'
 
 export const metadata: Metadata = { title: 'Terms and Conditions — Tydio' }
 
-const LAST_UPDATED = 'November 2, 2026'
+const LAST_UPDATED = 'November 4, 2026'
 const CONTACT_EMAIL = 'kennedicoats@tydioapp.com'
 const CONTACT_PHONE = '(850) 345-2532'
 const CONTACT_PHONE_HREF = 'tel:+18503452532'
@@ -135,10 +135,16 @@ export default function TermsPage() {
               SERVICES AND YOU MUST DISCONTINUE USE IMMEDIATELY.
             </p>
             <p>
-              We will provide you with prior notice of any scheduled changes to the Services you are using. The modified Legal
-              Terms will become effective upon posting or notifying you by <EmailLink />, as stated in the email message. By
-              continuing to use the Services after the effective date of any changes, you agree to be bound by the modified
-              terms.
+              <strong>Changes to these Legal Terms.</strong> We may update these Legal Terms from time to time. We will post
+              the revised terms on the Site and in the App, update the &ldquo;Last updated&rdquo; date, and state their
+              effective date. For material changes, we will provide at least 30 days&rsquo; advance notice by email to the
+              address associated with your account or by a prominent notice on the Site or in the App, unless a shorter period
+              is required by law or reasonably necessary to address an urgent security or legal issue. Changes apply
+              prospectively and do not change the terms governing an existing dispute or a completed booking. Where applicable
+              law requires affirmative consent, a change will bind you only after that consent is obtained. Otherwise,
+              continued use after the stated effective date constitutes acceptance to the extent permitted by law. If you
+              disagree, stop using the Services; existing payment obligations and accrued rights remain subject to the
+              applicable prior terms.
             </p>
             <p>
               The Services are intended for users who are at least 18 years old. Persons under the age of 18 are not permitted
@@ -166,6 +172,58 @@ export default function TermsPage() {
               persons who choose to access the Services from other locations do so on their own initiative and are solely
               responsible for compliance with local laws, if and to the extent local laws are applicable.
             </p>
+            <Sub title="Marketplace role and independent Tidy Pros">
+              <p>
+                Tydio provides a technology marketplace and booking, communication, and payment-facilitation tools. Tydio
+                does not itself perform cleaning services. Cleaning services are offered and performed by independent
+                third-party Tidy Pros. An accepted cleaning booking creates a service arrangement between the customer and
+                the accepting Tidy Pro; Tydio remains responsible for its own platform obligations expressly stated in these
+                Legal Terms.
+              </p>
+              <p>
+                Tidy Pros operate independently and are not authorized to act as Tydio&rsquo;s employees, agents, partners,
+                or joint venturers, or to bind Tydio. Subject to applicable law, the agreed scope of a booking, safety
+                requirements, and platform policies, Tidy Pros control their cleaning methods and manner of performance,
+                choose their availability and whether to accept bookings, and may provide services through other channels.
+                They are responsible for their own business expenses, taxes, required licenses, permits, and insurance.
+                Platform pricing, payment processing, screening, customer support, or enforcement of platform standards does
+                not by itself create an employment or agency relationship. Actual legal status is determined by applicable
+                law and the facts, not solely by these labels. Any separate Tidy Pro agreement governs additional provider
+                obligations; these terms do not override nonwaivable worker rights.
+              </p>
+            </Sub>
+            <Sub title="Third-party conduct, service quality, and screening">
+              <p>
+                To the fullest extent permitted by law, Tydio is not responsible or vicariously liable for the independent
+                acts or omissions of customers or Tidy Pros, including their on-site conduct, negligence, theft, missing
+                property, property damage, personal injury, misconduct, failure to attend, or the quality, timing, legality,
+                or completeness of cleaning services. Claims concerning a Tidy Pro&rsquo;s own conduct or performance should
+                be directed to that Tidy Pro, without limiting any rights you may lawfully have against Tydio for its own
+                conduct. Tydio does not guarantee a particular cleaning result or that any participant is safe, qualified,
+                insured, or free of misconduct.
+              </p>
+              <p>
+                Tydio uses Checkr, Inc. (including its GoodHire service) to verify the identity of Tidy Pros and to conduct
+                background screening. Identity verification may require a Tidy Pro to submit a government-issued ID and a
+                selfie directly to Checkr, under Checkr&rsquo;s own disclosures, consent, and privacy terms. Any identity
+                verification, background screening, profile, rating, or review is limited in scope and accuracy
+                and is not a guarantee of identity, safety, future behavior, or service quality. Screening may not identify
+                every record or risk. Tydio&rsquo;s screening and approval obligations remain subject to applicable law. No
+                provision excludes liability for Tydio&rsquo;s own fraud, willful misconduct, gross negligence, or other
+                responsibility that cannot lawfully be excluded, or waives mandatory consumer or worker protections.{' '}
+                <SectionLink id="liability">Section 23</SectionLink> applies to claims against Tydio only to the extent
+                permitted by law.
+              </p>
+              <p>
+                Customers must provide accurate task and access information, disclose known hazards, and secure valuables,
+                pets, and sensitive information. Tidy Pros must perform only the agreed lawful services and promptly report
+                unsafe conditions. Report incidents promptly through the App or the contact details in{' '}
+                <SectionLink id="contact">Section 30</SectionLink>; contact emergency services for immediate danger. Tydio
+                may assist with reports, refunds, and disputes, but that assistance does not make it the provider of the
+                cleaning service or create a guarantee of compensation. Nothing here limits an express refund obligation in{' '}
+                <SectionLink id="refunds">Section 7</SectionLink> or a nonwaivable legal remedy.
+              </p>
+            </Sub>
           </Section>
 
           <Section id="ip" title="Intellectual property rights">
@@ -322,8 +380,10 @@ export default function TermsPage() {
           </Section>
 
           <Section id="purchases" title="Purchases and payment">
-            <p>We accept the following forms of payment:</p>
-            <List items={['Visa', 'Mastercard', 'American Express', 'Discover', 'PayPal']} />
+            <p>
+              Payments are processed securely by our payment processor, Stripe. We accept the following forms of payment:
+            </p>
+            <List items={['Visa', 'Mastercard', 'American Express', 'Discover']} />
             <p>
               You agree to provide current, complete, and accurate purchase and account information for all purchases made
               via the Services. You further agree to promptly update account and payment information, including email address,
@@ -347,37 +407,76 @@ export default function TermsPage() {
           </Section>
 
           <Section id="subscriptions" title="Subscriptions">
-            <Sub title="Billing and renewal">
-              <p>
-                Your subscription will continue and automatically renew unless canceled. You consent to our charging your
-                payment method on a recurring basis without requiring your prior approval for each recurring charge, until
-                such time as you cancel the applicable order. The length of your billing cycle will depend on the type of
-                subscription plan you choose when you subscribed to the Services.
-              </p>
-            </Sub>
-            <Sub title="Free trial">
-              <p>
-                We offer a 7-day free trial to new users who register with the Services. The account will be charged according
-                to the user&rsquo;s chosen subscription at the end of the free trial.
-              </p>
-            </Sub>
-            <Sub title="Cancellation">
-              <p>
-                You can cancel your subscription at any time by logging into your account. Your cancellation will take effect
-                at the end of the current paid term. If you have any questions or are unsatisfied with our Services, please
-                email us at <EmailLink />.
-              </p>
-            </Sub>
-            <Sub title="Fee changes">
-              <p>
-                We may, from time to time, make changes to the subscription fee and will communicate any price changes to you
-                in accordance with applicable law.
-              </p>
-            </Sub>
+            <p>
+              <strong>Coming soon.</strong> Tydio does not currently offer subscription plans, and you will not be charged
+              any recurring fee for using the Services. We plan to introduce subscriptions in 2027. Before we do, we will
+              update these Legal Terms with the billing, renewal, trial, cancellation, and pricing terms that apply and
+              notify you in advance. You will never be enrolled in or charged for a subscription without your consent.
+            </p>
           </Section>
 
           <Section id="refunds" title="Refund policy">
-            <p>All sales are final and no refund will be issued.</p>
+            <Sub title="Bookings">
+              <p>
+                When you book through Tydio, your payment includes a payment processing fee charged by Stripe. This
+                processing fee is shown at checkout and is <strong>nonrefundable</strong>. If your booking is canceled,
+                you will be refunded the amount you paid less the Stripe processing fee. This applies when:
+              </p>
+              <List items={[
+                'you cancel a booking while it is still waiting for a Tidy Pro to accept it;',
+                'you cancel an accepted booking more than 12 hours before its scheduled start time, and before your Tidy Pro has arrived;',
+                'no Tidy Pro accepts your booking request by one hour before the scheduled start time, in which case we cancel it automatically; or',
+                'a Tidy Pro declines your booking and you choose not to request a replacement.',
+              ]} />
+              <p>
+                <strong>Late cancellations.</strong> If you cancel an accepted booking less than 12 hours before its
+                scheduled start time, you will be refunded 50% of the amount you paid. The rest is kept to compensate your
+                Tidy Pro, who reserved that time for you, and Tydio.
+              </p>
+              <p>
+                <strong>If your Tidy Pro cancels.</strong> If your Tidy Pro cancels an accepted booking at least one hour
+                before its scheduled start time, we will notify you and you may choose up to three other Tidy Pros at no
+                additional charge. Your payment carries over to whichever of them accepts. If none accepts by one hour
+                before the start time, or you cancel instead, you will be refunded the amount you paid less the Stripe
+                processing fee. If your Tidy Pro cancels less than one hour before the scheduled start time, you will be
+                refunded the full amount, including the processing fee.
+              </p>
+              <p>
+                <strong>If your Tidy Pro can&rsquo;t get in.</strong> If your Tidy Pro arrives but is not given access to
+                your home, they will wait 15 minutes after the scheduled start time or their arrival, whichever is later,
+                and may then report the booking as &ldquo;Customer unavailable&mdash;no access&rdquo;. The booking is then
+                canceled. We review each report and may refund the full amount, 50% of it, or nothing, and will email you
+                the outcome.
+              </p>
+              <p>
+                <strong>If your Tidy Pro doesn&rsquo;t show up.</strong> If your Tidy Pro has not arrived 30 minutes after
+                the scheduled start time, you may report a no-show in the app, and the booking is canceled. We review each
+                report, will email you the amount of your refund, and may suspend the Tidy Pro&rsquo;s account.
+              </p>
+              <p>
+                Once your Tidy Pro has arrived, the booking can no longer be canceled. If there is a problem with a booking
+                in progress or completed, use the Report Tidy Pro option in the app or contact us at <EmailLink />. We
+                review these reports and may issue a full or partial refund at our discretion.
+              </p>
+              <p>
+                If you are charged in error, or your payment goes through but your booking could not be created, we will
+                refund the full amount, including the processing fee.
+              </p>
+            </Sub>
+            <Sub title="Tidy Pro background screening fee">
+              <p>
+                The background screening fee paid by Tidy Pros covers both identity verification and the background check,
+                which Tydio arranges through Checkr. It is nonrefundable, except for duplicate charges, Tydio ordering
+                errors, and cases where Tydio cancels onboarding for its own business reasons unrelated to screening results
+                or the Tidy Pro&rsquo;s conduct.
+              </p>
+            </Sub>
+            <Sub title="How refunds are paid">
+              <p>
+                Refunds are returned to the original payment method. Depending on your bank or card issuer, a refund may take
+                5 to 10 business days to appear on your statement.
+              </p>
+            </Sub>
           </Section>
 
           <Section id="prohibited" title="Prohibited activities">
@@ -671,12 +770,21 @@ export default function TermsPage() {
 
           <Section id="disputes" title="Dispute resolution">
             <p>
-              Any legal action of whatever nature brought by either you or us (collectively, the &ldquo;Parties&rdquo; and
-              individually, a &ldquo;Party&rdquo;) shall be commenced or prosecuted in the state and federal courts located in
-              Fulton, Georgia, and the Parties hereby consent to, and waive all defenses of lack of personal jurisdiction and
-              forum non conveniens with respect to venue and jurisdiction in such state and federal courts. Application of the
-              United Nations Convention on Contracts for the International Sale of Goods and the Uniform Computer Information
-              Transaction Act (UCITA) are excluded from these Legal Terms.
+              Any legal action arising out of or relating to these Legal Terms, the Services, bookings, payments, or your
+              relationship with Tydio shall be brought in a state court of competent jurisdiction in Fulton County, Georgia, or
+              the federal court having jurisdiction over Fulton County, Georgia. You and Tydio consent to the personal
+              jurisdiction of those courts and, to the extent permitted by law, waive objections to venue or inconvenient
+              forum. This provision is subject to any nonwaivable right to bring a claim in another court or venue and does not
+              restrict access to a small claims court where applicable law requires that option.
+            </p>
+            <p>
+              These Legal Terms do not require mediation or arbitration and do not impose a class action, collective action,
+              representative action, or jury trial waiver. Nothing in these Legal Terms restricts reporting to, filing charges
+              with, or participating in proceedings before a government agency or exercising any other nonwaivable right.
+            </p>
+            <p>
+              Application of the United Nations Convention on Contracts for the International Sale of Goods and the Uniform
+              Computer Information Transaction Act (UCITA) is excluded from these Legal Terms.
             </p>
           </Section>
 
@@ -705,9 +813,9 @@ export default function TermsPage() {
               ANY CONTENT AND MATERIALS OR FOR ANY LOSS OR DAMAGE OF ANY KIND INCURRED AS A RESULT OF THE USE OF ANY CONTENT
               POSTED, TRANSMITTED, OR OTHERWISE MADE AVAILABLE VIA THE SERVICES. WE DO NOT WARRANT, ENDORSE, GUARANTEE, OR ASSUME
               RESPONSIBILITY FOR ANY PRODUCT OR SERVICE ADVERTISED OR OFFERED BY A THIRD PARTY THROUGH THE SERVICES, ANY
-              HYPERLINKED WEBSITE, OR ANY WEBSITE OR MOBILE APPLICATION FEATURED IN ANY BANNER OR OTHER ADVERTISING, AND WE WILL
-              NOT BE A PARTY TO OR IN ANY WAY BE RESPONSIBLE FOR MONITORING ANY TRANSACTION BETWEEN YOU AND ANY THIRD-PARTY
-              PROVIDERS OF PRODUCTS OR SERVICES. AS WITH THE PURCHASE OF A PRODUCT OR SERVICE THROUGH ANY MEDIUM OR IN ANY
+              HYPERLINKED WEBSITE, OR ANY WEBSITE OR MOBILE APPLICATION FEATURED IN ANY BANNER OR OTHER ADVERTISING, AND WE ARE
+              NOT THE PROVIDER OF THIRD-PARTY CLEANING SERVICES. OUR BOOKING, PAYMENT, SUPPORT, AND REFUND OBLIGATIONS EXPRESSLY
+              STATED IN THESE LEGAL TERMS REMAIN IN EFFECT. AS WITH THE PURCHASE OF A PRODUCT OR SERVICE THROUGH ANY MEDIUM OR IN ANY
               ENVIRONMENT, YOU SHOULD USE YOUR BEST JUDGMENT AND EXERCISE CAUTION WHERE APPROPRIATE.
             </p>
           </Section>
@@ -722,6 +830,12 @@ export default function TermsPage() {
               CERTAIN US STATE LAWS AND INTERNATIONAL LAWS DO NOT ALLOW LIMITATIONS ON IMPLIED WARRANTIES OR THE EXCLUSION OR
               LIMITATION OF CERTAIN DAMAGES. IF THESE LAWS APPLY TO YOU, SOME OR ALL OF THE ABOVE DISCLAIMERS OR LIMITATIONS MAY
               NOT APPLY TO YOU, AND YOU MAY HAVE ADDITIONAL RIGHTS.
+            </p>
+            <p>
+              The exclusions and $1,000.00 USD aggregate liability cap above do not apply to Tydio&rsquo;s fraud, willful
+              misconduct, gross negligence, or liability that applicable law prohibits limiting or excluding. They do not
+              eliminate nonwaivable statutory remedies or Tydio&rsquo;s express refund obligations under{' '}
+              <SectionLink id="refunds">Section 7</SectionLink>.
             </p>
           </Section>
 
@@ -738,6 +852,11 @@ export default function TermsPage() {
               us, and you agree to cooperate, at your expense, with our defense of such claims. We will use reasonable efforts
               to notify you of any such claim, action, or proceeding which is subject to this indemnification upon becoming
               aware of it.
+            </p>
+            <p>
+              The indemnification above applies only to the extent permitted by law and does not require indemnification for
+              Tydio&rsquo;s own fraud, willful misconduct, gross negligence, or other liability that cannot lawfully be
+              shifted. It does not override nonwaivable consumer or worker protections.
             </p>
           </Section>
 
@@ -770,14 +889,15 @@ export default function TermsPage() {
             <Sub title="Program description">
               <p>
                 By opting into any Tydio text messaging program, you expressly consent to receive text messages (SMS) to your
-                mobile number. Tydio text messages may include: account alerts, appointment reminders, marketing
-                communications, order updates, responses to inquiries and special offers.
+                mobile number. Tydio text messages may include: booking requests, confirmations and changes, appointment
+                reminders, service status updates, new message alerts, review requests and account alerts. We do not send
+                marketing or promotional text messages. Message frequency varies.
               </p>
             </Sub>
             <Sub title="Opting out">
               <p>
-                Users can opt out of text messages by opening Settings in the Tydio app and turning off the text message
-                notifications toggle.
+                Users can opt out of text messages at any time by replying STOP to any Tydio text message, or by opening
+                Settings in the Tydio app and turning off the text message notifications toggle.
               </p>
             </Sub>
             <Sub title="Message and data rates">
@@ -837,18 +957,6 @@ export default function TermsPage() {
             </address>
           </Section>
 
-          <p className="text-xs text-slate-400">
-            This Terms and Conditions was created using Termly&rsquo;s{' '}
-            <a
-              href="https://termly.io/products/terms-and-conditions-generator/"
-              className="underline underline-offset-2"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Terms and Conditions Generator
-            </a>
-            .
-          </p>
         </article>
       </main>
 

@@ -4,11 +4,12 @@ import { revalidatePath } from 'next/cache'
 import Stripe from 'stripe'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
 import { stripe } from '@/lib/stripe'
 import { getOrCreateStripeCustomerId } from '@/lib/stripe/customer'
 import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
 import { computeIsTopTidyPro, hasBookingConflict, haversineDistanceMiles } from '@/lib/cleanerMatching'
-import { cleanerPayoutForTotal, grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
+import { cleanerPayoutForServicePrice, grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import { DEFAULT_BOOKING_TIME_ZONE, hasAcceptanceWindowClosed, isValidTimeZone } from '@/lib/bookingTime'
@@ -16,6 +17,7 @@ import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import { notifyNewBookingRequest } from '@/lib/notifications'
+import { userFacingError } from '@/lib/userFacingError'
 
 async function loadOwnedDraftTasks(
   admin: ReturnType<typeof createAdminClient>,
@@ -135,6 +137,9 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
 
   const admin = createAdminClient()
+
+  const suspended = await bookingBlockedBySuspension(admin, session.profileId)
+  if (suspended) return { error: suspended }
 
   const { data: draft } = await admin
     .from('booking_drafts')
@@ -270,7 +275,7 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
       pricing_breakdown: breakdown as never,
       customer_subtotal: breakdown.total_customer_charge,
       total_customer_charge: totalPrice,
-      cleaner_pay: cleanerPayoutForTotal(totalPrice),
+      cleaner_pay: cleanerPayoutForServicePrice(servicePrice),
       tip: 0,
       will_provide_supplies: draft.supplies_provided,
       pets: draft.pets,
@@ -287,7 +292,7 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
     // The charge succeeded but the booking couldn't be created — refund
     // rather than leave the customer charged for nothing.
     await stripe.refunds.create({ payment_intent: paymentIntent.id }).catch(() => {})
-    return { error: error?.message ?? 'Failed to create booking.' }
+    return { error: userFacingError(error, 'Failed to create booking.') }
   }
 
   await admin.from('booking_tasks').insert(

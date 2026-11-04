@@ -2,6 +2,7 @@
 
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { userFacingError } from '@/lib/userFacingError'
 
 export async function confirmSelectionAction(
   draftId: string,
@@ -23,7 +24,7 @@ export async function confirmSelectionAction(
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)
 
-  if (error) return { error: error.message }
+  if (error) return { error: userFacingError(error) }
 
   return { success: true }
 }

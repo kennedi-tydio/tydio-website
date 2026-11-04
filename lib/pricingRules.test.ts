@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  lateCancelCleanerPay,
+  lateCancelRefund,
   BASE_PRICE_DIVISOR_MINUTES,
   CLEANING_TYPE_SURCHARGE,
   TOP_TIDY_PRO_SURCHARGE,
@@ -8,7 +10,7 @@ import {
   calculatePrice,
   grossUpForStripeFee,
   netOfStripeFee,
-  cleanerPayoutForTotal,
+  cleanerPayoutForServicePrice,
   refundableAmount,
   stripePercentageForCardCountry,
   stripeProcessingFee,
@@ -146,10 +148,19 @@ describe('tierFromEstimatedMinutes', () => {
   })
 })
 
-describe('cleanerPayoutForTotal', () => {
-  it('pays 80% of what the customer pays in total', () => {
-    expect(cleanerPayoutForTotal(37.74)).toBe(30.19)
-    expect(cleanerPayoutForTotal(100)).toBe(80)
+describe('cleanerPayoutForServicePrice', () => {
+  it('pays 80% of the booking price before Stripe fees', () => {
+    expect(cleanerPayoutForServicePrice(36.35)).toBe(29.08)
+    expect(cleanerPayoutForServicePrice(100)).toBe(80)
+  })
+
+  it('leaves the Stripe fee out of the split', () => {
+    const servicePrice = 100
+    const charge = grossUpForStripeFee(servicePrice)
+    const cleanerPay = cleanerPayoutForServicePrice(servicePrice)
+    const tydioKeeps = charge - stripeProcessingFee(charge) - cleanerPay
+    expect(cleanerPay).toBe(80)
+    expect(Math.abs(tydioKeeps - 20)).toBeLessThanOrEqual(0.01)
   })
 })
 
@@ -203,5 +214,17 @@ describe('netOfStripeFee', () => {
 
   it('never goes below zero', () => {
     expect(netOfStripeFee(0)).toBe(0)
+  })
+})
+
+describe('late cancellation', () => {
+  it('refunds half, and pays the cleaner half their usual pay', () => {
+    expect(lateCancelRefund(100)).toBe(50)
+    expect(lateCancelCleanerPay(80)).toBe(40)
+  })
+
+  it('rounds to the cent', () => {
+    expect(lateCancelRefund(37.75)).toBe(18.88)
+    expect(lateCancelCleanerPay(29.07)).toBe(14.54)
   })
 })

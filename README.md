@@ -31,13 +31,21 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 ## Before Deploying
 
-- [ ] **Email logo** — `lib/email.ts` currently uses text "Tydio" in the email header because `localhost` URLs don't load in email clients. Once the site is live, replace the text header with the actual logo image:
-  ```html
-  <img src="https://tydioapp.com/Tydio Logo No Bkg.png" alt="Tydio" width="120" height="44" style="display:block;border:0;" />
-  ```
+- [x] **Email logo** — `lib/email.ts` shows `public/email-logo.png` in the email header, loaded from `NEXT_PUBLIC_SITE_URL`. Ship the PNG with or before that change: the Gmail app hides a broken image entirely, leaving an empty header
 - [ ] Set `NEXT_PUBLIC_SITE_URL` to the production domain in env vars
 - [ ] Rotate `JWT_SECRET` and `ADMIN_SECRET` to strong random values
-- [ ] Remove the `/api/test-email` route (dev only)
+- [x] Remove the `/api/test-email` route (dev only)
+- [x] Remove `/api/migrate` and `/api/clear-old-profiles`. Apply migrations from `supabase/migrations/` in the Supabase SQL editor instead
+- [x] Lock down the public Supabase API (migration 038: RLS on every table, nothing granted to anon/authenticated). The app uses only the service role, so never add RLS policies or anon grants
+- [x] Apply `supabase/migrations/031_booking_acceptance_guard.sql`
+- [x] Apply `supabase/migrations/039_rate_limits.sql`
+- [x] Apply `supabase/migrations/041_booking_incidents.sql`
+- [x] Session revocation: a password reset or ban ends every other session (`lib/auth/sessionFingerprint.ts`)
+- [x] Apply `supabase/migrations/043_booking_calls.sql`
+- [x] Apply `supabase/migrations/041_ban_appeals.sql`, `042_identity_verification_form.sql` and `044_deleted_accounts.sql`
+- [x] Apply `supabase/migrations/045_phone_unique_per_role.sql` and `046_identity_verification_link.sql`
+- [x] Apply `supabase/migrations/040_account_suspension.sql`, `040_agreement_signatures.sql`, `042_bans_and_background_check_appeals.sql` and `047_single_screening_link.sql` (042_bans was missed at first; without `profiles.banned_at` every session check fails and no one can stay logged in)
+- [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel
 

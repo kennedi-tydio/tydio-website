@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation'
 import Image from 'next/image'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { logoutAction } from '@/app/dashboard/actions'
+import PostHogIdentify from '@/app/components/PostHogIdentify'
+import SignOutForm from '@/app/components/SignOutForm'
 
 export const metadata: Metadata = { title: "You're on the Waitlist — Tydio" }
 
@@ -29,6 +30,7 @@ export default async function WaitlistPage() {
   if (denied) {
     return (
       <main id="main-content" className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
+        <PostHogIdentify profileId={session.profileId} role={session.role} />
         <Image src="/Tydio Logo No Bkg.png" alt="Tydio" width={120} height={44} priority className="mb-8" />
 
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-100 p-8 flex flex-col items-center text-center gap-4">
@@ -42,11 +44,7 @@ export default async function WaitlistPage() {
             </p>
           </div>
 
-          <form action={logoutAction} className="w-full mt-2">
-            <button type="submit" className="w-full py-3 rounded-xl text-sm font-medium text-slate-500 hover:text-slate-700">
-              Sign out
-            </button>
-          </form>
+          <SignOutForm className="w-full mt-2" buttonClassName="w-full py-3 rounded-xl text-sm font-medium text-slate-500 hover:text-slate-700" />
         </div>
       </main>
     )
@@ -54,6 +52,7 @@ export default async function WaitlistPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
+      <PostHogIdentify profileId={session.profileId} role={session.role} />
       <Image src="/Tydio Logo No Bkg.png" alt="Tydio" width={120} height={44} priority className="mb-8" />
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-100 p-8 flex flex-col items-center text-center gap-4">
@@ -78,11 +77,7 @@ export default async function WaitlistPage() {
           </p>
         </div>
 
-        <form action={logoutAction} className="w-full mt-2">
-          <button type="submit" className="w-full py-3 rounded-xl text-sm font-medium text-slate-500 hover:text-slate-700">
-            Sign out
-          </button>
-        </form>
+        <SignOutForm className="w-full mt-2" buttonClassName="w-full py-3 rounded-xl text-sm font-medium text-slate-500 hover:text-slate-700" />
       </div>
 
       <p className="mt-6 text-xs text-slate-400 text-center max-w-xs">

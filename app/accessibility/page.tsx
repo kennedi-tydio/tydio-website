@@ -30,6 +30,12 @@ export default function AccessibilityPage() {
             under <strong>Profile &rsaquo; Accessibility</strong> in the app.
           </p>
           <p>
+            The chat assistant on our site is provided by a third party, and some parts of it may not be fully accessible.
+            If you have trouble using it, email us at{' '}
+            <a href={`mailto:${CONTACT_EMAIL}`} className="text-sky-600 underline underline-offset-2">{CONTACT_EMAIL}</a>{' '}
+            and we will help you directly.
+          </p>
+          <p>
             If you experience difficulty accessing any part of Tydio, please email us at{' '}
             <a href={`mailto:${CONTACT_EMAIL}`} className="text-sky-600 underline underline-offset-2">{CONTACT_EMAIL}</a>.
             Include the page or feature involved, a description of the issue, and your preferred way for us to respond. You

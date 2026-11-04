@@ -2,8 +2,9 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { cleanerCancelledNote } from '@/lib/bookingRequestGroups'
+import { CLEANER_CANCELLED_REASON, cleanerCancelledNote } from '@/lib/bookingRequestGroups'
 import { haversineDistanceMiles } from '@/lib/cleanerMatching'
+import { canCall } from '@/lib/maskedCalls'
 import { bookingStartInstant, scheduleForViewer } from '@/lib/bookingTime'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
@@ -40,7 +41,7 @@ export default async function ProMessageThreadPage({
   }
 
   const [{ data: customerProfile }, { data: myStats }, { data: chatRows }] = await Promise.all([
-    admin.from('profiles').select('first_name, last_name, phone, photo_url').eq('id', booking.user_id).maybeSingle(),
+    admin.from('profiles').select('first_name, last_name, photo_url').eq('id', booking.user_id).maybeSingle(),
     admin.from('tidypro_profiles').select('latitude, longitude, time_zone').eq('id', session.profileId).maybeSingle(),
     admin
       .from('booking_messages')
@@ -86,7 +87,7 @@ export default async function ProMessageThreadPage({
       bookingId={booking.id}
       customerName={customerName}
       customerPhotoUrl={customerProfile?.photo_url ?? null}
-      customerPhone={customerProfile?.phone ?? null}
+      canCall={canCall({ ...booking, tidy_pro_id: session.profileId })}
       scheduledDate={schedule.date}
       scheduledTime={schedule.time}
       startsAtMs={
@@ -106,6 +107,7 @@ export default async function ProMessageThreadPage({
       payout={booking.cleaner_pay ?? 0}
       status={booking.status ?? 'pending'}
       cancelledNote={cleanerCancelledNote(booking.cancelled_reason)}
+      cancelledByMe={booking.cancelled_reason === CLEANER_CANCELLED_REASON}
       decisionStatus={booking.decision_status}
       progressStatus={booking.progress_status}
       messages={messages}

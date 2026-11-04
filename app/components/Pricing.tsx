@@ -1,18 +1,19 @@
 // Mirrors the live price model in lib/pricingRules.ts. The example is a real
-// quote: Georgia's $215 median 4-hour clean, so 42 minutes of tasks is
-// 42 / 240 × $215 = $37.63 before surcharges and the home size multiplier.
+// quote: Georgia's $215 median 4-hour clean, and the AI estimator's times for
+// these tasks (15 + 10 + 25 minutes), so 50 minutes of tasks is
+// 50 / 240 × $215 = $44.79 before surcharges and the home size multiplier.
 // Cleaning fees combine the cleaning-level surcharges and extra issues
-// ($5 standard + $10 heavy + $10 hard water stains). Update if pricing changes.
+// ($5 standard + $10 heavy). Update if pricing changes.
 const exampleTasks = [
   { name: "Vacuum living room", detail: "Light touch-up" },
   { name: "Wipe down kitchen counters", detail: "Standard cleaning" },
-  { name: "Scrub bathroom", detail: "Heavy cleaning · Hard water stains" },
+  { name: "Scrub bathtub", detail: "Heavy cleaning" },
 ];
 
 const exampleLines = [
-  { label: "Base price (42 min of tasks)", value: "$37.63" },
-  { label: "Cleaning fees", value: "+$25.00" },
-  { label: "Home size: 1,000–1,999 sqft (+10%)", value: "+$6.26" },
+  { label: "Base price", value: "$44.79" },
+  { label: "Cleaning fees", value: "+$15.00" },
+  { label: "Home size: 1,000–1,999 sqft (+10%)", value: "+$5.98" },
 ];
 
 export default function Pricing() {
@@ -64,7 +65,7 @@ export default function Pricing() {
             </dl>
             <div className="border-t border-slate-200 pt-4 flex items-center justify-between">
               <span className="text-slate-500 text-sm">Total</span>
-              <span className="text-2xl font-black text-sky-500">$68.89</span>
+              <span className="text-2xl font-black text-sky-500">$65.77</span>
             </div>
             <p className="text-xs text-slate-400">
               Instead of paying $250+ for a full clean you didn&apos;t need.
