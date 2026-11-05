@@ -89,3 +89,23 @@ body {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Room for the iPhone home indicator, on bars and sheets pinned to the bottom
+   of the screen. A transparent border is painted with the element's own
+   background, so this adds the space without overriding each element's
+   padding. Needs viewportFit: 'cover' (app/layout.tsx). */
+.safe-area-inset-bottom {
+  border-bottom: env(safe-area-inset-bottom, 0px) solid transparent;
+}
+
+/* Chatbase pins its bubble 1rem from the bottom with inline styles. Keep it
+   clear of the home indicator and above any bottom bar (ChatbaseScript sets
+   --bottom-bar-height), and hide it while a dialog is open so it can't cover
+   the dialog's buttons. */
+#chatbase-bubble-button {
+  bottom: max(calc(1rem + env(safe-area-inset-bottom, 0px)), calc(var(--bottom-bar-height, 0px) + 0.75rem)) !important;
+}
+
+body:has([role="dialog"][aria-modal="true"]:not([id^="chatbase"], [id^="chatbase"] *)) #chatbase-bubble-button {
+  display: none !important;
+}

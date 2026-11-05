@@ -229,7 +229,7 @@ export default function CurrentBookingView({
         </div>
 
         {!alreadyReviewed && (
-          <div className="mt-auto bg-white rounded-t-3xl shadow-[0_-6px_24px_rgba(15,23,42,0.06)] px-5 pt-6 pb-8">
+          <div className="mt-auto bg-white rounded-t-3xl shadow-[0_-6px_24px_rgba(15,23,42,0.06)] px-5 pt-6 pb-8 safe-area-inset-bottom">
             <div className="relative max-w-sm mx-auto">
               <button
                 type="button"

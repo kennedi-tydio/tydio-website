@@ -28,6 +28,9 @@ export const viewport: Viewport = {
   themeColor: '#38C7CA',
   width: 'device-width',
   initialScale: 1,
+  // Without this, iOS reports the home indicator inset as 0 and
+  // .safe-area-inset-bottom (globals.css) adds no room for it.
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -38,7 +41,7 @@ export default function RootLayout({
     // silences mismatches on this one tag, not on anything inside it.
     <html lang="en" className={`${geist.variable} h-full`} suppressHydrationWarning>
       <head>
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         {/* Applies the saved high-contrast choice before first paint so the page
             doesn't flash default colors. Kept in sync with HighContrastToggle. */}
         <script dangerouslySetInnerHTML={{ __html: CONTRAST_INIT_SCRIPT }} />

@@ -27,6 +27,8 @@ export default function ModalShell({
   closeOnBackdrop?: boolean
   children: React.ReactNode
 }) {
+  // Sheets anchored to the bottom need room for the iPhone home indicator.
+  const bottomSheet = className.includes('items-end')
   const panelRef = useRef<HTMLDivElement>(null)
   // Read during the first render, before any autoFocus field inside takes focus.
   const openerRef = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement)
@@ -90,7 +92,7 @@ export default function ModalShell({
         aria-labelledby={labelledBy}
         aria-label={labelledBy ? undefined : label}
         tabIndex={-1}
-        className={`relative ${panelClassName}`}
+        className={`relative ${panelClassName}${bottomSheet ? ' safe-area-inset-bottom' : ''}`}
         style={{ outline: 'none' }}
       >
         {children}
