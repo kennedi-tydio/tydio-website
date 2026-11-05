@@ -23,6 +23,7 @@ export interface Database {
           waitlisted_at: string | null
           terms_accepted_at: string | null
           privacy_policy_accepted_at: string | null
+          marketing_opt_in_at: string | null
           email_verified_at: string | null
           custom_rooms: string[] | null
           BGCheckStatus: string
@@ -58,6 +59,7 @@ export interface Database {
           waitlisted_at?: string | null
           terms_accepted_at?: string | null
           privacy_policy_accepted_at?: string | null
+          marketing_opt_in_at?: string | null
           email_verified_at?: string | null
           custom_rooms?: string[] | null
           BGCheckStatus?: string

@@ -9,6 +9,7 @@ import type { Database } from '@/lib/database.types'
 import { BANNED_MESSAGE, isBanned, normalizePhone } from '@/lib/bannedUsers'
 import { RATE_LIMITED_MESSAGE, RATE_LIMITS, clientIp, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 import { userFacingError } from '@/lib/userFacingError'
+import { addMarketingContact } from '@/lib/marketingContacts'
 
 export type SignupState = {
   error?: string
@@ -142,6 +143,7 @@ export async function signupAction(
   const streetAddress = (formData.get('street_address') as string | null)?.trim() || null
   const termsAccepted = formData.get('terms_accepted') === 'on'
   const privacyAccepted = formData.get('privacy_accepted') === 'on'
+  const marketingOptIn = formData.get('marketing_opt_in') === 'on'
   const role: 'USER' | 'TIDYPRO' | 'ADMIN' =
     formData.get('role') === 'TIDYPRO' ? 'TIDYPRO' : 'USER'
 
@@ -233,12 +235,19 @@ export async function signupAction(
       waitlisted_at: now,
       terms_accepted_at: termsAccepted ? now : null,
       privacy_policy_accepted_at: privacyAccepted ? now : null,
+      marketing_opt_in_at: marketingOptIn ? now : null,
     })
 
     if (insertError) return { error: signupInsertError(insertError, role) }
     if (role === 'TIDYPRO') {
       await admin.from('tidypro_profiles').insert({ id: newId, phone })
       await emailAdminCleanerSignup({ firstName, lastName, email, phone, zip, inServiceArea: false })
+    }
+    // Waitlisted accounts skip email verification, so they join the marketing
+    // list now. Everyone else joins once they verify (app/verify-email/route.ts).
+    if (marketingOptIn) {
+      await addMarketingContact({ email, firstName, lastName, role })
+        .catch((err) => console.error('[Tydio] Adding Brevo marketing contact failed:', err))
     }
     return { waitlisted: true }
   }
@@ -266,6 +275,7 @@ export async function signupAction(
       waitlisted_at: now,
       terms_accepted_at: termsAccepted ? now : null,
       privacy_policy_accepted_at: privacyAccepted ? now : null,
+      marketing_opt_in_at: marketingOptIn ? now : null,
     })
     .select('id')
     .single()

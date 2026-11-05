@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createSession } from '@/lib/auth/session'
 import { isBanned } from '@/lib/bannedUsers'
+import { addMarketingContact } from '@/lib/marketingContacts'
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token')
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   const { data: profile } = await admin
     .from('profiles')
-    .select('id, role, email, phone')
+    .select('id, role, email, phone, first_name, last_name, marketing_opt_in_at')
     .eq('id', tokenRow.profile_id)
     .single()
 
@@ -44,6 +45,17 @@ export async function GET(req: NextRequest) {
       .update({ email_verified_at: now })
       .eq('id', profile.id),
   ])
+
+  // Opted-in people join the Brevo marketing list only once their email is
+  // confirmed, so mistyped or fake addresses never reach a campaign.
+  if (profile.marketing_opt_in_at) {
+    await addMarketingContact({
+      email: profile.email,
+      firstName: profile.first_name ?? '',
+      lastName: profile.last_name ?? '',
+      role: profile.role as 'USER' | 'TIDYPRO' | 'ADMIN',
+    }).catch((err) => console.error('[Tydio] Adding Brevo marketing contact failed:', err))
+  }
 
   await createSession({
     profileId: profile.id,

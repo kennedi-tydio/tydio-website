@@ -1,6 +1,7 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { stripe } from '@/lib/stripe'
 import { LATE_CANCEL_REASON } from '@/lib/bookingRequestGroups'
+import { deleteMarketingContact, removeMarketingContact } from '@/lib/marketingContacts'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -47,7 +48,7 @@ export async function deleteOwnAccount(admin: Admin, profileId: string): Promise
   if (unpaid?.length) return { error: UNPAID_PAYOUT_MESSAGE }
 
   const [{ data: profile }, { data: bookings }] = await Promise.all([
-    admin.from('profiles').select('stripe_customer_id').eq('id', profileId).maybeSingle(),
+    admin.from('profiles').select('stripe_customer_id, email, role').eq('id', profileId).maybeSingle(),
     admin.from('bookings').select('id').eq('user_id', profileId),
   ])
 
@@ -67,7 +68,22 @@ export async function deleteOwnAccount(admin: Admin, profileId: string): Promise
       .catch(err => console.error('[Tydio] Stripe customer delete failed:', err))
   }
 
+  if (profile?.email) await removeFromMarketing(admin, profile.email, profile.role as 'USER' | 'TIDYPRO' | 'ADMIN')
+
   return { success: true }
+}
+
+// Takes the email off this account's Brevo marketing list. If the person has no
+// other Tydio account (one email can hold a customer and a Tidy Pro account),
+// the Brevo contact is deleted outright, as the Privacy Policy promises.
+async function removeFromMarketing(admin: Admin, email: string, role: 'USER' | 'TIDYPRO' | 'ADMIN'): Promise<void> {
+  try {
+    const { data: others } = await admin.from('profiles').select('id').eq('email', email).limit(1)
+    if (others?.length) await removeMarketingContact(email, role)
+    else await deleteMarketingContact(email)
+  } catch (err) {
+    console.error('[Tydio] Removing Brevo marketing contact failed:', err)
+  }
 }
 
 async function removeFolder(admin: Admin, bucket: string, prefix: string): Promise<void> {

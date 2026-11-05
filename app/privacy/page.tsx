@@ -6,7 +6,7 @@ import Footer from '../components/Footer'
 
 export const metadata: Metadata = { title: 'Privacy Policy — Tydio' }
 
-const EFFECTIVE_DATE = 'November 4, 2026'
+const EFFECTIVE_DATE = 'November 5, 2026'
 const CONTACT_EMAIL = 'kennedicoats@tydioapp.com'
 
 const sections = [
@@ -77,8 +77,8 @@ const providers: { name: string; purpose: string; data: string; href: string }[]
   },
   {
     name: 'Brevo',
-    purpose: 'Sending transactional email',
-    data: 'Name, email address, and email content. Brevo may also record whether an email was delivered and opened, and whether links in it were clicked',
+    purpose: 'Sending account and booking emails, and marketing emails to people who opt in',
+    data: 'Name, email address, account type (customer or Tidy Pro), email content, and whether you are subscribed to marketing emails. Brevo may also record whether an email was delivered and opened, and whether links in it were clicked',
     href: 'https://www.brevo.com/legal/privacypolicy/',
   },
   {
@@ -260,6 +260,7 @@ export default function PrivacyPolicyPage() {
               'Screen and approve Tidy Pros, including identity verification, background checks, and insurance verification, and remind Tidy Pros before insurance expires.',
               'Display ratings and reviews and keep the marketplace trustworthy.',
               'Send booking updates, account notices, and security messages by email, text, or push notification, as you have allowed.',
+              'If you opt in, send you marketing emails about Tydio news, tips, and offers.',
               'Provide customer support.',
               'Detect, investigate, and prevent fraud, abuse, safety incidents, and violations of our Terms, including preventing banned users from creating new accounts.',
               'Analyze how the site is used so we can fix problems and improve the service.',
@@ -347,6 +348,12 @@ export default function PrivacyPolicyPage() {
                 We send emails needed to run your account, such as email verification, password resets, booking confirmations,
                 and receipts. You can turn off non-essential email notifications in your profile settings. Account and security
                 emails will still be sent.
+              </p>
+              <p>
+                <strong>Marketing emails.</strong> If you tick the optional box when you sign up, we add your name, email
+                address, and account type to our marketing list with Brevo and send you occasional emails about Tydio news,
+                tips, and offers. You can unsubscribe at any time using the link at the bottom of any marketing email; this
+                does not affect account or booking emails. If you delete your account, we remove you from the marketing list.
               </p>
             </Sub>
             <Sub title="Text messages (SMS)">
@@ -454,7 +461,7 @@ export default function PrivacyPolicyPage() {
             <List items={[
               <><strong>Access and update:</strong> you can view and edit most of your information, including your name, phone, addresses, photo, and notification settings, in your profile.</>,
               <><strong>Delete your account:</strong> you can delete your account at any time from the Profile tab (see <a href="#retention" className="text-sky-600 underline underline-offset-2">How long we keep your information</a> for what is deleted). You can also email us to ask for deletion.</>,
-              <><strong>Communications:</strong> you can turn off text, email, and push notifications as described above.</>,
+              <><strong>Communications:</strong> you can turn off text, email, and push notifications, and unsubscribe from marketing emails, as described above.</>,
               <><strong>Location:</strong> you can deny or revoke location access in your browser at any time.</>,
             ]} />
             <p>

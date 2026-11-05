@@ -51,6 +51,8 @@ export default function SignupForm() {
   const searchParams = useSearchParams()
   const isPro = searchParams.get('role') === 'pro'
   const [agreed, setAgreed] = useState(false)
+  // Optional and unticked by default: marketing email needs a clear opt-in.
+  const [marketingOptIn, setMarketingOptIn] = useState(false)
   const [termsError, setTermsError] = useState(false)
   // Tracks whether every required field passes native validation, so the
   // submit button stays disabled until the form is complete.
@@ -119,6 +121,7 @@ export default function SignupForm() {
       {/* Submit both consent fields so the server action accepts the combined checkbox */}
       <input type="hidden" name="terms_accepted" value={agreed ? 'on' : ''} />
       <input type="hidden" name="privacy_accepted" value={agreed ? 'on' : ''} />
+      <input type="hidden" name="marketing_opt_in" value={marketingOptIn ? 'on' : ''} />
 
       <p className="text-sm text-slate-500">
         {isPro
@@ -198,6 +201,14 @@ export default function SignupForm() {
           <Link href="/privacy" className="text-sky-600 underline underline-offset-2" onClick={e => e.stopPropagation()}>
             Privacy Policy
           </Link>
+        </span>
+      </label>
+
+      {/* Optional marketing email opt-in */}
+      <label className="flex items-start gap-2.5 cursor-pointer" onClick={() => setMarketingOptIn(v => !v)}>
+        <CustomCheckbox checked={marketingOptIn} onChange={() => setMarketingOptIn(v => !v)} />
+        <span className="text-xs text-slate-500 leading-relaxed">
+          Email me Tydio news, tips, and offers (optional). You can unsubscribe at any time.
         </span>
       </label>
 
