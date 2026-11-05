@@ -47,6 +47,7 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/040_account_suspension.sql`, `040_agreement_signatures.sql`, `042_bans_and_background_check_appeals.sql` and `047_single_screening_link.sql` (042_bans was missed at first; without `profiles.banned_at` every session check fails and no one can stay logged in)
 - [x] Apply `supabase/migrations/048_tidypro_unit_number.sql` (cleaner unit number)
 - [x] Apply `supabase/migrations/049_admin_user_notes.sql` (admin notes on /admin/users)
+- [x] Apply `supabase/migrations/050_marketing_email_opt_in.sql` (marketing email opt-in at signup)
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel
