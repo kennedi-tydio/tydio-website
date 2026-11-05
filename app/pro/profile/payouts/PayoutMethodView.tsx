@@ -86,10 +86,13 @@ function IconUserActive() {
 export default function PayoutMethodView({
   hasPayoutMethod,
   payoutMethods,
+  needsMoreInfo,
   unreadMessageCount,
 }: {
   hasPayoutMethod: boolean
   payoutMethods: PayoutMethodSummary[]
+  // Stripe still needs details (e.g. date of birth) before payouts can continue.
+  needsMoreInfo: boolean
   unreadMessageCount: number
 }) {
   const router = useRouter()
@@ -137,6 +140,23 @@ export default function PayoutMethodView({
         <h1 className="text-3xl font-bold text-slate-900 mb-5">Payout Method</h1>
 
         <StripeNotice />
+
+        {needsMoreInfo && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5 mb-4">
+            <p className="text-sm font-semibold text-amber-900 mb-0.5">Stripe needs a few more details</p>
+            <p className="text-sm text-amber-800 leading-relaxed mb-3">
+              Finish your payout setup, such as adding your date of birth, so your payouts aren&apos;t paused.
+            </p>
+            <button
+              type="button"
+              onClick={handleAddPayoutMethod}
+              disabled={submitting}
+              className="text-sm font-semibold px-4 py-2 rounded-xl bg-white border border-amber-300 text-amber-900 disabled:opacity-60"
+            >
+              {submitting ? 'Please wait…' : 'Finish payout setup'}
+            </button>
+          </div>
+        )}
 
         {hasPayoutMethod && payoutMethods.length > 0 ? (
           <div className="rounded-2xl border border-slate-100 shadow-sm divide-y divide-slate-100 overflow-hidden">

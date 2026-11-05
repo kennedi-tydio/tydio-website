@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getUnreadMessageCountForTidyPro } from '@/lib/bookings'
-import { refreshPayoutOnboardingStatus, listPayoutMethods, type PayoutMethodSummary } from '@/lib/stripe/connect'
+import { hasOutstandingPayoutRequirements, refreshPayoutOnboardingStatus, listPayoutMethods, type PayoutMethodSummary } from '@/lib/stripe/connect'
 import PayoutMethodView from './PayoutMethodView'
 
 export const metadata: Metadata = { title: 'Payout Method — Tydio' }
@@ -33,14 +33,19 @@ export default async function PayoutMethodPage() {
   }
 
   let payoutMethods: PayoutMethodSummary[] = []
+  let needsMoreInfo = false
   if (hasPayoutMethod && tidyPro?.stripe_account_id) {
-    payoutMethods = await listPayoutMethods(tidyPro.stripe_account_id).catch(() => [])
+    ;[payoutMethods, needsMoreInfo] = await Promise.all([
+      listPayoutMethods(tidyPro.stripe_account_id).catch(() => []),
+      hasOutstandingPayoutRequirements(tidyPro.stripe_account_id).catch(() => false),
+    ])
   }
 
   return (
     <PayoutMethodView
       hasPayoutMethod={hasPayoutMethod}
       payoutMethods={payoutMethods}
+      needsMoreInfo={needsMoreInfo}
       unreadMessageCount={unreadMessageCount}
     />
   )

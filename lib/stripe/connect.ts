@@ -76,6 +76,11 @@ export async function getOrCreateConnectedAccountId(profileId: string): Promise<
 // Stripe-hosted onboarding, per the platform's security guidance — this
 // keeps sensitive identity/bank collection entirely on Stripe's side rather
 // than building a custom form for it.
+//
+// By default Stripe only asks for what's due right now and leaves the rest
+// (date of birth, for one) until payout volume crosses a threshold, when
+// payouts pause until it's provided. Collecting eventually-due and future
+// requirements up front means a cleaner gives everything once, at setup.
 export async function createPayoutOnboardingLink(accountId: string, returnUrl: string, refreshUrl: string): Promise<string> {
   const link = await stripe.v2.core.accountLinks.create({
     account: accountId,
@@ -85,10 +90,23 @@ export async function createPayoutOnboardingLink(accountId: string, returnUrl: s
         configurations: ['recipient'],
         return_url: returnUrl,
         refresh_url: refreshUrl,
+        collection_options: { fields: 'eventually_due', future_requirements: 'include' },
       },
     },
   })
   return link.url
+}
+
+// Whether Stripe is still waiting on the cleaner for anything, now or later,
+// such as a date of birth that a cleaner who onboarded before it was
+// collected up front never gave. The payouts page offers onboarding again so
+// they can finish before their payouts are paused.
+export async function hasOutstandingPayoutRequirements(accountId: string): Promise<boolean> {
+  const account = await stripe.v2.core.accounts.retrieve(accountId, {
+    include: ['requirements', 'future_requirements'],
+  })
+  const entries = [...(account.requirements?.entries ?? []), ...(account.future_requirements?.entries ?? [])]
+  return entries.some((entry) => entry.awaiting_action_from === 'user')
 }
 
 export type PayoutMethodSummary = {

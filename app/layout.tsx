@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
 import NavigationSpinner from './components/NavigationSpinner'
+import PullToRefresh from './components/PullToRefresh'
 import ServiceWorkerRegistration from './components/ServiceWorkerRegistration'
 import { PHProvider } from './providers'
 import SuspendedPostHogPageView from './components/PostHogPageView'
@@ -52,6 +53,7 @@ export default function RootLayout({
           {children}
         </PHProvider>
         <NavigationSpinner />
+        <PullToRefresh />
         <ServiceWorkerRegistration />
       </body>
     </html>

@@ -60,7 +60,7 @@ const providers: { name: string; purpose: string; data: string; href: string }[]
   {
     name: 'Stripe',
     purpose: 'Payment processing for customers, background check fees paid by Tidy Pros, and payouts to Tidy Pros (Stripe Connect)',
-    data: 'Name, email, card details, billing information, transaction amounts; for Tidy Pros, identity and bank account details collected by Stripe during payout setup',
+    data: 'Name, email, card details, billing information, transaction amounts; for Tidy Pros, identity details (including date of birth) and bank account details collected by Stripe during payout setup',
     href: 'https://stripe.com/privacy',
   },
   {
@@ -224,7 +224,7 @@ export default function PrivacyPolicyPage() {
                 <><strong>Insurance information:</strong> insurer name, policy expiration date, and the insurance documents you upload.</>,
                 <><strong>Identity verification:</strong> you verify your identity directly with Checkr, our identity verification and screening provider, for example by submitting a photo of a government-issued ID and a selfie. Checkr may use facial comparison technology to confirm the selfie matches the ID. We receive and store only the result (for example, verified or not verified) and related dates, not your ID images, selfie, or any facial data.</>,
                 <><strong>Background check:</strong> you submit your screening information directly to our screening provider (GoodHire, powered by Checkr). We receive and store only the status of your check (for example, pending, passed, or failed) and related dates, not the full report contents.</>,
-                <><strong>Payout information:</strong> bank account and identity verification details are collected directly by Stripe when you set up payouts. We store only your Stripe account ID and whether onboarding is complete.</>,
+                <><strong>Payout information:</strong> when you set up payouts, Stripe collects your bank account details and the identity details it needs to verify you, including your date of birth, directly on its own secure pages. We ask Stripe to collect these all at setup, rather than later when your payouts reach a certain amount, so your payouts aren&apos;t paused for missing details. We don&apos;t see or store your date of birth or bank details; we store only your Stripe account ID and whether onboarding is complete.</>,
                 <><strong>Job records:</strong> photos you upload of completed tasks, completion status, earnings, tips, and acceptance and cancellation history.</>,
                 <><strong>Signature records:</strong> when you sign the Independent Contractor and Platform Agreement, the legal name, any business entity and authorized representative, and the address you enter, plus your account email, IP address, browser, and the time you signed, along with the signed copy of the agreement.</>,
               ]} />
