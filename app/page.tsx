@@ -4,7 +4,6 @@ import Hero from "./components/Hero";
 import HowItWorks from "./components/HowItWorks";
 import WhyTydio from "./components/WhyTydio";
 import Pricing from "./components/Pricing";
-import Waitlist from "./components/Waitlist";
 import Footer from "./components/Footer";
 import ChatbaseScript from "./components/ChatbaseScript";
 
@@ -20,7 +19,6 @@ export default async function Home() {
         <HowItWorks />
         <WhyTydio />
         <Pricing />
-        <Waitlist />
       </main>
       <Footer />
       {!signedIn && <ChatbaseScript />}

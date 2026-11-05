@@ -892,6 +892,20 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['deleted_accounts']['Insert']>
         Relationships: []
       }
+      admin_user_notes: {
+        Row: {
+          profile_id: string
+          note: string
+          updated_at: string
+        }
+        Insert: {
+          profile_id: string
+          note: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['admin_user_notes']['Insert']>
+        Relationships: []
+      }
       rate_limit_events: {
         Row: {
           id: string

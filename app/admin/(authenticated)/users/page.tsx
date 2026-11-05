@@ -5,6 +5,7 @@ import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
 import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleanerAction, pauseCleanerAction, refundBackgroundCheckFeeAction, resendSignedAgreementAction } from '../../actions'
 import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAccounts } from './AccountActions'
+import { UserNote } from './UserNote'
 
 const SUSPENDED_COLOR = '#ef4444'
 
@@ -73,8 +74,22 @@ export default async function UsersPage({
     .limit(200)
 
   if (search) {
+    // Users whose admin note mentions the search also match.
+    const { data: noteMatches } = await admin
+      .from('admin_user_notes')
+      .select('profile_id')
+      .ilike('note', `%${search}%`)
+      .limit(200)
+    const noteMatchIds = (noteMatches ?? []).map((n) => n.profile_id)
     query = query.or(
-      `email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,zip_code.ilike.%${search}%,phone.ilike.%${search}%`
+      [
+        `email.ilike.%${search}%`,
+        `first_name.ilike.%${search}%`,
+        `last_name.ilike.%${search}%`,
+        `zip_code.ilike.%${search}%`,
+        `phone.ilike.%${search}%`,
+        ...(noteMatchIds.length ? [`id.in.(${noteMatchIds.join(',')})`] : []),
+      ].join(',')
     )
   }
   if (role) query = query.eq('role', role as 'USER' | 'TIDYPRO' | 'ADMIN')
@@ -136,6 +151,11 @@ export default async function UsersPage({
     : { data: [] }
   const banByProfileId = new Map((activeBans ?? []).map((b) => [b.former_profile_id, b]))
 
+  const { data: notes } = userIds.length
+    ? await admin.from('admin_user_notes').select('profile_id, note').in('profile_id', userIds)
+    : { data: [] }
+  const noteByProfileId = new Map((notes ?? []).map((n) => [n.profile_id, n.note]))
+
   const { data: deletedAccounts } = await admin
     .from('deleted_accounts')
     .select('id, email, first_name, last_name, role, deleted_at')
@@ -155,7 +175,7 @@ export default async function UsersPage({
           aria-label="Search users"
           name="search"
           defaultValue={search}
-          placeholder="Search name, email, phone, ZIP…"
+          placeholder="Search name, email, phone, ZIP, note…"
           className="w-60 px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand transition-colors"
         />
         <select
@@ -236,6 +256,7 @@ export default async function UsersPage({
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Background Check</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Verified</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Joined</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Note</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
@@ -358,6 +379,9 @@ export default async function UsersPage({
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
                       {new Date(user.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <UserNote profileId={user.id} name={name} note={noteByProfileId.get(user.id) ?? ''} />
                     </td>
                     <td className="px-4 py-3">
                       {!user.suspended_at && user.role === 'USER' && (

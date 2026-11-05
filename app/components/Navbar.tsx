@@ -57,14 +57,6 @@ export default function Navbar() {
             <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
             Try Tydio Lite
           </Link>
-          <a
-            href="https://tally.so/r/3XANPz"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-5 py-2.5 rounded-full transition-colors shadow-sm shadow-sky-200"
-          >
-            Join Waitlist
-          </a>
         </div>
 
         {/* Mobile hamburger */}
@@ -109,17 +101,6 @@ export default function Navbar() {
                 <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
                 Try Tydio Lite
               </Link>
-            </li>
-            <li className="pt-1">
-              <a
-                href="https://tally.so/r/3XANPz"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setOpen(false)}
-                className="inline-flex w-full justify-center bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-5 py-2.5 rounded-full transition-colors"
-              >
-                Join Waitlist
-              </a>
             </li>
           </ul>
         </div>

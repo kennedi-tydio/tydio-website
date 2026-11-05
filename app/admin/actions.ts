@@ -693,6 +693,31 @@ export async function approveCleanerAction(
 }
 
 // For a signed contractor agreement whose email didn't go out at signing.
+const USER_NOTE_MAX_LENGTH = 2000
+
+// Saves the admin's private note on a user. An empty note removes it.
+export async function saveUserNoteAction(
+  profileId: string,
+  _prev: AccountActionState,
+  formData: FormData
+): Promise<AccountActionState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const note = String(formData.get('note') ?? '').trim()
+  if (note.length > USER_NOTE_MAX_LENGTH) return { error: `Keep notes under ${USER_NOTE_MAX_LENGTH} characters.` }
+
+  const admin = createAdminClient()
+  const { error } = note
+    ? await admin
+        .from('admin_user_notes')
+        .upsert({ profile_id: profileId, note, updated_at: new Date().toISOString() })
+    : await admin.from('admin_user_notes').delete().eq('profile_id', profileId)
+  if (error) return { error: `Couldn't save the note: ${error.message}` }
+
+  revalidatePath('/admin/users')
+  return { message: note ? 'Saved' : 'Note removed' }
+}
+
 export async function resendSignedAgreementAction(signatureId: string): Promise<void> {
   if (!(await isAdminAuthed())) return
   const result = await emailSignedAgreement(createAdminClient(), signatureId)
