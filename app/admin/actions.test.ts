@@ -24,11 +24,10 @@ import { stripe } from '@/lib/stripe'
 import { sendEmail, emailShell } from '@/lib/email'
 import {
   approveInsuranceAction,
-  denyCleanerAction,
-  passBackgroundCheckAction,
+  decideBackgroundCheckAction,
   refundBackgroundCheckFeeAction,
-  sendBackgroundCheckLinkAction,
-  setScreeningPartCompletedAction,
+  markScreeningSentAction,
+  sendBackgroundCheckFollowUpAction,
 } from './actions'
 import {
   activateStatePricingAction,
@@ -197,11 +196,12 @@ describe('background check decisions', () => {
     id_verification_completed_at?: string | null
   }
 
-  function adminWithCheck(check: Check | null, openBookings: { id: string }[] = []) {
+  function adminWithCheck(check: Check | null, openBookings: { id: string }[] = [], { recentFollowUp = false } = {}) {
     const updates: Array<{ table: string; values: any }> = []
     const bans: any[] = []
     const deleted: string[] = []
-    Object.assign(updates, { bans, deleted })
+    const rateEvents: any[] = []
+    Object.assign(updates, { bans, deleted, rateEvents })
     const client = {
       from(table: string) {
         const chain: any = {
@@ -210,8 +210,13 @@ describe('background check decisions', () => {
           neq: () => chain,
           is: () => chain,
           in: () => chain,
+          gte: () => chain,
           limit: async () => ({ data: table === 'bookings' ? openBookings : [] }),
           insert: async (values: any) => {
+            if (table === 'rate_limit_events') {
+              rateEvents.push(values)
+              return {}
+            }
             bans.push(values)
             return {}
           },
@@ -233,6 +238,7 @@ describe('background check decisions', () => {
           // Mirrors the resend cooldown filter: a send within the last minute matches no row.
           then: (resolve: any) =>
             resolve({
+              count: table === 'rate_limit_events' ? (recentFollowUp ? 1 : 0) : undefined,
               data:
                 chain.cooldownFiltered && check?.link_sent_at && Date.now() - Date.parse(check.link_sent_at) < 60_000
                   ? []
@@ -246,28 +252,27 @@ describe('background check decisions', () => {
     return updates
   }
 
-  function denyForm(confirmed: boolean): FormData {
+  function decisionForm(backgroundCheck: string, idVerification: string, { reason = 'Reviewed report', confirmed = true } = {}): FormData {
     const formData = new FormData()
-    formData.set('reason', 'Reviewed report')
+    formData.set('backgroundCheck', backgroundCheck)
+    formData.set('idVerification', idVerification)
+    formData.set('reason', reason)
     if (confirmed) formData.set('noticesConfirmed', 'on')
+    return formData
+  }
+
+  const approveBoth = () => decisionForm('approve', 'approve', { reason: '', confirmed: false })
+  const denyBoth = (options?: { reason?: string; confirmed?: boolean }) => decisionForm('deny', 'deny', options)
+  const decide = (form: FormData) => decideBackgroundCheckAction('pro_1', {}, form)
+
+  function sentForm(ordered = true): FormData {
+    const formData = new FormData()
+    if (ordered) formData.set('ordered', 'on')
     return formData
   }
 
   function emailRecipients(): string[] {
     return vi.mocked(sendEmail).mock.calls.map(([options]) => options.to[0].email)
-  }
-
-  function approveForm(): FormData {
-    const formData = new FormData()
-    formData.set('backgroundCheckPassed', 'on')
-    formData.set('idVerificationPassed', 'on')
-    return formData
-  }
-
-  function linkForm(link: string): FormData {
-    const formData = new FormData()
-    formData.set('link', link)
-    return formData
   }
 
   const at = '2026-11-02T10:00:00Z'
@@ -285,142 +290,106 @@ describe('background check decisions', () => {
   it('does nothing without admin auth', async () => {
     mockedIsAdminAuthed.mockResolvedValue(false)
     const updates = adminWithCheck(submitted)
-    await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))
-    await setScreeningPartCompletedAction('pro_1', 'background_check', true, new FormData())
-    await passBackgroundCheckAction('pro_1', approveForm())
-    await denyCleanerAction('pro_1', denyForm(true))
+    expect(await markScreeningSentAction('pro_1', {}, sentForm())).toEqual({ error: 'Unauthorized' })
+    expect(await decide(approveBoth())).toEqual({ error: 'Unauthorized' })
+    expect(await decide(denyBoth())).toEqual({ error: 'Unauthorized' })
     expect(updates).toHaveLength(0)
     expect(sendEmail).not.toHaveBeenCalled()
   })
 
-  it('sends the form to a cleaner who has paid, and emails them', async () => {
+  it("marking as sent records it with no link and tells the cleaner to look for Checkr's email", async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
+    vi.mocked(emailShell).mockImplementation((body: string) => body)
     const updates = adminWithCheck(paid)
-    await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))
-    expect(updates[0].values).toMatchObject({ background_check_link: 'https://apply.checkr.com/abc' })
-    expect(updates[0].values.link_sent_at).toBeTruthy()
-    expect(sendEmail).toHaveBeenCalledOnce()
+    expect(await markScreeningSentAction('pro_1', {}, sentForm())).toEqual({ message: 'Marked as sent.' })
+    expect(updates[0].values).toMatchObject({ background_check_link: null, link_sent_at: expect.any(String) })
+    expect(vi.mocked(sendEmail).mock.calls[0][0].htmlContent).toContain('invitation from Checkr')
   })
 
-  it('refuses to resend within a minute of the last send', async () => {
+  it('needs the ordered-in-Checkr box ticked', async () => {
+    mockedIsAdminAuthed.mockResolvedValue(true)
+    const updates = adminWithCheck(paid)
+    expect((await markScreeningSentAction('pro_1', {}, sentForm(false))).error).toMatch('ordered in Checkr')
+    expect(updates).toHaveLength(0)
+  })
+
+  it('refuses to mark as sent again within a minute', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     adminWithCheck({ ...paid, link_sent_at: new Date(Date.now() - 30_000).toISOString() })
-    const result = await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))
-    expect(result.error).toBe('The background check link was already sent. Wait 1 minute before sending it again.')
+    expect((await markScreeningSentAction('pro_1', {}, sentForm())).error).toBe(
+      'The background check was already sent. Wait 1 minute before trying again.'
+    )
     expect(sendEmail).not.toHaveBeenCalled()
   })
 
-  it('resends once a minute has passed', async () => {
-    mockedIsAdminAuthed.mockResolvedValue(true)
-    adminWithCheck({ ...paid, link_sent_at: new Date(Date.now() - 61_000).toISOString() })
-    const result = await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))
-    expect(result).toEqual({ message: 'Link sent.' })
-    expect(sendEmail).toHaveBeenCalledOnce()
-  })
-
-  it('refuses to send a form to a cleaner who has not paid', async () => {
+  it('refuses to mark as sent for a cleaner who has not paid', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     const updates = adminWithCheck(notStarted)
-    expect((await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))).error).toMatch('not_started')
-    expect(updates).toHaveLength(0)
-    expect(sendEmail).not.toHaveBeenCalled()
-  })
-
-  it('refuses a link that is not https', async () => {
-    mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(paid)
-    expect((await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('javascript:alert(1)'))).error).toMatch('https')
+    expect((await markScreeningSentAction('pro_1', {}, sentForm())).error).toMatch('not_started')
     expect(updates).toHaveLength(0)
   })
 
-  it('refuses to send without a link, since each cleaner has their own', async () => {
-    mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(paid)
-    expect((await sendBackgroundCheckLinkAction('pro_1', {}, linkForm(' '))).error).toMatch('Paste')
-    expect(updates).toHaveLength(0)
-    expect(sendEmail).not.toHaveBeenCalled()
-  })
-
-  it('ticking off one part records it without moving the check on', async () => {
+  it('needs a decision on both parts', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     const updates = adminWithCheck(linkSent)
-    await setScreeningPartCompletedAction('pro_1', 'id_verification', true, new FormData())
-    expect(updates).toHaveLength(1)
-    expect(updates[0].values.id_verification_completed_at).toBeTruthy()
-    expect(sendEmail).not.toHaveBeenCalled()
-  })
-
-  it('once both parts are completed, the check is recorded as submitted', async () => {
-    mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck({ ...linkSent, background_check_completed_at: at, id_verification_completed_at: at })
-    await setScreeningPartCompletedAction('pro_1', 'background_check', true, new FormData())
-    expect(updates.map((u) => Object.keys(u.values))).toEqual([['background_check_completed_at'], ['submitted_at']])
-  })
-
-  it('can untick a part', async () => {
-    mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(linkSent)
-    await setScreeningPartCompletedAction('pro_1', 'background_check', false, new FormData())
-    expect(updates[0].values).toEqual({ background_check_completed_at: null })
-  })
-
-  it('only records progress once the link has been sent', async () => {
-    mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(paid)
-    await expect(setScreeningPartCompletedAction('pro_1', 'background_check', true, new FormData())).rejects.toThrow('needs_link')
-    expect(updates).toHaveLength(0)
-  })
-
-  it('refuses to approve unless both checks are confirmed as passed', async () => {
-    mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(submitted)
     const onlyOne = new FormData()
-    onlyOne.set('backgroundCheckPassed', 'on')
-    await expect(passBackgroundCheckAction('pro_1', onlyOne)).rejects.toThrow('both')
+    onlyOne.set('backgroundCheck', 'approve')
+    expect((await decide(onlyOne)).error).toMatch('both')
     expect(updates).toHaveLength(0)
   })
 
-  it('records which check failed in the denial reason', async () => {
+  it('approving both approves the cleaner and emails both the admin and the cleaner', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(submitted)
-    const form = denyForm(true)
-    form.set('failedCheck', 'id_verification')
-    await denyCleanerAction('pro_1', form)
-    expect(updates.find((u) => u.values.denial_reason)?.values.denial_reason).toBe('ID verification not passed: Reviewed report')
+    const updates = adminWithCheck(linkSent)
+    expect(await decide(approveBoth())).toEqual({ message: 'Approved.' })
+    expect(updates.find((u) => u.values.status)?.values).toMatchObject({ status: 'passed' })
+    expect(updates.find((u) => u.table === 'tidypro_profiles')?.values).toMatchObject({ cleaner_status: 'approved', active_for_booking: true })
+    expect(emailRecipients()).toEqual(['admin@example.com', 'Pro@Example.com'])
+    expect(vi.mocked(sendEmail).mock.calls[0][0].subject).toContain('cleared')
+  })
+
+  it('denying either part denies the cleaner, with the failed part leading the reason', async () => {
+    mockedIsAdminAuthed.mockResolvedValue(true)
+    for (const [bc, id, label] of [
+      ['approve', 'deny', 'ID verification not passed'],
+      ['deny', 'approve', 'Background check not passed'],
+      ['deny', 'deny', 'Background check and ID verification not passed'],
+    ]) {
+      const updates = adminWithCheck(linkSent)
+      expect(await decide(decisionForm(bc, id))).toEqual({ message: 'Denied.' })
+      expect(updates.find((u) => u.values.denial_reason)?.values.denial_reason).toBe(`${label}: Reviewed report`)
+    }
   })
 
   it('refuses to deny without a reason', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(paid)
-    const form = denyForm(true)
-    form.set('reason', '  ')
-    await expect(denyCleanerAction('pro_1', form)).rejects.toThrow('reason')
+    const updates = adminWithCheck(linkSent)
+    expect((await decide(denyBoth({ reason: '  ' }))).error).toMatch('reason')
     expect(updates).toHaveLength(0)
   })
 
-  it('refuses to reject without the adverse action confirmation', async () => {
+  it('refuses to deny without the adverse action confirmation', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(submitted)
-    await expect(denyCleanerAction('pro_1', denyForm(false))).rejects.toThrow('adverse action')
+    const updates = adminWithCheck(linkSent)
+    expect((await decide(denyBoth({ confirmed: false }))).error).toMatch('adverse action')
     expect(updates).toHaveLength(0)
   })
 
   it('refuses a decision on a cleaner who has not paid', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     const updates = adminWithCheck(notStarted) as any
-    await expect(passBackgroundCheckAction('pro_1', approveForm())).rejects.toThrow('not_started')
-    await expect(denyCleanerAction('pro_1', denyForm(true))).rejects.toThrow('not_started')
+    expect((await decide(approveBoth())).error).toMatch('not_started')
+    expect((await decide(denyBoth())).error).toMatch('not_started')
     expect(updates.bans).toEqual([])
     expect(updates.deleted).toEqual([])
   })
 
   it('denying leaves the cleaner unapproved with an appeal window, and bans or deletes nothing yet', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(paid) as any
-    await denyCleanerAction('pro_1', denyForm(true))
+    const updates = adminWithCheck(linkSent) as any
+    await decide(denyBoth())
     expect(updates.find((u: any) => u.table === 'background_checks').values).toMatchObject({
       status: 'failed',
-      denial_reason: 'Reviewed report',
       denied_at: expect.any(String),
       appeal_token: expect.stringMatching(/^[0-9a-f]{64}$/),
     })
@@ -434,9 +403,9 @@ describe('background check decisions', () => {
 
   it('denying emails the cleaner the reason and an appeal link, and tells the admin', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(paid) as any
+    const updates = adminWithCheck(linkSent) as any
     vi.mocked(emailShell).mockImplementation((body: string) => body)
-    await denyCleanerAction('pro_1', denyForm(true))
+    await decide(denyBoth())
     expect(emailRecipients()).toEqual(['Pro@Example.com', 'admin@example.com'])
     const token = updates.find((u: any) => u.table === 'background_checks').values.appeal_token
     const toCleaner = vi.mocked(sendEmail).mock.calls[0][0]
@@ -448,27 +417,66 @@ describe('background check decisions', () => {
   it('refuses to deny a cleaner with open bookings', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     const updates = adminWithCheck(submitted, [{ id: 'booking_1' }]) as any
-    await expect(denyCleanerAction('pro_1', denyForm(true))).rejects.toThrow('open bookings')
+    expect((await decide(denyBoth())).error).toMatch('open bookings')
     expect(updates.bans).toEqual([])
     expect(updates.deleted).toEqual([])
     expect(sendEmail).not.toHaveBeenCalled()
   })
 
-  it('clearing a check approves the cleaner and emails both the admin and the cleaner', async () => {
+  function followUpForm(kind: string): FormData {
+    const formData = new FormData()
+    formData.set('kind', kind)
+    return formData
+  }
+  const followUp = (kind: string) => sendBackgroundCheckFollowUpAction('pro_1', {}, followUpForm(kind))
+
+  it('reminds a cleaner who has not paid, with a link to pay', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(paid)
-    await passBackgroundCheckAction('pro_1', approveForm())
-    expect(updates.find((u) => u.values.status)?.values).toMatchObject({ status: 'passed' })
-    expect(emailRecipients()).toEqual(['admin@example.com', 'Pro@Example.com'])
-    expect(vi.mocked(sendEmail).mock.calls[0][0].subject).toContain('cleared')
+    vi.mocked(emailShell).mockImplementation((body: string) => body)
+    const updates = adminWithCheck(null) as any
+    expect(await followUp('not_paid')).toEqual({ message: 'Follow-up email sent.' })
+    const email = vi.mocked(sendEmail).mock.calls[0][0]
+    expect(email.to[0].email).toBe('Pro@Example.com')
+    expect(email.subject).toBe('Finish your Tydio background check')
+    expect(email.htmlContent).toContain('/pro/onboarding/setup/background-check')
+    expect(updates.rateEvents).toEqual([{ key: 'background-check-follow-up:pro_1' }])
+    expect(updates).toHaveLength(0)
   })
 
-  it('passing approves the cleaner', async () => {
+  it('reminds a cleaner who was sent their check but has not started it', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
-    const updates = adminWithCheck(submitted)
-    await passBackgroundCheckAction('pro_1', approveForm())
-    expect(updates.find((u) => u.values.status)?.values).toMatchObject({ status: 'passed' })
-    expect(updates.find((u) => u.table === 'tidypro_profiles')?.values).toMatchObject({ cleaner_status: 'approved', active_for_booking: true })
+    vi.mocked(emailShell).mockImplementation((body: string) => body)
+    adminWithCheck(linkSent)
+    expect(await followUp('not_started')).toEqual({ message: 'Follow-up email sent.' })
+    const email = vi.mocked(sendEmail).mock.calls[0][0]
+    expect(email.subject).toBe('Reminder: complete your Tydio background check')
+    expect(email.htmlContent).toContain('email from Checkr')
+  })
+
+  it("won't send a reminder that doesn't fit the cleaner's stage", async () => {
+    mockedIsAdminAuthed.mockResolvedValue(true)
+    adminWithCheck(paid)
+    expect((await followUp('not_paid')).error).toMatch('already paid')
+    expect((await followUp('not_started')).error).toMatch('needs_link')
+    adminWithCheck(null)
+    expect((await followUp('not_started')).error).toMatch('not_started')
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  it('sends at most one follow-up a minute to the same cleaner', async () => {
+    mockedIsAdminAuthed.mockResolvedValue(true)
+    adminWithCheck(linkSent, [], { recentFollowUp: true })
+    expect((await followUp('not_started')).error).toBe('A follow-up email was already sent to this cleaner. Wait 1 minute before sending another.')
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  it('needs admin auth and a known reminder', async () => {
+    mockedIsAdminAuthed.mockResolvedValue(false)
+    adminWithCheck(linkSent)
+    expect(await followUp('not_started')).toEqual({ error: 'Unauthorized' })
+    mockedIsAdminAuthed.mockResolvedValue(true)
+    expect((await followUp('something_else')).error).toMatch('Choose')
+    expect(sendEmail).not.toHaveBeenCalled()
   })
 })
 

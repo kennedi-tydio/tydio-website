@@ -18,6 +18,8 @@ export const RATE_LIMITS = {
   taskEstimatePerUser: { limit: 100, windowMinutes: 60 },
   // Each masked call is two paid Twilio call legs.
   maskedCallPerBooking: { limit: 1, windowMinutes: 1 },
+  // An admin-sent reminder; stops a double click from emailing a cleaner twice.
+  backgroundCheckFollowUpPerCleaner: { limit: 1, windowMinutes: 1 },
 } satisfies Record<string, RateLimit>
 
 export const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a few minutes and try again.'

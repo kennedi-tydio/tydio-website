@@ -1,26 +1,14 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { backgroundCheckStage, type BackgroundCheckStage, type ScreeningPart } from '@/lib/backgroundCheck'
+import { backgroundCheckStage, type BackgroundCheckStage } from '@/lib/backgroundCheck'
 import { feeStatusLabel, formatFeeCents } from '@/lib/backgroundCheckFee'
-import {
-  denyCleanerAction,
-  passBackgroundCheckAction,
-  removeBanAction,
-  setScreeningPartCompletedAction,
-} from '../../actions'
-import SendLinkForm from './SendLinkForm'
+import { removeBanAction } from '../../actions'
+import { DecisionForm, FollowUpForm, MarkSentForm } from './ScreeningForms'
 
 type Tab = BackgroundCheckStage | 'banned'
 
-// Each cleaner gets one link that covers both parts of the screening. Once both
-// are ticked off as completed, they move to Processing to be approved or denied.
-const SCREENING_PART_LABELS: { part: ScreeningPart; label: string }[] = [
-  { part: 'background_check', label: 'Background check' },
-  { part: 'id_verification', label: 'ID verification' },
-]
-
 const STAGE_TABS: { label: string; value: BackgroundCheckStage }[] = [
   { label: 'Paid', value: 'needs_link' },
-  { label: 'Link sent', value: 'link_sent' },
+  { label: 'Sent · decide', value: 'link_sent' },
   { label: 'Processing', value: 'pending' },
   { label: 'Approved', value: 'passed' },
   { label: 'Not paid', value: 'not_started' },
@@ -28,14 +16,13 @@ const STAGE_TABS: { label: string; value: BackgroundCheckStage }[] = [
 
 const STAGE_BADGES: Record<BackgroundCheckStage, { label: string; color: string }> = {
   not_started: { label: 'Not paid', color: '#64748b' },
-  needs_link: { label: 'Paid · send link', color: '#ef4444' },
-  link_sent: { label: 'Link sent', color: '#f59e0b' },
+  needs_link: { label: 'Paid · order in Checkr', color: '#ef4444' },
+  link_sent: { label: 'Sent · decide', color: '#f59e0b' },
   pending: { label: 'Processing · decide', color: '#f59e0b' },
   passed: { label: 'Approved', color: '#22c55e' },
   failed: { label: 'Not approved', color: '#ef4444' },
 }
 
-const BUTTON_PRIMARY = 'text-xs font-semibold px-2.5 py-1 rounded-lg text-white transition-opacity hover:opacity-90'
 const BUTTON_SECONDARY = 'text-xs font-medium text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-slate-50 transition-colors'
 const TH = 'px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide'
 
@@ -52,20 +39,45 @@ export default async function AdminBackgroundChecksPage({
   const tab: Tab = stageParam === 'banned' || STAGE_TABS.some((t) => t.value === stageParam) ? (stageParam as Tab) : 'needs_link'
   const admin = createAdminClient()
 
-  const [{ data, error }, { data: bannedData, error: bannedError }] = await Promise.all([
+  const [{ data, error }, { data: bannedData, error: bannedError }, { data: cleanerData }] = await Promise.all([
     admin
       .from('background_checks')
       .select(
-        'pro_id, status, requested_at, link_sent_at, submitted_at, completed_at, background_check_link, manual_decision_note, fee_paid_at, fee_amount_cents, fee_refunded_at, fee_refund_reason, background_check_completed_at, id_verification_completed_at'
+        'pro_id, status, requested_at, link_sent_at, submitted_at, completed_at, manual_decision_note, fee_paid_at, fee_amount_cents, fee_refunded_at, fee_refund_reason'
       )
       .order('requested_at', { ascending: true, nullsFirst: false }),
     admin
       .from('banned_users')
       .select('id, email, first_name, last_name, note, fee_amount_cents, banned_at')
       .order('banned_at', { ascending: false }),
+    // Cleaners with access who haven't tried to pay yet have no check row at all.
+    admin.from('profiles').select('id, tidypro_profiles(cleaner_status)').eq('role', 'TIDYPRO').eq('waitlisted', false),
   ])
 
-  const checks = data ?? []
+  const checkRows = data ?? []
+  const withCheck = new Set(checkRows.map((c) => c.pro_id))
+  // Listed under Not paid like any other unpaid check, so they can be sent a
+  // reminder. Cleaners an admin approved directly don't need one.
+  const neverStarted = (cleanerData ?? [])
+    .filter((p) => !withCheck.has(p.id))
+    .filter((p) => {
+      const tidyPro = Array.isArray(p.tidypro_profiles) ? p.tidypro_profiles[0] : p.tidypro_profiles
+      return tidyPro?.cleaner_status !== 'approved'
+    })
+    .map((p) => ({
+      pro_id: p.id,
+      status: 'pending',
+      requested_at: null,
+      link_sent_at: null,
+      submitted_at: null,
+      completed_at: null,
+      manual_decision_note: null,
+      fee_paid_at: null,
+      fee_amount_cents: null,
+      fee_refunded_at: null,
+      fee_refund_reason: null,
+    }))
+  const checks = [...checkRows, ...neverStarted]
   const banned = bannedData ?? []
   const rows = checks.filter((c) => backgroundCheckStage(c) === tab)
   const loadError = error ?? bannedError
@@ -87,8 +99,9 @@ export default async function AdminBackgroundChecksPage({
         <a href="https://dashboard.checkr.com" target="_blank" rel="noopener noreferrer" className="underline">
           Checkr dashboard
         </a>
-        , and send each cleaner their link here (one link covers the background check and ID verification). Tick off each part as
-        it&apos;s completed, then approve or deny under Processing. Nothing updates automatically.
+        . Checkr emails the cleaner their invitation (one invitation covers the background check and ID verification), so tick
+        &ldquo;ordered&rdquo; under Paid once you&apos;ve ordered it. When the results are in, approve or deny each part and submit. Nothing
+        updates automatically.
       </p>
 
       {loadError && (
@@ -162,8 +175,7 @@ export default async function AdminBackgroundChecksPage({
                   <th className={TH}>Email</th>
                   <th className={TH}>Status</th>
                   <th className={TH}>Paid</th>
-                  <th className={TH}>Link sent</th>
-                  <th className={TH}>Progress</th>
+                  <th className={TH}>Sent</th>
                   <th className={TH}>Decided</th>
                   <th className={TH}>Actions</th>
                 </tr>
@@ -174,14 +186,6 @@ export default async function AdminBackgroundChecksPage({
                   const stage = backgroundCheckStage(row)
                   const badge = row.status === 'in_review' ? { label: 'Needs review', color: '#ef4444' } : STAGE_BADGES[stage]
                   const name = profile ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || '—' : '—'
-                  const linkForm = (
-                    <SendLinkForm
-                      proId={row.pro_id}
-                      defaultLink={row.background_check_link ?? ''}
-                      label={stage === 'needs_link' ? 'Send link' : 'Resend link'}
-                      buttonClassName={BUTTON_SECONDARY}
-                    />
-                  )
                   return (
                     <tr key={row.pro_id} className="hover:bg-slate-50 transition-colors align-top">
                       <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">{name}</td>
@@ -198,109 +202,15 @@ export default async function AdminBackgroundChecksPage({
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(row.fee_paid_at)}</td>
                       <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(row.link_sent_at)}</td>
-                      <td className="px-4 py-3 text-xs whitespace-nowrap">
-                        {stage === 'not_started' || stage === 'needs_link' ? (
-                          <span className="text-slate-400">—</span>
-                        ) : (
-                          <ul className="flex flex-col gap-1.5">
-                            {SCREENING_PART_LABELS.map(({ part, label }) => {
-                              const completedAt = part === 'background_check' ? row.background_check_completed_at : row.id_verification_completed_at
-                              // Past the link stage both parts are done, even if a tick was never recorded.
-                              const completed = stage !== 'link_sent' || Boolean(completedAt)
-                              return (
-                                <li key={part}>
-                                  {stage === 'link_sent' ? (
-                                    <form action={setScreeningPartCompletedAction.bind(null, row.pro_id, part, !completed)}>
-                                      <button
-                                        type="submit"
-                                        aria-pressed={completed}
-                                        className={`flex items-center gap-1.5 hover:underline ${completed ? 'text-slate-500' : 'text-slate-700 font-medium'}`}
-                                      >
-                                        <span
-                                          aria-hidden
-                                          className={`inline-flex h-4 w-4 items-center justify-center rounded border ${completed ? 'bg-brand border-brand text-white' : 'border-slate-300 bg-white'}`}
-                                        >
-                                          {completed ? '✓' : ''}
-                                        </span>
-                                        {label} completed
-                                      </button>
-                                    </form>
-                                  ) : (
-                                    <span className="text-slate-500">
-                                      ✓ {label}
-                                      {completedAt ? `: ${formatDate(completedAt)}` : ''}
-                                    </span>
-                                  )}
-                                </li>
-                              )
-                            })}
-                          </ul>
-                        )}
-                      </td>
                       <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(row.completed_at)}</td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-col gap-2 min-w-[240px]">
-                          {stage === 'pending' && (
-                            <form action={passBackgroundCheckAction.bind(null, row.pro_id)} className="flex flex-col gap-1.5">
-                              <label className="flex items-center gap-1.5 text-xs text-slate-500">
-                                <input type="checkbox" name="backgroundCheckPassed" required />
-                                Background check passed
-                              </label>
-                              <label className="flex items-center gap-1.5 text-xs text-slate-500">
-                                <input type="checkbox" name="idVerificationPassed" required />
-                                ID verification passed
-                              </label>
-                              <button type="submit" className={`${BUTTON_PRIMARY} self-start`} style={{ backgroundColor: '#22c55e' }}>
-                                Approve
-                              </button>
-                            </form>
+                        <div className="flex flex-col gap-2 min-w-[260px]">
+                          {stage === 'needs_link' && <MarkSentForm proId={row.pro_id} />}
+                          {(stage === 'link_sent' || stage === 'pending') && <DecisionForm proId={row.pro_id} />}
+                          {(stage === 'not_started' || stage === 'link_sent') && (
+                            <FollowUpForm proId={row.pro_id} defaultKind={stage === 'not_started' ? 'not_paid' : 'not_started'} />
                           )}
-                          {stage === 'needs_link' && linkForm}
-                          {stage === 'link_sent' && (
-                            <details className="text-xs text-slate-500">
-                              <summary className="cursor-pointer">Resend link</summary>
-                              <div className="mt-2">{linkForm}</div>
-                            </details>
-                          )}
-                          {stage !== 'not_started' && (
-                            <form action={denyCleanerAction.bind(null, row.pro_id)} className="flex flex-col gap-1.5">
-                              {stage === 'pending' && (
-                                <select
-                                  aria-label="Which check failed"
-                                  name="failedCheck"
-                                  defaultValue=""
-                                  className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand"
-                                >
-                                  <option value="">Which check failed? (optional)</option>
-                                  <option value="background_check">Background check</option>
-                                  <option value="id_verification">ID verification</option>
-                                  <option value="both">Both</option>
-                                </select>
-                              )}
-                              <textarea
-                                aria-label="Reason, sent to the cleaner"
-                                name="reason"
-                                required={stage !== 'pending'}
-                                placeholder={stage === 'pending' ? 'Reason, sent to the cleaner…' : 'Reason, sent to the cleaner (required)…'}
-                                rows={2}
-                                className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-brand resize-none"
-                              />
-                              <label className="flex items-start gap-1.5 text-xs text-slate-500">
-                                <input type="checkbox" name="noticesConfirmed" required className="mt-0.5" />
-                                <span>
-                                  Checkr&apos;s pre-adverse notice has been sent, or this denial isn&apos;t based on the report. I understand the
-                                  cleaner is emailed this reason and has 7 days to appeal, after which they&apos;re banned and their account is
-                                  permanently deleted.
-                                </span>
-                              </label>
-                              <button
-                                type="submit"
-                                className="text-xs font-medium text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors self-start"
-                              >
-                                Deny
-                              </button>
-                            </form>
-                          )}
+                          {(stage === 'passed' || stage === 'failed') && <span className="text-xs text-slate-400">Decided</span>}
                         </div>
                       </td>
                     </tr>

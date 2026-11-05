@@ -6,6 +6,9 @@ import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import { pauseCleaner } from '@/lib/cleanerStatus'
 import { BAN_APPEAL_DAYS, appealDeadline, formatDeadline } from '@/lib/appealWindow'
+import { backgroundCheckChargeCents, formatFeeCents } from '@/lib/backgroundCheckFee'
+import { RATE_LIMITS, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
+import type { FollowUpKind } from '@/lib/backgroundCheckFollowUp'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -196,7 +199,7 @@ export async function emailAdminDecision(
 // Stops a double click or a quick resend from emailing the cleaner twice.
 export const LINK_RESEND_COOLDOWN_MS = 60_000
 export const LINK_RESEND_COOLDOWN_MESSAGE =
-  'The background check link was already sent. Wait 1 minute before sending it again.'
+  'The background check was already sent. Wait 1 minute before trying again.'
 
 // Can be repeated to resend, or to replace an expired link, once a minute has
 // passed since the last send. Email is sent as well as a text and push, since it
@@ -235,33 +238,6 @@ export async function sendBackgroundCheckLink(admin: Admin, proId: string, rawLi
         }
       `),
     }).catch((err) => console.error('Background check email failed', err))
-  }
-}
-
-// The one link the cleaner gets covers both a background check and identity
-// verification. The admin ticks each part off as the provider shows it done (or
-// unticks a mistake), and once both are, the check counts as submitted and moves
-// on to be decided. Nobody is contacted.
-export const SCREENING_PARTS = ['background_check', 'id_verification'] as const
-export type ScreeningPart = (typeof SCREENING_PARTS)[number]
-
-export async function setScreeningPartCompleted(admin: Admin, proId: string, part: ScreeningPart, completed: boolean): Promise<void> {
-  await requireStage(admin, proId, ['link_sent'], 'record progress for')
-
-  const at = completed ? new Date().toISOString() : null
-  const { error } = await admin
-    .from('background_checks')
-    .update(part === 'background_check' ? { background_check_completed_at: at } : { id_verification_completed_at: at })
-    .eq('pro_id', proId)
-  if (error) throw new Error(error.message)
-
-  const { data: check } = await admin
-    .from('background_checks')
-    .select('background_check_completed_at, id_verification_completed_at')
-    .eq('pro_id', proId)
-    .maybeSingle()
-  if (check?.background_check_completed_at && check.id_verification_completed_at) {
-    await markBackgroundCheckSubmitted(admin, proId)
   }
 }
 
@@ -396,6 +372,73 @@ export async function denyCleaner(admin: Admin, proId: string, reason: string): 
   }).catch((err) => console.error('Background check denial email failed', err))
 
   await emailAdminDecision(profile, 'denied', trimmed)
+}
+
+// Reminder emails the admin sends by hand to a cleaner who's stalled. Each one is
+// only sent at the stage it's about, so a cleaner who has since paid or finished
+// isn't nagged by mistake, and only once a minute per cleaner.
+const FOLLOW_UP_STAGES: Record<FollowUpKind, BackgroundCheckStage> = {
+  not_paid: 'not_started',
+  not_started: 'link_sent',
+}
+
+export const FOLLOW_UP_COOLDOWN_MESSAGE = 'A follow-up email was already sent to this cleaner. Wait 1 minute before sending another.'
+
+export async function sendBackgroundCheckFollowUp(admin: Admin, proId: string, kind: FollowUpKind): Promise<void> {
+  const { data: check } = await admin
+    .from('background_checks')
+    .select('status, requested_at, link_sent_at, submitted_at')
+    .eq('pro_id', proId)
+    .maybeSingle()
+  const stage = backgroundCheckStage(check)
+  if (stage !== FOLLOW_UP_STAGES[kind]) {
+    throw new BackgroundCheckStateError(
+      kind === 'not_paid'
+        ? `This cleaner has already paid (their check is at the "${stage}" stage), so there's nothing to remind them to pay for.`
+        : `"Not started" reminders are for cleaners whose check has been sent but not completed. This one is at the "${stage}" stage.`
+    )
+  }
+
+  const { data: profile } = await admin.from('profiles').select('email, first_name').eq('id', proId).maybeSingle()
+  if (!profile?.email) throw new BackgroundCheckStateError('This cleaner no longer has an account.')
+
+  const rateKey = `background-check-follow-up:${proId}`
+  if (await isRateLimited(admin, rateKey, RATE_LIMITS.backgroundCheckFollowUpPerCleaner)) {
+    throw new BackgroundCheckStateError(FOLLOW_UP_COOLDOWN_MESSAGE)
+  }
+  await recordRateLimitEvent(admin, rateKey)
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+  const name = escapeHtml(profile.first_name ?? 'there')
+  const paragraph = (text: string) => `<p style="margin:0 0 12px;font-size:15px;color:#475569;line-height:1.6;">${text}</p>`
+
+  let subject: string
+  let body: string
+  if (kind === 'not_paid') {
+    const feeCents = backgroundCheckChargeCents()
+    subject = 'Finish your Tydio background check'
+    body = `
+      ${paragraph("You're almost ready to start cleaning with Tydio. Your next step is your background check, which also covers ID verification.")}
+      ${paragraph(`It hasn't been paid for yet${feeCents != null ? `. The fee is ${formatFeeCents(feeCents)}` : ''}, and we can't start it until it is. Once it's paid, Checkr will email you a link to complete it.`)}
+      <a href="${siteUrl}/pro/onboarding/setup/background-check" style="display:inline-block;margin:8px 0 20px;padding:14px 28px;background:#38C7CA;color:white;text-decoration:none;border-radius:12px;font-weight:700;font-size:15px;">Pay for your background check</a>
+    `
+  } else {
+    subject = 'Reminder: complete your Tydio background check'
+    body = `
+      ${paragraph('Checkr emailed you an invitation to complete your background check and ID verification, but it hasn’t been completed yet.')}
+      ${paragraph('Look for an email from Checkr, checking your spam folder too, and follow its steps. We can’t approve you to take bookings until it’s done.')}
+      ${paragraph('Can’t find the email? Reply to this message and we’ll help.')}
+    `
+  }
+
+  await sendEmail({
+    to: [{ email: profile.email, name: profile.first_name ?? undefined }],
+    subject,
+    htmlContent: emailShell(`
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">Hi ${name},</h2>
+      ${body}
+    `),
+  })
 }
 
 // For a report an automation can't call clear, so a person makes the decision.

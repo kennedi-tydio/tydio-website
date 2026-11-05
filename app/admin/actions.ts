@@ -15,14 +15,13 @@ import { hasPaidFee, isFeeRefundReason } from '@/lib/backgroundCheckFee'
 import { expirationDateError } from '@/lib/insuranceExpiration'
 import {
   BackgroundCheckStateError,
-  SCREENING_PARTS,
   denyCleaner,
+  sendBackgroundCheckFollowUp,
   passBackgroundCheck,
   sendBackgroundCheckLink,
-  setScreeningPartCompleted,
-  type ScreeningPart,
 } from '@/lib/backgroundCheck'
 import { recordFeeRefund } from '@/lib/stripe/backgroundCheckFee'
+import { FOLLOW_UP_KINDS, type FollowUpKind } from '@/lib/backgroundCheckFollowUp'
 import { emailSignedAgreement } from '@/lib/legal/agreementSigning'
 import { suspendAccounts, unsuspendAccounts } from '@/lib/accountSuspension'
 import { OPEN_BOOKINGS_MESSAGE, UNPAID_PAYOUT_MESSAGE, deleteOwnAccount } from '@/lib/accountDeletion'
@@ -748,82 +747,104 @@ function revalidateBackgroundCheckPages() {
   revalidatePath('/admin')
 }
 
-export type SendBackgroundCheckLinkState = { error?: string; message?: string }
+export type BackgroundCheckFormState = { error?: string; message?: string }
 
-// Each cleaner's link is unique to them, so there's no default to fall back on.
 // Problems come back as state rather than thrown, since production hides a
-// thrown error's message and the admin needs to read it (e.g. the resend wait).
-export async function sendBackgroundCheckLinkAction(
-  profileId: string,
-  _prev: SendBackgroundCheckLinkState,
-  formData: FormData
-): Promise<SendBackgroundCheckLinkState> {
-  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+// thrown error's message and the admin needs to read it.
+function stateError(err: unknown): BackgroundCheckFormState {
+  if (err instanceof BackgroundCheckStateError) return { error: err.message }
+  throw err
+}
 
-  const link = (formData.get('link') as string | null)?.trim()
-  if (!link) return { error: "Paste this cleaner's background check link to send." }
+// Checkr emails the cleaner its own invitation when the admin orders the check,
+// so there's no link to pass along: this records that it went out and tells the
+// cleaner to look for Checkr's email.
+export async function markScreeningSentAction(
+  profileId: string,
+  _prev: BackgroundCheckFormState,
+  formData: FormData
+): Promise<BackgroundCheckFormState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+  if (formData.get('ordered') !== 'on') {
+    return { error: 'Confirm the background check and ID verification were ordered in Checkr first.' }
+  }
 
   try {
-    await sendBackgroundCheckLink(createAdminClient(), profileId, link)
+    await sendBackgroundCheckLink(createAdminClient(), profileId, null)
+  } catch (err) {
+    return stateError(err)
+  }
+
+  revalidateBackgroundCheckPages()
+  return { message: 'Marked as sent.' }
+}
+
+// A reminder email to a cleaner who's stalled before paying, or after Checkr's
+// invitation went out. A send that fails is reported rather than thrown, so the
+// admin knows to try again.
+export async function sendBackgroundCheckFollowUpAction(
+  profileId: string,
+  _prev: BackgroundCheckFormState,
+  formData: FormData
+): Promise<BackgroundCheckFormState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const kind = formData.get('kind') as FollowUpKind | null
+  if (!kind || !FOLLOW_UP_KINDS.includes(kind)) return { error: 'Choose which reminder to send.' }
+
+  try {
+    await sendBackgroundCheckFollowUp(createAdminClient(), profileId, kind)
   } catch (err) {
     if (err instanceof BackgroundCheckStateError) return { error: err.message }
-    throw err
+    console.error('Background check follow-up email failed', err)
+    return { error: "The email couldn't be sent. Try again in a moment." }
   }
-
-  revalidateBackgroundCheckPages()
-  return { message: 'Link sent.' }
+  return { message: 'Follow-up email sent.' }
 }
 
-export async function setScreeningPartCompletedAction(
+const DECISIONS = ['approve', 'deny'] as const
+type Decision = (typeof DECISIONS)[number]
+
+function denialLabel(backgroundCheck: Decision, idVerification: Decision): string {
+  if (backgroundCheck === 'deny' && idVerification === 'deny') return 'Background check and ID verification not passed'
+  return backgroundCheck === 'deny' ? 'Background check not passed' : 'ID verification not passed'
+}
+
+// One decision for each part of the screening, and one reason that covers both.
+// Approving both approves the cleaner; denying either denies them, with the
+// reason (led by which part failed) emailed to them. The confirmation is there
+// because denying someone over a report has to go through Checkr's adverse
+// action notices, which this doesn't send.
+export async function decideBackgroundCheckAction(
   profileId: string,
-  part: ScreeningPart,
-  completed: boolean,
-  _formData: FormData
-): Promise<void> {
-  if (!(await isAdminAuthed())) return
-  if (!SCREENING_PARTS.includes(part)) throw new Error('Unknown screening step.')
+  _prev: BackgroundCheckFormState,
+  formData: FormData
+): Promise<BackgroundCheckFormState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
 
-  await setScreeningPartCompleted(createAdminClient(), profileId, part, completed)
-
-  revalidateBackgroundCheckPages()
-}
-
-// Approving clears both parts of the screening at once, so both have to be
-// confirmed as passed.
-export async function passBackgroundCheckAction(profileId: string, formData: FormData): Promise<void> {
-  if (!(await isAdminAuthed())) return
-
-  if (formData.get('backgroundCheckPassed') !== 'on' || formData.get('idVerificationPassed') !== 'on') {
-    throw new Error('Confirm both the background check and ID verification passed before approving.')
+  const backgroundCheck = formData.get('backgroundCheck') as Decision | null
+  const idVerification = formData.get('idVerification') as Decision | null
+  if (!backgroundCheck || !idVerification || !DECISIONS.includes(backgroundCheck) || !DECISIONS.includes(idVerification)) {
+    return { error: 'Choose approve or deny for both the background check and ID verification.' }
   }
 
-  await passBackgroundCheck(createAdminClient(), profileId)
-
-  revalidateBackgroundCheckPages()
-}
-
-const FAILED_CHECK_LABELS: Record<string, string> = {
-  background_check: 'Background check not passed',
-  id_verification: 'ID verification not passed',
-  both: 'Background check and ID verification not passed',
-}
-
-// The required confirmation is there because denying someone over a report has to
-// go through the provider's adverse action notices. Denying emails the cleaner the
-// reason and a link to appeal; it doesn't send those notices.
-export async function denyCleanerAction(profileId: string, formData: FormData): Promise<void> {
-  if (!(await isAdminAuthed())) return
-
-  if (formData.get('noticesConfirmed') !== 'on') {
-    throw new Error('Confirm the adverse action requirement before denying.')
+  const admin = createAdminClient()
+  try {
+    if (backgroundCheck === 'approve' && idVerification === 'approve') {
+      await passBackgroundCheck(admin, profileId)
+    } else {
+      const reason = (formData.get('reason') as string | null)?.trim()
+      if (!reason) return { error: 'Give a reason for the denial. It is sent to the cleaner.' }
+      if (formData.get('noticesConfirmed') !== 'on') return { error: 'Confirm the adverse action requirement before denying.' }
+      await denyCleaner(admin, profileId, `${denialLabel(backgroundCheck, idVerification)}: ${reason}`)
+    }
+  } catch (err) {
+    return stateError(err)
   }
-
-  const failed = FAILED_CHECK_LABELS[formData.get('failedCheck') as string]
-  const reason = (formData.get('reason') as string | null)?.trim()
-  await denyCleaner(createAdminClient(), profileId, [failed, reason].filter(Boolean).join(': '))
 
   revalidateBackgroundCheckPages()
   revalidatePath('/admin/appeals')
+  return { message: backgroundCheck === 'approve' && idVerification === 'approve' ? 'Approved.' : 'Denied.' }
 }
 
 // Lets them sign up again. If their account hasn't been deleted yet (still in the

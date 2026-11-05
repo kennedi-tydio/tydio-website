@@ -3,7 +3,7 @@
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hashPassword } from '@/lib/auth/password'
-import { sendEmail, emailShell, escapeHtml } from '@/lib/email'
+import { TYDIO_ADMIN_EMAIL, sendEmail, emailShell, escapeHtml } from '@/lib/email'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/database.types'
 import { BANNED_MESSAGE, isBanned, normalizePhone } from '@/lib/bannedUsers'
@@ -89,6 +89,39 @@ async function sendVerificationEmail(
 }
 
 // The checks above catch most duplicates; this covers two signups racing each other.
+// Tells the admin a cleaner signed up, so new applicants don't go unseen. A
+// failed send never blocks the signup itself.
+async function emailAdminCleanerSignup(cleaner: {
+  firstName: string
+  lastName: string
+  email: string
+  phone: string | null
+  zip: string
+  inServiceArea: boolean
+}): Promise<void> {
+  const plainName = `${cleaner.firstName} ${cleaner.lastName}`.trim()
+  const next = cleaner.inServiceArea
+    ? 'They need to verify their email, then you can grant them access from Users.'
+    : 'Their ZIP code is outside the service area, so they were added to the waitlist.'
+
+  await sendEmail({
+    to: [{ email: TYDIO_ADMIN_EMAIL }],
+    subject: `New Tidy Pro signup: ${plainName}`,
+    htmlContent: emailShell(`
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">New Tidy Pro signup</h2>
+      <p style="margin:0 0 12px;font-size:15px;color:#475569;line-height:1.6;">
+        ${escapeHtml(plainName)} created a Tidy Pro account.
+      </p>
+      <p style="margin:0 0 12px;font-size:14px;color:#475569;line-height:1.6;">
+        Email: <a href="mailto:${escapeHtml(cleaner.email)}">${escapeHtml(cleaner.email)}</a><br/>
+        Phone: ${escapeHtml(cleaner.phone ?? '—')}<br/>
+        ZIP code: ${escapeHtml(cleaner.zip)}
+      </p>
+      <p style="margin:0;font-size:14px;color:#64748b;line-height:1.6;">${next}</p>
+    `),
+  }).catch((err) => console.error('Tidy Pro signup admin email failed', err))
+}
+
 function signupInsertError(error: { code?: string; message: string } | null, role: 'USER' | 'TIDYPRO' | 'ADMIN'): string {
   const account = role === 'TIDYPRO' ? 'A Tidy Pro account' : 'A customer account'
   if (error?.code === '23505' && error.message.includes('phone')) return `${account} already exists with this phone number.`
@@ -205,6 +238,7 @@ export async function signupAction(
     if (insertError) return { error: signupInsertError(insertError, role) }
     if (role === 'TIDYPRO') {
       await admin.from('tidypro_profiles').insert({ id: newId, phone })
+      await emailAdminCleanerSignup({ firstName, lastName, email, phone, zip, inServiceArea: false })
     }
     return { waitlisted: true }
   }
@@ -242,6 +276,7 @@ export async function signupAction(
 
   if (role === 'TIDYPRO') {
     await admin.from('tidypro_profiles').insert({ id: profile.id, phone })
+    await emailAdminCleanerSignup({ firstName, lastName, email, phone, zip, inServiceArea: true })
   }
 
   await sendVerificationEmail(email, firstName, profile.id, admin)
