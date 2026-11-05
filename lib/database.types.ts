@@ -124,6 +124,8 @@ export interface Database {
           insurance_provider: string | null
           insurance_policy_expiration_date: string | null
           insurance_expiry_reminder_sent_at: string | null
+          onboarding_reminder_sent_at: string | null
+          onboarding_final_reminder_sent_at: string | null
           insurance_document_url: string | null
           insurance_verified_at: string | null
           insurance_verified_by: string | null
@@ -187,6 +189,8 @@ export interface Database {
           insurance_provider?: string | null
           insurance_policy_expiration_date?: string | null
           insurance_expiry_reminder_sent_at?: string | null
+          onboarding_reminder_sent_at?: string | null
+          onboarding_final_reminder_sent_at?: string | null
           insurance_document_url?: string | null
           insurance_verified_at?: string | null
           insurance_verified_by?: string | null
