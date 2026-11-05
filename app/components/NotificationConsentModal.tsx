@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { setSmsConsentAction, setPushConsentAction } from '@/app/actions/notificationConsent'
@@ -10,6 +10,7 @@ import {
   useDevicePushPromptDismissed,
   useDevicePushSubscribed,
   useIsStandalone,
+  useNotificationPermission,
 } from '@/app/components/pushSubscription'
 import ModalShell from './ModalShell'
 import AddToHomeScreenGuide from './AddToHomeScreenGuide'
@@ -27,6 +28,7 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
   const installDismissed = useInstallGuideDismissed()
   const deviceSubscribed = useDevicePushSubscribed(standalone && pushConsent === 'opted_in')
   const devicePromptDismissed = useDevicePushPromptDismissed()
+  const permission = useNotificationPermission()
   // The account opted in on another device (or this one lost its
   // subscription), so offer push here too — unless the browser has already
   // blocked notifications, where asking again can't succeed.
@@ -35,7 +37,22 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
     pushConsent === 'opted_in' &&
     deviceSubscribed === false &&
     !devicePromptDismissed &&
-    !(typeof Notification !== 'undefined' && Notification.permission === 'denied')
+    permission !== 'denied'
+  // Notifications are already allowed on this device, so there's nothing to
+  // ask: subscribe quietly instead (requestPermission returns at once without a
+  // prompt). Covers iOS dropping a subscription, and a second account (e.g.
+  // their Tidy Pro one) on a phone where they already turned push on.
+  const silentlySubscribe =
+    standalone && permission === 'granted' && (pushConsent === null || (pushConsent === 'opted_in' && deviceSubscribed === false))
+  const subscribingRef = useRef(false)
+  useEffect(() => {
+    if (!silentlySubscribe || subscribingRef.current) return
+    subscribingRef.current = true
+    enablePushNotifications({ declineOnRefusal: false }).then((result) => {
+      if ('success' in result) dismissDevicePushPrompt()
+      router.refresh()
+    })
+  }, [silentlySubscribe, router])
   // Derived fresh every render from the current consent props + the
   // standalone signal — after a response, the server action's
   // revalidatePath + router.refresh() bring back updated consent props,
@@ -47,7 +64,7 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
       ? 'sms'
       : !standalone && !installDismissed
         ? 'install'
-        : (standalone && pushConsent === null) || newDevice
+        : ((standalone && pushConsent === null) || newDevice) && permission !== null && permission !== 'granted'
           ? 'push'
           : null
   // Set after "I've added it" so the guide closes on a pointer to the

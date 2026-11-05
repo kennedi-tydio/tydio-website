@@ -32,7 +32,7 @@ export default async function ProDashboardPage() {
 
   const { data: tidyPro } = await admin
     .from('tidypro_profiles')
-    .select('time_zone, rating, review_count, availability, profile_photo_url, bio, stripe_onboarding_completed, travel_radius_miles, terms_accepted, cleaner_status, verified_ack_at')
+    .select('time_zone, rating, review_count, availability, profile_photo_url, bio, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, terms_accepted, cleaner_status, verified_ack_at')
     .eq('id', session.profileId)
     .maybeSingle()
 

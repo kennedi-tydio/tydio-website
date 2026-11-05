@@ -48,7 +48,7 @@ export default async function AdminIncidentPage({ params }: { params: Promise<{ 
       ? admin.from('profiles').select('first_name, last_name, email, phone').eq('id', booking.tidy_pro_id).maybeSingle()
       : Promise.resolve({ data: null }),
     booking.tidy_pro_id
-      ? admin.from('tidypro_profiles').select('phone, street_address, city, state, zip_code, cleaner_status').eq('id', booking.tidy_pro_id).maybeSingle()
+      ? admin.from('tidypro_profiles').select('phone, street_address, unit_number, city, state, zip_code, cleaner_status').eq('id', booking.tidy_pro_id).maybeSingle()
       : Promise.resolve({ data: null }),
     admin.from('booking_tasks').select('task_name, task_category').eq('booking_id', booking.id),
     booking.tidy_pro_id
@@ -101,7 +101,7 @@ export default async function AdminIncidentPage({ params }: { params: Promise<{ 
             ['Name', [cleaner?.first_name, cleaner?.last_name].filter(Boolean).join(' ') || booking.tidy_pro_name],
             ['Phone', <Phone key="phone" number={tidyPro?.phone ?? cleaner?.phone} />],
             ['Email', cleaner?.email],
-            ['Address', [tidyPro?.street_address, tidyPro?.city, tidyPro?.state, tidyPro?.zip_code].filter(Boolean).join(', ')],
+            ['Address', [tidyPro?.street_address, tidyPro?.unit_number, tidyPro?.city, tidyPro?.state, tidyPro?.zip_code].filter(Boolean).join(', ')],
             ['Account', tidyPro?.cleaner_status],
           ]}
         />

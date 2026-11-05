@@ -98,12 +98,17 @@ body {
   border-bottom: env(safe-area-inset-bottom, 0px) solid transparent;
 }
 
-/* Chatbase pins its bubble 1rem from the bottom with inline styles. Keep it
-   clear of the home indicator and above any bottom bar (ChatbaseScript sets
-   --bottom-bar-height), and hide it while a dialog is open so it can't cover
-   the dialog's buttons. */
+/* The chatbot only shows on the public home page (ChatbaseScript sets
+   data-chatbot there); everywhere else, including the signed-in app, its
+   elements stay hidden. Chatbase pins its bubble 1rem from the bottom with
+   inline styles, so keep it clear of the home indicator, and hide it while a
+   dialog is open so it can't cover the dialog's buttons. */
+html:not([data-chatbot="on"]) [id^="chatbase"] {
+  display: none !important;
+}
+
 #chatbase-bubble-button {
-  bottom: max(calc(1rem + env(safe-area-inset-bottom, 0px)), calc(var(--bottom-bar-height, 0px) + 0.75rem)) !important;
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 body:has([role="dialog"][aria-modal="true"]:not([id^="chatbase"], [id^="chatbase"] *)) #chatbase-bubble-button {

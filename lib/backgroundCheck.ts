@@ -193,18 +193,29 @@ export async function emailAdminDecision(
   }).catch((err) => console.error('Background check decision email failed', err))
 }
 
-// Can be repeated to resend, or to replace an expired link. Email is sent as well
-// as a text and push, since it doesn't depend on notification consent and this is
-// a step the cleaner asked for. The one link covers identity verification too.
+// Stops a double click or a quick resend from emailing the cleaner twice.
+export const LINK_RESEND_COOLDOWN_MS = 60_000
+export const LINK_RESEND_COOLDOWN_MESSAGE =
+  'The background check link was already sent. Wait 1 minute before sending it again.'
+
+// Can be repeated to resend, or to replace an expired link, once a minute has
+// passed since the last send. Email is sent as well as a text and push, since it
+// doesn't depend on notification consent and this is a step the cleaner asked
+// for. The one link covers identity verification too.
 export async function sendBackgroundCheckLink(admin: Admin, proId: string, rawLink: string | null | undefined): Promise<void> {
   const link = parseBackgroundCheckLink(rawLink)
   await requireStage(admin, proId, ['needs_link', 'link_sent'], 'send a form for')
 
-  const { error } = await admin
+  // The cooldown is part of the update, so two sends at once can't both pass it.
+  const cutoff = new Date(Date.now() - LINK_RESEND_COOLDOWN_MS).toISOString()
+  const { data: updated, error } = await admin
     .from('background_checks')
     .update({ background_check_link: link, link_sent_at: new Date().toISOString() })
     .eq('pro_id', proId)
+    .or(`link_sent_at.is.null,link_sent_at.lt."${cutoff}"`)
+    .select('pro_id')
   if (error) throw new Error(error.message)
+  if (!updated?.length) throw new BackgroundCheckStateError(LINK_RESEND_COOLDOWN_MESSAGE)
 
   const payload = notifyBackgroundCheckLinkSent(link)
   await notifyCleaner(admin, proId, payload)

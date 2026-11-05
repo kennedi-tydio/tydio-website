@@ -83,6 +83,7 @@ export interface Database {
           bio: string | null
           profile_photo_url: string | null
           street_address: string | null
+          unit_number: string | null
           city: string | null
           state: string | null
           zip_code: string | null
@@ -146,6 +147,7 @@ export interface Database {
           bio?: string | null
           profile_photo_url?: string | null
           street_address?: string | null
+          unit_number?: string | null
           city?: string | null
           state?: string | null
           zip_code?: string | null

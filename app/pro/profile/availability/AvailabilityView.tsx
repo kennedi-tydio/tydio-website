@@ -17,7 +17,7 @@ const DAY_LABELS: Record<WeekdayKey, string> = {
   sat: 'Sat',
 }
 
-const DEFAULT_RANGE = { start: '09:00', end: '15:00' }
+const DEFAULT_RANGE = { start: '09:00', end: '17:00' }
 
 function IconPlus() {
   return (

@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
-import ChatbaseScript from './components/ChatbaseScript'
 import NavigationSpinner from './components/NavigationSpinner'
 import ServiceWorkerRegistration from './components/ServiceWorkerRegistration'
 import { PHProvider } from './providers'
@@ -53,7 +52,6 @@ export default function RootLayout({
           {children}
         </PHProvider>
         <NavigationSpinner />
-        <ChatbaseScript />
         <ServiceWorkerRegistration />
       </body>
     </html>

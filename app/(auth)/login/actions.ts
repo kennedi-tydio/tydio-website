@@ -26,6 +26,7 @@ export async function loginAction(
   const password = formData.get('password') as string
   const next = formData.get('next') as string | null
   const role: 'USER' | 'TIDYPRO' = formData.get('role') === 'TIDYPRO' ? 'TIDYPRO' : 'USER'
+  const remember = formData.get('remember') === 'on'
 
   if (!email || !password) return { error: 'Email and password are required.' }
 
@@ -75,7 +76,7 @@ export async function loginAction(
     return { unverified: true, unverifiedEmail: email, unverifiedRole: role }
   }
 
-  await createSession({ profileId: profile.id, role: profile.role as 'USER' | 'TIDYPRO', email })
+  await createSession({ profileId: profile.id, role: profile.role as 'USER' | 'TIDYPRO', email }, { remember })
 
   const safeNext = safeRedirectPath(next)
   if (safeNext) redirect(safeNext)

@@ -5,9 +5,9 @@ import {
   denyCleanerAction,
   passBackgroundCheckAction,
   removeBanAction,
-  sendBackgroundCheckLinkAction,
   setScreeningPartCompletedAction,
 } from '../../actions'
+import SendLinkForm from './SendLinkForm'
 
 type Tab = BackgroundCheckStage | 'banned'
 
@@ -175,20 +175,12 @@ export default async function AdminBackgroundChecksPage({
                   const badge = row.status === 'in_review' ? { label: 'Needs review', color: '#ef4444' } : STAGE_BADGES[stage]
                   const name = profile ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || '—' : '—'
                   const linkForm = (
-                    <form action={sendBackgroundCheckLinkAction.bind(null, row.pro_id)} className="flex flex-col gap-1.5">
-                      <input
-                        aria-label="Background check and ID verification link"
-                        name="link"
-                        type="url"
-                        required
-                        defaultValue={row.background_check_link ?? ''}
-                        placeholder="Paste this cleaner's link"
-                        className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-brand"
-                      />
-                      <button type="submit" className={`${BUTTON_SECONDARY} self-start`}>
-                        {stage === 'needs_link' ? 'Send link' : 'Resend link'}
-                      </button>
-                    </form>
+                    <SendLinkForm
+                      proId={row.pro_id}
+                      defaultLink={row.background_check_link ?? ''}
+                      label={stage === 'needs_link' ? 'Send link' : 'Resend link'}
+                      buttonClassName={BUTTON_SECONDARY}
+                    />
                   )
                   return (
                     <tr key={row.pro_id} className="hover:bg-slate-50 transition-colors align-top">

@@ -14,6 +14,7 @@ type Props = {
 
 export default function AddressForm({ onSaved, onClose }: Props) {
   const [streetAddress, setStreetAddress] = useState('')
+  const [unitNumber, setUnitNumber] = useState('')
   const [city, setCity] = useState('')
   const [state, setState] = useState('')
   const [zipCode, setZipCode] = useState('')
@@ -44,9 +45,17 @@ export default function AddressForm({ onSaved, onClose }: Props) {
         lng = geocoded.lng
       }
     }
+    // Matching needs the location to measure how far each request is, so an
+    // address that can't be found on the map isn't saved.
+    if (lat == null || lng == null) {
+      setSaving(false)
+      setError("We couldn't find that address on the map. Check it, or pick it from the suggestions as you type.")
+      return
+    }
 
     const result = await saveAddressAction({
       streetAddress,
+      unitNumber: unitNumber || null,
       city,
       state,
       zipCode,
@@ -78,6 +87,14 @@ export default function AddressForm({ onSaved, onClose }: Props) {
           onChange={setStreetAddress}
           onPlaceSelect={handlePlaceSelect}
           placeholder="Street address"
+        />
+        <input
+          aria-label="Apartment or suite number"
+          type="text"
+          placeholder="Apartment or suite number (optional)"
+          value={unitNumber}
+          onChange={(e) => setUnitNumber(e.target.value)}
+          className="w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-brand"
         />
         <input
           aria-label="City"

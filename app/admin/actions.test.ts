@@ -223,10 +223,21 @@ describe('background check decisions', () => {
             updates.push({ table, values })
             return chain
           },
+          or: () => {
+            chain.cooldownFiltered = true
+            return chain
+          },
           maybeSingle: async () => ({
             data: table === 'background_checks' ? check : table === 'profiles' ? { email: 'Pro@Example.com', first_name: 'Nia', last_name: 'T', phone: '+1 (555) 123-4567' } : null,
           }),
-          then: (resolve: any) => resolve({ data: [{ pro_id: 'pro_1' }] }),
+          // Mirrors the resend cooldown filter: a send within the last minute matches no row.
+          then: (resolve: any) =>
+            resolve({
+              data:
+                chain.cooldownFiltered && check?.link_sent_at && Date.now() - Date.parse(check.link_sent_at) < 60_000
+                  ? []
+                  : [{ pro_id: 'pro_1' }],
+            }),
         }
         return chain
       },
@@ -274,7 +285,7 @@ describe('background check decisions', () => {
   it('does nothing without admin auth', async () => {
     mockedIsAdminAuthed.mockResolvedValue(false)
     const updates = adminWithCheck(submitted)
-    await sendBackgroundCheckLinkAction('pro_1', linkForm('https://apply.checkr.com/abc'))
+    await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))
     await setScreeningPartCompletedAction('pro_1', 'background_check', true, new FormData())
     await passBackgroundCheckAction('pro_1', approveForm())
     await denyCleanerAction('pro_1', denyForm(true))
@@ -285,16 +296,32 @@ describe('background check decisions', () => {
   it('sends the form to a cleaner who has paid, and emails them', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     const updates = adminWithCheck(paid)
-    await sendBackgroundCheckLinkAction('pro_1', linkForm('https://apply.checkr.com/abc'))
+    await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))
     expect(updates[0].values).toMatchObject({ background_check_link: 'https://apply.checkr.com/abc' })
     expect(updates[0].values.link_sent_at).toBeTruthy()
+    expect(sendEmail).toHaveBeenCalledOnce()
+  })
+
+  it('refuses to resend within a minute of the last send', async () => {
+    mockedIsAdminAuthed.mockResolvedValue(true)
+    adminWithCheck({ ...paid, link_sent_at: new Date(Date.now() - 30_000).toISOString() })
+    const result = await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))
+    expect(result.error).toBe('The background check link was already sent. Wait 1 minute before sending it again.')
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  it('resends once a minute has passed', async () => {
+    mockedIsAdminAuthed.mockResolvedValue(true)
+    adminWithCheck({ ...paid, link_sent_at: new Date(Date.now() - 61_000).toISOString() })
+    const result = await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))
+    expect(result).toEqual({ message: 'Link sent.' })
     expect(sendEmail).toHaveBeenCalledOnce()
   })
 
   it('refuses to send a form to a cleaner who has not paid', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     const updates = adminWithCheck(notStarted)
-    await expect(sendBackgroundCheckLinkAction('pro_1', linkForm('https://apply.checkr.com/abc'))).rejects.toThrow('not_started')
+    expect((await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('https://apply.checkr.com/abc'))).error).toMatch('not_started')
     expect(updates).toHaveLength(0)
     expect(sendEmail).not.toHaveBeenCalled()
   })
@@ -302,14 +329,14 @@ describe('background check decisions', () => {
   it('refuses a link that is not https', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     const updates = adminWithCheck(paid)
-    await expect(sendBackgroundCheckLinkAction('pro_1', linkForm('javascript:alert(1)'))).rejects.toThrow('https')
+    expect((await sendBackgroundCheckLinkAction('pro_1', {}, linkForm('javascript:alert(1)'))).error).toMatch('https')
     expect(updates).toHaveLength(0)
   })
 
   it('refuses to send without a link, since each cleaner has their own', async () => {
     mockedIsAdminAuthed.mockResolvedValue(true)
     const updates = adminWithCheck(paid)
-    await expect(sendBackgroundCheckLinkAction('pro_1', linkForm(' '))).rejects.toThrow('Paste')
+    expect((await sendBackgroundCheckLinkAction('pro_1', {}, linkForm(' '))).error).toMatch('Paste')
     expect(updates).toHaveLength(0)
     expect(sendEmail).not.toHaveBeenCalled()
   })

@@ -14,7 +14,7 @@ export default async function ProAddressPage() {
 
   const { data: tidyPro, error } = await admin
     .from('tidypro_profiles')
-    .select('street_address, city, state, zip_code, latitude, longitude')
+    .select('street_address, unit_number, city, state, zip_code, latitude, longitude')
     .eq('id', session.profileId)
     .single()
 
@@ -24,6 +24,7 @@ export default async function ProAddressPage() {
     tidyPro?.street_address && tidyPro.city && tidyPro.state && tidyPro.zip_code
       ? {
           street_address: tidyPro.street_address,
+          unit_number: tidyPro.unit_number,
           city: tidyPro.city,
           state: tidyPro.state,
           zip_code: tidyPro.zip_code,

@@ -748,16 +748,30 @@ function revalidateBackgroundCheckPages() {
   revalidatePath('/admin')
 }
 
+export type SendBackgroundCheckLinkState = { error?: string; message?: string }
+
 // Each cleaner's link is unique to them, so there's no default to fall back on.
-export async function sendBackgroundCheckLinkAction(profileId: string, formData: FormData): Promise<void> {
-  if (!(await isAdminAuthed())) return
+// Problems come back as state rather than thrown, since production hides a
+// thrown error's message and the admin needs to read it (e.g. the resend wait).
+export async function sendBackgroundCheckLinkAction(
+  profileId: string,
+  _prev: SendBackgroundCheckLinkState,
+  formData: FormData
+): Promise<SendBackgroundCheckLinkState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
 
   const link = (formData.get('link') as string | null)?.trim()
-  if (!link) throw new Error("Paste this cleaner's background check link to send.")
+  if (!link) return { error: "Paste this cleaner's background check link to send." }
 
-  await sendBackgroundCheckLink(createAdminClient(), profileId, link)
+  try {
+    await sendBackgroundCheckLink(createAdminClient(), profileId, link)
+  } catch (err) {
+    if (err instanceof BackgroundCheckStateError) return { error: err.message }
+    throw err
+  }
 
   revalidateBackgroundCheckPages()
+  return { message: 'Link sent.' }
 }
 
 export async function setScreeningPartCompletedAction(

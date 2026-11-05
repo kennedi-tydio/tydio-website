@@ -36,6 +36,26 @@ export function useIsStandalone(): boolean {
   return useSyncExternalStore(subscribeToStandaloneChange, getStandaloneSnapshot, getStandaloneServerSnapshot)
 }
 
+function getPermissionSnapshot(): NotificationPermission | null {
+  return typeof Notification === 'undefined' ? null : Notification.permission
+}
+
+function getPermissionServerSnapshot(): NotificationPermission | null {
+  return null
+}
+
+// The page changes permission only through requestPermission, after which the
+// callers refresh, so there's nothing to listen to.
+function subscribeToPermissionChange(): () => void {
+  return () => {}
+}
+
+// The browser's notification permission, or null on the server and where
+// notifications aren't available.
+export function useNotificationPermission(): NotificationPermission | null {
+  return useSyncExternalStore(subscribeToPermissionChange, getPermissionSnapshot, getPermissionServerSnapshot)
+}
+
 // Requests browser permission, subscribes via the service worker, and
 // records both the subscription and the consent flag. Used by both the
 // first-login consent modal and the Profile notifications settings page

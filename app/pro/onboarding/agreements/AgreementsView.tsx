@@ -182,7 +182,7 @@ export default function AgreementsView({ feeCents, agreementTitle, consentText, 
             <Field id="authorized_representative" label="Authorized representative" hint="(if applicable)">
               <input id="authorized_representative" name="authorized_representative" className={INPUT_CLASS} />
             </Field>
-            <Field id="address" label="Address">
+            <Field id="address" label="Full address" hint="(including city, state, and ZIP code)">
               <input
                 id="address"
                 name="address"

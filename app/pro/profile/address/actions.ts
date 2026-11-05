@@ -7,6 +7,7 @@ import { userFacingError } from '@/lib/userFacingError'
 
 export interface AddressInput {
   streetAddress: string
+  unitNumber?: string | null
   city: string
   state: string
   zipCode: string
@@ -16,6 +17,7 @@ export interface AddressInput {
 
 export interface SavedAddress {
   street_address: string
+  unit_number: string | null
   city: string
   state: string
   zip_code: string
@@ -30,6 +32,7 @@ export async function saveAddressAction(
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
 
   const streetAddress = input.streetAddress.trim()
+  const unitNumber = input.unitNumber?.trim() || null
   const city = input.city.trim()
   const state = input.state.trim()
   const zipCode = input.zipCode.trim()
@@ -44,6 +47,7 @@ export async function saveAddressAction(
     .from('tidypro_profiles')
     .update({
       street_address: streetAddress,
+      unit_number: unitNumber,
       city,
       state,
       zip_code: zipCode,
@@ -57,6 +61,7 @@ export async function saveAddressAction(
   revalidatePath('/pro/profile/address')
   return {
     street_address: streetAddress,
+    unit_number: unitNumber,
     city,
     state,
     zip_code: zipCode,
@@ -72,7 +77,7 @@ export async function removeAddressAction(): Promise<void> {
   const admin = createAdminClient()
   await admin
     .from('tidypro_profiles')
-    .update({ street_address: null, city: null, state: null, zip_code: null, latitude: null, longitude: null })
+    .update({ street_address: null, unit_number: null, city: null, state: null, zip_code: null, latitude: null, longitude: null })
     .eq('id', session.profileId)
 
   revalidatePath('/pro/profile/address')

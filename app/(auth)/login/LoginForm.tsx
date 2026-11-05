@@ -116,6 +116,24 @@ export default function LoginForm({ next }: { next?: string }) {
         />
       </div>
 
+      <div className="flex items-start gap-3">
+        <input
+          id="remember"
+          name="remember"
+          type="checkbox"
+          aria-describedby="remember-hint"
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-sky-500"
+        />
+        <div>
+          <label htmlFor="remember" className="text-sm font-medium text-slate-700">
+            Stay signed in
+          </label>
+          <p id="remember-hint" className="text-xs text-slate-500 leading-relaxed">
+            Keeps you signed in on this device for 7 days. Leave this off on a shared or public device.
+          </p>
+        </div>
+      </div>
+
       <SubmitButton />
 
       <p className="text-center text-sm text-slate-500">

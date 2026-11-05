@@ -6,7 +6,7 @@ import { removeAddressAction, type SavedAddress } from './actions'
 import AddressForm from './AddressForm'
 
 function addressLine(a: SavedAddress): string {
-  return `${a.street_address}, ${a.city}, ${a.state} ${a.zip_code}`
+  return `${[a.street_address, a.unit_number].filter(Boolean).join(' ')}, ${a.city}, ${a.state} ${a.zip_code}`
 }
 
 export default function AddressView({ initialAddress }: { initialAddress: SavedAddress | null }) {

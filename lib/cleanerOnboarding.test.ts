@@ -7,6 +7,8 @@ const complete: Parameters<typeof missingOnboardingSteps>[0] = {
   availability: { mon: [{ start: '09:00', end: '17:00' }] },
   stripe_onboarding_completed: true,
   travel_radius_miles: 10,
+  latitude: 33.77,
+  longitude: -84.29,
 }
 
 describe('hasAvailability', () => {
@@ -25,10 +27,11 @@ describe('missingOnboardingSteps', () => {
 
   it('names each missing step on its own', () => {
     const labelFor = (change: Partial<typeof complete>) => missingOnboardingSteps({ ...complete, ...change }).map((s) => s.label)
-    expect(labelFor({ stripe_onboarding_completed: false })).toEqual(['Set up your payment method'])
+    expect(labelFor({ stripe_onboarding_completed: false })).toEqual(['Set up your payout method'])
     expect(labelFor({ availability: {} })).toEqual(['Choose your availability'])
     expect(labelFor({ profile_photo_url: null })).toEqual(['Add a profile picture'])
     expect(labelFor({ bio: '   ' })).toEqual(['Write your bio'])
+    expect(labelFor({ latitude: null, longitude: null })).toEqual(['Add your address'])
     expect(labelFor({ travel_radius_miles: null })).toEqual(['Set your travel distance'])
   })
 })

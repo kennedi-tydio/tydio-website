@@ -90,7 +90,7 @@ export default async function UsersPage({
   const { data: cleanerProfiles } = cleanerIds.length
     ? await admin
         .from('tidypro_profiles')
-        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, phone, street_address, city, state, zip_code')
+        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, phone, street_address, city, state, zip_code')
         .in('id', cleanerIds)
     : { data: [] }
   const cleanerById = new Map((cleanerProfiles ?? []).map((c) => [c.id, c]))

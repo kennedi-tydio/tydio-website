@@ -4,7 +4,11 @@ import { cookies } from 'next/headers'
 import { currentFingerprint, isSessionCurrent } from '@/lib/auth/sessionFingerprint'
 
 const COOKIE = 'tydio_session'
-const MAX_AGE = 60 * 60 * 24 * 7 // 7 days
+// "Stay signed in" keeps the cookie for 7 days. Without it the cookie ends when
+// the browser closes, and the token lapses after a day in case it's left open.
+const REMEMBERED_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
+const REMEMBERED_TTL = '7d'
+const BROWSER_SESSION_TTL = '1d'
 
 function secret() {
   const key = process.env.JWT_SECRET
@@ -18,14 +22,14 @@ export type SessionPayload = {
   email: string
 }
 
-export async function createSession(payload: SessionPayload): Promise<void> {
+export async function createSession(payload: SessionPayload, { remember = false }: { remember?: boolean } = {}): Promise<void> {
   const pv = await currentFingerprint(payload.profileId)
   if (!pv) throw new Error('Cannot create a session for a missing profile')
 
   const token = await new SignJWT({ ...payload, pv })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('7d')
+    .setExpirationTime(remember ? REMEMBERED_TTL : BROWSER_SESSION_TTL)
     .sign(secret())
 
   const store = await cookies()
@@ -33,7 +37,7 @@ export async function createSession(payload: SessionPayload): Promise<void> {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: MAX_AGE,
+    ...(remember && { maxAge: REMEMBERED_MAX_AGE }),
     path: '/',
   })
 }
