@@ -55,7 +55,7 @@ export default function Navbar() {
             className="inline-flex items-center gap-1.5 border border-sky-400 text-sky-600 hover:bg-sky-50 text-sm font-semibold px-4 py-2 rounded-full transition-colors"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-            Try Tydio Lite
+            Get Started
           </Link>
         </div>
 
@@ -99,7 +99,7 @@ export default function Navbar() {
                 className="flex items-center justify-center gap-1.5 w-full border border-sky-400 text-sky-600 text-sm font-semibold px-5 py-2.5 rounded-full transition-colors"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-                Try Tydio Lite
+                Get Started
               </Link>
             </li>
           </ul>

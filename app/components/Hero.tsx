@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Hero() {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-white to-sky-50">
@@ -30,7 +32,13 @@ export default function Hero() {
         </p>
 
         {/* CTAs */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <div className="flex flex-col items-center justify-center gap-4">
+          <Link
+            href="/signup"
+            className="inline-flex items-center justify-center bg-brand hover:opacity-90 text-white font-semibold px-8 py-3.5 rounded-full shadow-sm transition-opacity text-base"
+          >
+            Get Started
+          </Link>
           <a
             href="#how-it-works"
             className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 font-medium px-6 py-3.5 rounded-full border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all text-base"
