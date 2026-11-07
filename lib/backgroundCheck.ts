@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { createAdminClient } from '@/lib/supabase/admin'
+import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { notifyBackgroundCheckLinkSent, notifyBackgroundCheckPassed, type NotificationPayload } from '@/lib/notifications'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
@@ -273,6 +274,7 @@ export async function passBackgroundCheck(admin: Admin, proId: string): Promise<
     .eq('id', proId)
 
   if (transitioned && transitioned.length > 0) await sendApproval(admin, proId)
+  await notifyIfOnboardingComplete(admin, proId)
 }
 
 async function sendApproval(admin: Admin, proId: string): Promise<void> {

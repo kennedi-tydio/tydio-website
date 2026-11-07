@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isBanned, normalizePhone } from '@/lib/bannedUsers'
 import { extensionForType } from '@/lib/uploadExtension'
 import { userFacingError } from '@/lib/userFacingError'
+import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 const MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024
@@ -69,6 +70,7 @@ export async function updateProfileAction(input: {
     .eq('id', session.profileId)
   if (tidyProError) return { error: userFacingError(tidyProError) }
 
+  await notifyIfOnboardingComplete(admin, session.profileId)
   revalidateProfilePages(session.profileId)
   return { success: true }
 }
@@ -103,6 +105,7 @@ export async function updateProfilePhotoAction(
     .eq('id', session.profileId)
   if (error) return { error: userFacingError(error) }
 
+  await notifyIfOnboardingComplete(admin, session.profileId)
   revalidateProfilePages(session.profileId)
   return { photoUrl }
 }

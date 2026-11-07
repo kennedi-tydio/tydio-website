@@ -1,5 +1,6 @@
 import { stripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 import { retryPayoutsForTidyPro } from '@/lib/bookings'
 
 // Server-side only — never import in client components.
@@ -169,6 +170,7 @@ export async function refreshPayoutOnboardingStatus(profileId: string, accountId
 
   // Any booking pay held back while onboarding was unfinished goes out now.
   if (completed) await retryPayoutsForTidyPro(admin, profileId).catch(() => {})
+  if (completed) await notifyIfOnboardingComplete(admin, profileId)
 
   return completed
 }
