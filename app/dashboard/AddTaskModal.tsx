@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { TidyTask, DirtLevel, LaundryLoads } from './types'
 import type { Tier } from '@/lib/pricingRules'
 import ModalShell from '@/app/components/ModalShell'
+import { saveCustomRoom } from './actions'
+import { ENTIRE_HOME_ALLOWED_MESSAGE, ENTIRE_HOME_ROOM, entireHomeTier } from '@/lib/entireHome'
 
-const DEFAULT_ROOMS = ['Kitchen', 'Bedroom', 'Bathroom']
+const DEFAULT_ROOMS = [ENTIRE_HOME_ROOM, 'Kitchen', 'Bedroom', 'Bathroom']
 
 const DIRT_OPTIONS: { value: DirtLevel; label: string }[] = [
   { value: 'light', label: 'Light touch-up' },
@@ -27,7 +29,28 @@ function isMopTask(name: string) {
   return /\bmop/i.test(name)
 }
 
+function isSweepTask(name: string) {
+  return /sweep/i.test(name)
+}
+
 const HIDE_MOP_WARNING_KEY = 'tydio:hideMopWarning'
+const HIDE_ENTIRE_HOME_TOAST_KEY = 'tydio:hideEntireHomeToast'
+
+function readFlag(key: string): boolean {
+  try {
+    return typeof window !== 'undefined' && localStorage.getItem(key) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writeFlag(key: string) {
+  try {
+    localStorage.setItem(key, 'true')
+  } catch {
+    // Storage blocked (private mode etc.) — the message just shows again next time.
+  }
+}
 
 type Step = 'create' | 'mopWarning' | 'dishwasher' | 'laundryLoads' | 'dirt' | 'unusual'
 
@@ -41,7 +64,8 @@ type Props = {
 export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClose }: Props) {
   // savedRooms = rooms persisted to the user's profile (survives task deletion)
   // existingRooms = rooms from current in-progress tasks
-  const allRooms = Array.from(new Set([...DEFAULT_ROOMS, ...savedRooms, ...existingRooms]))
+  const [addedRooms, setAddedRooms] = useState<string[]>([])
+  const allRooms = Array.from(new Set([...DEFAULT_ROOMS, ...savedRooms, ...existingRooms, ...addedRooms]))
 
   const [step, setStep] = useState<Step>('create')
   const [name, setName] = useState('')
@@ -58,11 +82,62 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
   const [dryLoads, setDryLoads] = useState(1)
   const [foldLoads, setFoldLoads] = useState(1)
   const [dontShowMopWarning, setDontShowMopWarning] = useState(false)
+  const [showEntireHomeToast, setShowEntireHomeToast] = useState(false)
+  const [roomError, setRoomError] = useState<string | null>(null)
+  const [savingRoom, setSavingRoom] = useState(false)
 
-  const selectedRoom = showNewRoom ? newRoom.trim() : room
+  // A typed room only counts once it's been submitted with Add.
+  const selectedRoom = showNewRoom ? '' : room
   const isDish = isDishTask(name)
   const isLaundry = isLaundryTask(name)
-  const isMop = isMopTask(name)
+  // A combined "sweep and mop" task already includes sweeping.
+  const isMop = isMopTask(name) && !isSweepTask(name)
+  const isEntireHome = selectedRoom === ENTIRE_HOME_ROOM
+
+  useEffect(() => {
+    if (!showEntireHomeToast) return
+    const timer = setTimeout(() => setShowEntireHomeToast(false), 8000)
+    return () => clearTimeout(timer)
+  }, [showEntireHomeToast])
+
+  function selectRoom(r: string) {
+    setRoom(r)
+    setShowNewRoom(false)
+    setRoomError(null)
+    if (r === ENTIRE_HOME_ROOM && !readFlag(HIDE_ENTIRE_HOME_TOAST_KEY)) setShowEntireHomeToast(true)
+  }
+
+  async function handleAddRoom() {
+    const typed = newRoom.trim().replace(/\s+/g, ' ')
+    if (!typed || savingRoom) return
+    const existing = allRooms.find(r => r.toLowerCase() === typed.toLowerCase())
+    if (existing) {
+      setNewRoom('')
+      selectRoom(existing)
+      return
+    }
+    setSavingRoom(true)
+    setRoomError(null)
+    try {
+      const result = await saveCustomRoom(typed)
+      if ('error' in result) {
+        setRoomError(result.error)
+        return
+      }
+      setAddedRooms(prev => [...prev, result.room])
+      setNewRoom('')
+      selectRoom(result.room)
+    } catch {
+      setRoomError('That couldn’t be saved. Please check your connection and try again.')
+    } finally {
+      setSavingRoom(false)
+    }
+  }
+
+  function hideEntireHomeToastForever() {
+    writeFlag(HIDE_ENTIRE_HOME_TOAST_KEY)
+    setShowEntireHomeToast(false)
+  }
 
   function nextStepAfterCreate(): Step {
     if (isDish) return 'dishwasher'
@@ -83,15 +158,18 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
 
   function handleStep1Save() {
     if (!selectedRoom) return
-    const hideMopWarning = typeof window !== 'undefined' && localStorage.getItem(HIDE_MOP_WARNING_KEY) === 'true'
+    if (isEntireHome && !entireHomeTier(name)) {
+      setRoomError(ENTIRE_HOME_ALLOWED_MESSAGE + ' Name the task, or pick a room instead.')
+      return
+    }
+    setRoomError(null)
+    const hideMopWarning = readFlag(HIDE_MOP_WARNING_KEY)
     if (isMop && !hideMopWarning) setStep('mopWarning')
     else setStep(nextStepAfterCreate())
   }
 
   function handleMopWarningOkay() {
-    if (dontShowMopWarning && typeof window !== 'undefined') {
-      localStorage.setItem(HIDE_MOP_WARNING_KEY, 'true')
-    }
+    if (dontShowMopWarning) writeFlag(HIDE_MOP_WARNING_KEY)
     setStep(nextStepAfterCreate())
   }
 
@@ -115,10 +193,11 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
     setValidationError(null)
     // Dishwashing and laundry are built-in task types with fixed price tiers
     // (dishwasher availability / load type), so they skip the free-text
-    // 30-minute Tidy Task check and AI tier classification entirely.
-    let tier: Tier | null = null
+    // 30-minute Tidy Task check and AI tier classification entirely. So do
+    // Entire home tasks, which get a fixed tier scaled by square footage.
+    let tier: Tier | null = isEntireHome ? entireHomeTier(name) : null
     let estimatedMinutes: number | null = null
-    if (!isDish && !isLaundry) {
+    if (!isDish && !isLaundry && !isEntireHome) {
       setValidating(true)
       try {
         const res = await fetch('/api/validate-task', {
@@ -201,6 +280,29 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
   return (
     <ModalShell panelClassName="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl" onClose={onClose} labelledBy="add-task-title">
 
+      {showEntireHomeToast && (
+        <div
+          role="status"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-slate-900 text-white shadow-xl px-4 py-3"
+        >
+          <div className="flex items-start gap-3">
+            <p className="flex-1 text-sm leading-relaxed">{ENTIRE_HOME_ALLOWED_MESSAGE}</p>
+            <button
+              onClick={() => setShowEntireHomeToast(false)}
+              aria-label="Dismiss"
+              className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/10 flex-shrink-0"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <button onClick={hideEntireHomeToastForever} className="mt-2 text-xs font-semibold text-brand">
+            Don&apos;t show again
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
@@ -230,7 +332,7 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
           {TaskInputs}
 
           <p className="text-sm font-semibold text-slate-900 mb-3">
-            Room<span className="text-brand">*</span>
+            Where<span className="text-brand">*</span>
           </p>
 
           <div className="flex flex-col gap-2.5 mb-6">
@@ -238,7 +340,7 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
               <label
                 key={r}
                 className="flex items-center gap-3 cursor-pointer"
-                onClick={() => { setRoom(r); setShowNewRoom(false) }}
+                onClick={() => selectRoom(r)}
               >
                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${room === r && !showNewRoom ? 'border-brand' : 'border-slate-300'}`}>
                   {room === r && !showNewRoom && <div className="w-2.5 h-2.5 rounded-full bg-brand" />}
@@ -247,24 +349,50 @@ export default function AddTaskModal({ savedRooms, existingRooms, onSave, onClos
               </label>
             ))}
             {showNewRoom ? (
-              <input
-                aria-label="Room name"
-                autoFocus
-                type="text"
-                placeholder="Room name"
-                value={newRoom}
-                onChange={e => setNewRoom(e.target.value)}
-                className="text-sm border-b border-slate-300 py-1 focus:outline-none focus:border-brand ml-8"
-              />
+              <form
+                className="flex items-center gap-2 ml-8"
+                onSubmit={e => { e.preventDefault(); handleAddRoom() }}
+              >
+                <input
+                  aria-label="Room name"
+                  autoFocus
+                  type="text"
+                  maxLength={40}
+                  placeholder="Room name"
+                  value={newRoom}
+                  onChange={e => setNewRoom(e.target.value)}
+                  className="flex-1 min-w-0 text-sm border-b border-slate-300 py-1 focus:outline-none focus:border-brand"
+                />
+                <button
+                  type="submit"
+                  disabled={!newRoom.trim() || savingRoom}
+                  className="px-3 py-1.5 rounded-lg bg-brand text-xs font-semibold text-white disabled:opacity-40 transition-opacity"
+                >
+                  {savingRoom ? 'Adding…' : 'Add'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowNewRoom(false); setNewRoom(''); setRoomError(null) }}
+                  className="px-2 py-1.5 text-xs font-semibold text-slate-500"
+                >
+                  Cancel
+                </button>
+              </form>
             ) : (
               <button
-                onClick={() => { setShowNewRoom(true); setRoom('') }}
+                onClick={() => { setShowNewRoom(true); setRoom(''); setRoomError(null) }}
                 className="flex items-center gap-2 text-sm text-slate-400"
               >
                 <span className="text-lg leading-none">+</span> New room
               </button>
             )}
           </div>
+
+          {roomError && (
+            <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4 leading-relaxed">
+              {roomError}
+            </p>
+          )}
 
           <div className="flex gap-3">
             <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600">

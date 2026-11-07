@@ -212,4 +212,41 @@ describe('resolveStatePricing — never falls back to a guessed price', () => {
     )
     expect(result).toEqual({ configured: true, state: 'GA', medianFourHourPrice: 200 })
   })
+
+  it('uses the profile state when the customer has no service area', async () => {
+    const result = await resolveStatePricing(
+      mockAdmin(null, { state: 'GA', median_four_hour_price: 215, pricing_active: true }),
+      null,
+      { city: 'Atlanta', state: 'GA' }
+    )
+    expect(result).toEqual({ configured: true, state: 'GA', medianFourHourPrice: 215 })
+  })
+
+  it('still returns not configured when the profile state has no active price', async () => {
+    const result = await resolveStatePricing(mockAdmin(null, null), null, { city: 'Austin', state: 'TX' })
+    expect(result).toEqual({ configured: false, city: 'Austin', state: 'TX' })
+  })
+
+  it('returns not configured when neither a service area nor a profile state is known', async () => {
+    const result = await resolveStatePricing(mockAdmin(null, null), null, { city: null, state: null })
+    expect(result.configured).toBe(false)
+  })
+})
+
+describe('buildValidatedTaskPool — Entire home tasks', () => {
+  it('prices a whole-home sweep and mop at the fixed Heavy tier, ignoring any client tier', () => {
+    const [validated] = buildValidatedTaskPool([
+      tidyTask({ name: 'Sweep and mop floors', room: 'Entire home', tier: 'Tiny', estimatedMinutes: null }),
+    ])
+    expect(validated.tier).toBe('Heavy')
+    expect(validated.estimated_minutes).toBe(27)
+    expect(validated.has_estimated_duration).toBe(false)
+    expect(validated.cleaning_type_surcharge).toBe(5)
+  })
+
+  it('rejects a task Entire home does not accept', () => {
+    expect(() => buildValidatedTaskPool([tidyTask({ name: 'Vacuum rugs', room: 'Entire home', tier: 'Quick' })])).toThrow(
+      UnpriceableTaskError
+    )
+  })
 })

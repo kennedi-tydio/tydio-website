@@ -1,4 +1,5 @@
 import { tierFromEstimatedMinutes } from '@/lib/pricingRules'
+import { entireHomeTier, isEntireHomeRoom } from '@/lib/entireHome'
 import type { TidyTask } from './types'
 
 // Pure, dependency-free check — deliberately kept out of taskPricing.ts,
@@ -11,5 +12,6 @@ import type { TidyTask } from './types'
 export function isTaskPriceable(task: TidyTask): boolean {
   if (task.laundryLoads) return true
   if (typeof task.hasDishwasher === 'boolean') return true
+  if (isEntireHomeRoom(task.room)) return entireHomeTier(task.name) != null
   return (task.tier ?? tierFromEstimatedMinutes(task.estimatedMinutes ?? -1)) != null
 }

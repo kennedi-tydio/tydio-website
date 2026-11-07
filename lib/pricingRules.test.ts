@@ -5,8 +5,7 @@ import {
   BASE_PRICE_DIVISOR_MINUTES,
   CLEANING_TYPE_SURCHARGE,
   TOP_TIDY_PRO_SURCHARGE,
-  FAR_DISTANCE_SURCHARGE_MILES,
-  FAR_DISTANCE_SURCHARGE,
+  distanceSurcharge,
   calculatePrice,
   grossUpForStripeFee,
   netOfStripeFee,
@@ -74,13 +73,10 @@ describe('calculatePrice', () => {
     expect(priceForTopPro).toBe(205)
   })
 
-  it('never includes the far-distance surcharge — that is also applied by the caller per cleaner', () => {
+  it('never includes the distance surcharge — that is also applied by the caller per cleaner', () => {
     const breakdown = calculatePrice([task({ estimated_minutes: 240 })], 'GA', 200)
-    expect(FAR_DISTANCE_SURCHARGE_MILES).toBe(5)
-    expect(FAR_DISTANCE_SURCHARGE).toBe(5)
-    // simulate the per-cleaner step performed downstream
-    const priceForFarCleaner = breakdown.total_customer_charge + (7.4 > FAR_DISTANCE_SURCHARGE_MILES ? FAR_DISTANCE_SURCHARGE : 0)
-    expect(priceForFarCleaner).toBe(205)
+    expect(breakdown.total_customer_charge).toBe(200)
+    expect(servicePriceForCleaner(breakdown.total_customer_charge, { isTopTidyPro: false, distanceMiles: 7.4 })).toBe(205)
   })
 
   it('applies no minimum-price floor', () => {
@@ -168,8 +164,35 @@ describe('servicePriceForCleaner', () => {
   it('adds surcharges that apply to this cleaner', () => {
     expect(servicePriceForCleaner(30, { isTopTidyPro: false, distanceMiles: 1 })).toBe(30)
     expect(servicePriceForCleaner(30, { isTopTidyPro: true, distanceMiles: 1 })).toBe(30 + TOP_TIDY_PRO_SURCHARGE)
-    expect(servicePriceForCleaner(30, { isTopTidyPro: false, distanceMiles: FAR_DISTANCE_SURCHARGE_MILES + 1 })).toBe(30 + FAR_DISTANCE_SURCHARGE)
+    expect(servicePriceForCleaner(30, { isTopTidyPro: false, distanceMiles: 6 })).toBe(35)
+    expect(servicePriceForCleaner(30, { isTopTidyPro: true, distanceMiles: 19 })).toBe(30 + TOP_TIDY_PRO_SURCHARGE + 15)
     expect(servicePriceForCleaner(30, { isTopTidyPro: false, distanceMiles: null })).toBe(30)
+  })
+})
+
+describe('distanceSurcharge', () => {
+  it.each([
+    [0, 0],
+    [5, 0],
+    [5.1, 5],
+    [10, 5],
+    [10.1, 10],
+    [15, 10],
+    [15.1, 15],
+    [19, 15],
+    [20, 15],
+    [20.1, 20],
+    [25, 20],
+    [25.1, 30],
+    [30, 30],
+    [42, 30],
+  ])('%d miles adds $%d', (miles, expected) => {
+    expect(distanceSurcharge(miles)).toBe(expected)
+  })
+
+  it('adds nothing when the distance is unknown', () => {
+    expect(distanceSurcharge(null)).toBe(0)
+    expect(distanceSurcharge(Number.NaN)).toBe(0)
   })
 })
 

@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveStatePricing, priceTaskListForState, ensurePriceableTasks, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
 import { computeIsTopTidyPro, haversineDistanceMiles } from '@/lib/cleanerMatching'
 import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
-import { TOP_TIDY_PRO_SURCHARGE, FAR_DISTANCE_SURCHARGE_MILES, FAR_DISTANCE_SURCHARGE, grossUpForStripeFee } from '@/lib/pricingRules'
+import { grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import ReviewRequestView from './ReviewRequestView'
@@ -42,7 +42,7 @@ export default async function ReviewPage() {
     { data: tidyProIdentity },
     { data: paymentMethods },
   ] = await Promise.all([
-    admin.from('profiles').select('first_name, service_area_id, pets').eq('id', session.profileId).single(),
+    admin.from('profiles').select('first_name, service_area_id, city, state, pets').eq('id', session.profileId).single(),
     admin
       .from('tidypro_profiles')
       .select('rating, total_accepted_bookings, latitude, longitude')
@@ -60,7 +60,7 @@ export default async function ReviewPage() {
   if (profileError) throw new Error(`Failed to load profile: ${profileError.message}`)
   if (!profile) redirect('/login')
 
-  const statePricing = await resolveStatePricing(admin, profile.service_area_id)
+  const statePricing = await resolveStatePricing(admin, profile.service_area_id, profile)
   if (!statePricing.configured) redirect('/dashboard?priceError=state_pricing_not_configured')
 
   // Backfill any task that's missing a price estimate instead of failing
@@ -89,10 +89,7 @@ export default async function ReviewPage() {
           { latitude: tidyProStats.latitude, longitude: tidyProStats.longitude }
         )
       : null
-  const servicePrice =
-    breakdown.total_customer_charge +
-    (isTopTidyPro ? TOP_TIDY_PRO_SURCHARGE : 0) +
-    (distanceMiles != null && distanceMiles > FAR_DISTANCE_SURCHARGE_MILES ? FAR_DISTANCE_SURCHARGE : 0)
+  const servicePrice = servicePriceForCleaner(breakdown.total_customer_charge, { isTopTidyPro, distanceMiles })
 
   // The fee depends on the card, so it's worked out for the one they've actually chosen.
   const { data: selectedCard } = draft.selected_payment_method_id

@@ -166,11 +166,11 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
 
   const { data: profile } = await admin
     .from('profiles')
-    .select('service_area_id, first_name')
+    .select('service_area_id, city, state, first_name')
     .eq('id', session.profileId)
     .single()
 
-  const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null)
+  const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null, profile ?? undefined)
   if (!statePricing.configured) return { error: 'Pricing is not available for your area.' }
 
   const squareFootage = await resolveLocationSquareFootage(
