@@ -5,10 +5,12 @@ import { revalidatePath } from 'next/cache'
 import { setAdminCookie, clearAdminCookie, isAdminAuthed, isAdminSecret } from '@/lib/auth/admin'
 import { RATE_LIMITED_MESSAGE, RATE_LIMITS, clientIp, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 import { sendEmail, emailShell, escapeHtml } from '@/lib/email'
 import { researchAreaMarketPrice, researchStateMedianPrice } from '@/lib/marketPricing'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
-import { sendPushForPayload } from '@/lib/push'
+import { sendPush, sendPushForPayload } from '@/lib/push'
+import { listPushRecipients, parseAdminPushForm, pickRecipients } from '@/lib/adminPush'
 import { notifyInsuranceDenied } from '@/lib/notifications'
 import { stripe } from '@/lib/stripe'
 import { hasPaidFee, isFeeRefundReason } from '@/lib/backgroundCheckFee'
@@ -687,6 +689,7 @@ export async function approveCleanerAction(
     paused_at: null,
     pause_reason: null,
   }).eq('id', profileId)
+  await notifyIfOnboardingComplete(admin, profileId)
 
   revalidatePath('/admin/users')
   revalidatePath('/admin')
@@ -1130,5 +1133,43 @@ export async function denyBackgroundCheckAppealAction(
   if (result.deleted) return { message: 'Appeal denied. They have been banned, their account deleted, and they have been emailed.' }
   return {
     message: `Appeal denied. They have been banned and emailed. Their account is kept suspended until it can be deleted (${deleteRefusalReason(result.deleteError ?? '')}); this is retried hourly.`,
+  }
+}
+
+// ─── Push Notifications ──────────────────────────────────────────────────────
+
+export type AdminPushState = { error?: string; message?: string }
+
+// Sends an admin-written push to everyone, all customers, all Tidy Pros, or the
+// people ticked on /admin/push-notifications. Only subscribed devices get it.
+export async function sendAdminPushAction(_prev: AdminPushState, formData: FormData): Promise<AdminPushState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const input = parseAdminPushForm(formData)
+  if ('error' in input) return input
+
+  const admin = createAdminClient()
+  const recipients = pickRecipients(await listPushRecipients(admin), input.audience, input.selectedIds)
+  if (recipients.length === 0) return { error: 'Nobody in that group has push notifications turned on.' }
+
+  let people = 0
+  let devices = 0
+  // Small batches so a big audience doesn't open hundreds of connections at once.
+  for (let i = 0; i < recipients.length; i += 20) {
+    const counts = await Promise.all(
+      recipients.slice(i, i + 20).map((r) => sendPush(r.id, input.title, input.body, input.url).catch(() => 0))
+    )
+    for (const n of counts) {
+      if (n > 0) people++
+      devices += n
+    }
+  }
+
+  revalidatePath('/admin/push-notifications')
+  const missed = recipients.length - people
+  return {
+    message:
+      `Sent to ${people} ${people === 1 ? 'person' : 'people'} (${plural(devices, 'device')}).` +
+      (missed > 0 ? ` ${missed} could not be reached; their devices may have unsubscribed.` : ''),
   }
 }

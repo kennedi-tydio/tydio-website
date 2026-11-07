@@ -12,17 +12,19 @@ function configureWebPush() {
 // Fans out to every device the profile has subscribed from. No consent
 // check needed here — a profile with zero subscription rows (never
 // opted in, or revoked) naturally results in zero sends.
-export async function sendPush(profileId: string, title: string, body: string, url: string): Promise<void> {
+// Resolves to how many devices the push service accepted.
+export async function sendPush(profileId: string, title: string, body: string, url: string): Promise<number> {
   const admin = createAdminClient()
   const { data: subscriptions } = await admin
     .from('push_subscriptions')
     .select('id, endpoint, p256dh, auth')
     .eq('profile_id', profileId)
 
-  if (!subscriptions || subscriptions.length === 0) return
+  if (!subscriptions || subscriptions.length === 0) return 0
 
   configureWebPush()
 
+  let delivered = 0
   await Promise.all(
     subscriptions.map(async (sub) => {
       try {
@@ -30,6 +32,7 @@ export async function sendPush(profileId: string, title: string, body: string, u
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           JSON.stringify({ title, body, url })
         )
+        delivered++
       } catch (err) {
         const statusCode = (err as { statusCode?: number }).statusCode
         if (statusCode === 404 || statusCode === 410) {
@@ -40,6 +43,7 @@ export async function sendPush(profileId: string, title: string, body: string, u
       }
     })
   )
+  return delivered
 }
 
 export async function sendPushForPayload(profileId: string, payload: NotificationPayload): Promise<void> {
