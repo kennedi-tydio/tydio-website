@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { signupAction, type SignupState } from './actions'
 import type { FormEvent } from 'react'
+import { GoogleButton, OrDivider } from '../GoogleButton'
 
 function SubmitButton({ isPro, ready }: { isPro: boolean; ready: boolean }) {
   const { pending } = useFormStatus()
@@ -46,7 +47,16 @@ function CustomCheckbox({ checked, onChange }: { checked: boolean; onChange: () 
   )
 }
 
-export default function SignupForm() {
+type GooglePrefill = { email: string; firstName: string; lastName: string }
+
+export default function SignupForm({
+  googleEnabled = false,
+  google = null,
+}: {
+  googleEnabled?: boolean
+  // Set when the person came back from Google without a Tydio account yet.
+  google?: GooglePrefill | null
+}) {
   const [state, action] = useActionState<SignupState, FormData>(signupAction, {})
   const searchParams = useSearchParams()
   const isPro = searchParams.get('role') === 'pro'
@@ -122,12 +132,24 @@ export default function SignupForm() {
       <input type="hidden" name="terms_accepted" value={agreed ? 'on' : ''} />
       <input type="hidden" name="privacy_accepted" value={agreed ? 'on' : ''} />
       <input type="hidden" name="marketing_opt_in" value={marketingOptIn ? 'on' : ''} />
+      {google && <input type="hidden" name="google" value="1" />}
 
       <p className="text-sm text-slate-500">
         {isPro
           ? 'Apply to earn as a vetted Tidy Pro cleaner.'
           : 'Book a Tydio cleaning in minutes.'}
       </p>
+
+      {google ? (
+        <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+          Signing up with Google as <span className="font-semibold">{google.email}</span>. Fill in the rest to finish.
+        </p>
+      ) : googleEnabled && (
+        <>
+          <GoogleButton isPro={isPro} />
+          <OrDivider />
+        </>
+      )}
 
       {(state.error || termsError) && (
         <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
@@ -148,12 +170,12 @@ export default function SignupForm() {
       <div className="flex gap-3">
         <div className="flex-1 flex flex-col gap-1.5">
           <label className="text-sm font-medium text-slate-700" htmlFor="first_name">First name</label>
-          <input id="first_name" name="first_name" type="text" autoComplete="given-name" required
+          <input id="first_name" name="first_name" type="text" autoComplete="given-name" required defaultValue={google?.firstName}
             className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
         </div>
         <div className="flex-1 flex flex-col gap-1.5">
           <label className="text-sm font-medium text-slate-700" htmlFor="last_name">Last name</label>
-          <input id="last_name" name="last_name" type="text" autoComplete="family-name" required
+          <input id="last_name" name="last_name" type="text" autoComplete="family-name" required defaultValue={google?.lastName}
             className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
         </div>
       </div>
@@ -162,7 +184,8 @@ export default function SignupForm() {
       <div className="flex flex-col gap-1.5">
         <label className="text-sm font-medium text-slate-700" htmlFor="email">Email</label>
         <input id="email" name="email" type="email" autoComplete="email" required
-          className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          defaultValue={google?.email} readOnly={Boolean(google)}
+          className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 read-only:bg-slate-50 read-only:text-slate-500" />
       </div>
 
       {/* Phone + Zip */}
@@ -181,13 +204,13 @@ export default function SignupForm() {
         </div>
       </div>
 
-      {/* Password */}
-      <div className="flex flex-col gap-1.5">
+      {/* Password (not needed when Google signs them in) */}
+      {!google && <div className="flex flex-col gap-1.5">
         <label className="text-sm font-medium text-slate-700" htmlFor="password">Password</label>
         <input id="password" name="password" type="password" autoComplete="new-password" required
           minLength={8} placeholder="8+ characters"
           className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
-      </div>
+      </div>}
 
       {/* Combined Terms & Privacy */}
       <label className="flex items-start gap-2.5 cursor-pointer" onClick={toggleAgreed}>

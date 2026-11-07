@@ -6,7 +6,7 @@ import Footer from '../components/Footer'
 
 export const metadata: Metadata = { title: 'Privacy Policy — Tydio' }
 
-const EFFECTIVE_DATE = 'November 5, 2026'
+const EFFECTIVE_DATE = 'November 6, 2026'
 const CONTACT_EMAIL = 'kennedicoats@tydioapp.com'
 
 const sections = [
@@ -80,6 +80,12 @@ const providers: { name: string; purpose: string; data: string; href: string }[]
     purpose: 'Sending account and booking emails, and marketing emails to people who opt in',
     data: 'Name, email address, account type (customer or Tidy Pro), email content, and whether you are subscribed to marketing emails. Brevo may also record whether an email was delivered and opened, and whether links in it were clicked',
     href: 'https://www.brevo.com/legal/privacypolicy/',
+  },
+  {
+    name: 'Google',
+    purpose: 'Signing in with your Google account, if you choose "Continue with Google"',
+    data: 'Google tells us your name, email address, whether Google has verified that email, and an ID for your Google account. We do not receive your Google password, contacts, or other Google data, and we do not post anything to your Google account',
+    href: 'https://policies.google.com/privacy',
   },
   {
     name: 'OpenAI',
@@ -197,6 +203,7 @@ export default function PrivacyPolicyPage() {
             <Sub title="Information you give us: all users">
               <List items={[
                 <><strong>Account details:</strong> first and last name, email address, phone number, password (stored only in hashed form), and whether you signed up as a customer or a Tidy Pro.</>,
+                <><strong>Google sign-in:</strong> if you sign in with Google, we receive your name, email address, and an ID for your Google account from Google, and keep that ID so we can recognize you next time. An account created this way has no Tydio password until you set one.</>,
                 <><strong>Profile details:</strong> time zone and notification preferences.</>,
                 <><strong>Waitlist sign-ups:</strong> anything you enter in the waitlist form on our homepage, which is hosted by Tally.</>,
                 <><strong>Consent records:</strong> when you accepted our Terms and this Privacy Policy, and whether you opted in to text messages and push notifications.</>,
@@ -350,7 +357,8 @@ export default function PrivacyPolicyPage() {
                 emails will still be sent.
               </p>
               <p>
-                <strong>Marketing emails.</strong> If you tick the optional box when you sign up, we add your name, email
+                <strong>Marketing emails.</strong> If you tick the optional box when you sign up, or later choose to sign up
+                for emails from the link in your waitlist confirmation email, we add your name, email
                 address, and account type to our marketing list with Brevo and send you occasional emails about Tydio news,
                 tips, and offers. You can unsubscribe at any time using the link at the bottom of any marketing email; this
                 does not affect account or booking emails. If you delete your account, we remove you from the marketing list.

@@ -10,6 +10,12 @@ import { BANNED_MESSAGE, isBanned, normalizePhone } from '@/lib/bannedUsers'
 import { RATE_LIMITED_MESSAGE, RATE_LIMITS, clientIp, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 import { userFacingError } from '@/lib/userFacingError'
 import { addMarketingContact } from '@/lib/marketingContacts'
+import { sendWaitlistEmail } from '@/lib/waitlistEmail'
+import { zipLocationColumns } from '@/lib/zipLocation'
+import { clearPendingGoogleSignup, getPendingGoogleSignup } from '@/lib/auth/google'
+import { linkGoogleIdentity } from '@/lib/auth/googleAccount'
+import { createSession } from '@/lib/auth/session'
+import { redirect } from 'next/navigation'
 
 export type SignupState = {
   error?: string
@@ -147,13 +153,26 @@ export async function signupAction(
   const role: 'USER' | 'TIDYPRO' | 'ADMIN' =
     formData.get('role') === 'TIDYPRO' ? 'TIDYPRO' : 'USER'
 
-  if (!email || !password || !firstName || !lastName || !zip) {
+  // Signing up with Google: Google has already proved the email, so there's no
+  // password and no verification email. The identity comes from the signed
+  // cookie set by /auth/google/callback, never from the form.
+  const google = formData.get('google') === '1' ? await getPendingGoogleSignup() : null
+  if (formData.get('google') === '1') {
+    if (!google || google.role !== role) {
+      return { error: 'Your Google sign-in expired. Please click "Continue with Google" again.' }
+    }
+    if (google.email !== email) {
+      return { error: 'The email must match your Google account.' }
+    }
+  }
+
+  if (!email || (!google && !password) || !firstName || !lastName || !zip) {
     return { error: 'Please fill in all required fields.' }
   }
   if (!/^\d{5}$/.test(zip)) {
     return { error: 'Please enter a valid 5-digit zip code.' }
   }
-  if (password.length < 8) {
+  if (!google && password.length < 8) {
     return { error: 'Password must be at least 8 characters.' }
   }
   if (role === 'TIDYPRO' && !phone) {
@@ -214,7 +233,7 @@ export async function signupAction(
     }
   }
 
-  const passwordHash = await hashPassword(password)
+  const passwordHash = google ? null : await hashPassword(password)
   const newId = crypto.randomUUID()
 
   // Non-Georgia: save waitlisted profile (auto-verified since they can't log in yet)
@@ -228,6 +247,7 @@ export async function signupAction(
       last_name: lastName,
       phone,
       zip_code: zip,
+      ...zipLocationColumns(zip),
       street_address: streetAddress,
       waitlisted: true,
       booking_access_status: 'waitlisted',
@@ -239,6 +259,10 @@ export async function signupAction(
     })
 
     if (insertError) return { error: signupInsertError(insertError, role) }
+    if (google) {
+      await linkGoogleIdentity(admin, newId, google)
+      await clearPendingGoogleSignup()
+    }
     if (role === 'TIDYPRO') {
       await admin.from('tidypro_profiles').insert({ id: newId, phone })
       await emailAdminCleanerSignup({ firstName, lastName, email, phone, zip, inServiceArea: false })
@@ -249,6 +273,9 @@ export async function signupAction(
       await addMarketingContact({ email, firstName, lastName, role })
         .catch((err) => console.error('[Tydio] Adding Brevo marketing contact failed:', err))
     }
+    // Confirms their spot; without the marketing box ticked it also offers a
+    // link to sign up for Tydio emails while they wait.
+    await sendWaitlistEmail({ email, firstName, profileId: newId, marketingOptedIn: marketingOptIn })
     return { waitlisted: true }
   }
 
@@ -267,11 +294,12 @@ export async function signupAction(
       last_name: lastName,
       phone,
       zip_code: zip,
+      ...zipLocationColumns(zip),
       street_address: streetAddress,
       service_area_id: serviceAreaId,
       waitlisted: true,
       booking_access_status: 'waitlisted',
-      email_verified_at: null, // must verify email before logging in
+      email_verified_at: google ? now : null, // password signups must verify email before logging in
       waitlisted_at: now,
       terms_accepted_at: termsAccepted ? now : null,
       privacy_policy_accepted_at: privacyAccepted ? now : null,
@@ -289,7 +317,19 @@ export async function signupAction(
     await emailAdminCleanerSignup({ firstName, lastName, email, phone, zip, inServiceArea: true })
   }
 
-  await sendVerificationEmail(email, firstName, profile.id, admin)
+  if (!google) {
+    await sendVerificationEmail(email, firstName, profile.id, admin)
+    return { needsVerification: true }
+  }
 
-  return { needsVerification: true }
+  // Google signup: already verified, so do what /verify-email does — join the
+  // marketing list if they opted in, then sign them straight in.
+  await linkGoogleIdentity(admin, profile.id, google)
+  await clearPendingGoogleSignup()
+  if (marketingOptIn) {
+    await addMarketingContact({ email, firstName, lastName, role })
+      .catch((err) => console.error('[Tydio] Adding Brevo marketing contact failed:', err))
+  }
+  await createSession({ profileId: profile.id, role, email })
+  redirect(role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
 }

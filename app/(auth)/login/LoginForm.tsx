@@ -6,6 +6,8 @@ import { useSearchParams } from 'next/navigation'
 import { BANNED_MESSAGE } from '@/lib/bannedUsers'
 import Link from 'next/link'
 import { loginAction, resendVerificationAction, type LoginState } from './actions'
+import { GoogleButton, OrDivider } from '../GoogleButton'
+import { GOOGLE_ERROR_MESSAGES } from '@/lib/auth/googleMessages'
 
 function SubmitButton() {
   const { pending } = useFormStatus()
@@ -33,12 +35,13 @@ function ResendButton() {
   )
 }
 
-export default function LoginForm({ next }: { next?: string }) {
+export default function LoginForm({ next, googleEnabled = false }: { next?: string; googleEnabled?: boolean }) {
   const [state, action] = useActionState<LoginState, FormData>(loginAction, {})
   const [resendState, resendAction] = useActionState<LoginState, FormData>(resendVerificationAction, {})
   const searchParams = useSearchParams()
   const isPro = searchParams.get('role') === 'pro'
   const wasRemovedForBan = searchParams.get('banned') === '1'
+  const googleError = GOOGLE_ERROR_MESSAGES[searchParams.get('google_error') ?? ''] as string | undefined
 
   // Unverified state — show resend option
   if (state.unverified) {
@@ -82,10 +85,17 @@ export default function LoginForm({ next }: { next?: string }) {
         {isPro ? 'Welcome back, Tidy Pro.' : 'Welcome back to Tydio.'}
       </p>
 
-      {(state.error || wasRemovedForBan) && (
+      {(state.error || wasRemovedForBan || googleError) && (
         <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-          {state.error ?? BANNED_MESSAGE}
+          {state.error ?? (wasRemovedForBan ? BANNED_MESSAGE : googleError)}
         </p>
+      )}
+
+      {googleEnabled && (
+        <>
+          <GoogleButton isPro={isPro} next={next} />
+          <OrDivider />
+        </>
       )}
 
       <div className="flex flex-col gap-1.5">
