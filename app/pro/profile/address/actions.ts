@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { userFacingError } from '@/lib/userFacingError'
+import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 
 export interface AddressInput {
   streetAddress: string
@@ -58,6 +59,7 @@ export async function saveAddressAction(
 
   if (error) return { error: userFacingError(error) }
 
+  await notifyIfOnboardingComplete(admin, session.profileId)
   revalidatePath('/pro/profile/address')
   return {
     street_address: streetAddress,

@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { findAvailableCleaners, type CleanerMatch } from '@/lib/cleanerMatching'
 import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
-import { TOP_TIDY_PRO_SURCHARGE, FAR_DISTANCE_SURCHARGE_MILES, FAR_DISTANCE_SURCHARGE } from '@/lib/pricingRules'
+import { servicePriceForCleaner } from '@/lib/pricingRules'
 import type { TidyTask } from '@/app/dashboard/types'
 
 export type ScheduledLocation =
@@ -65,7 +65,7 @@ export async function searchAvailableCleaners(
 
   const { data: profile } = await admin
     .from('profiles')
-    .select('service_area_id')
+    .select('service_area_id, city, state')
     .eq('id', session.profileId)
     .single()
 
@@ -80,7 +80,7 @@ export async function searchAvailableCleaners(
   const tasks = allTasks.filter((t) => t.completed)
   if (tasks.length === 0) return EMPTY_RESULT
 
-  const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null)
+  const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null, profile ?? undefined)
   if (!statePricing.configured) {
     return {
       cleaners: [],
@@ -118,10 +118,7 @@ export async function searchAvailableCleaners(
 
   const pricedCleaners = cleaners.map((cleaner) => ({
     ...cleaner,
-    price:
-      basePrice +
-      (cleaner.isTopTidyPro ? TOP_TIDY_PRO_SURCHARGE : 0) +
-      (cleaner.distanceMiles > FAR_DISTANCE_SURCHARGE_MILES ? FAR_DISTANCE_SURCHARGE : 0),
+    price: servicePriceForCleaner(basePrice, cleaner),
   }))
 
   return { cleaners: pricedCleaners }

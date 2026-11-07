@@ -49,6 +49,9 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/049_admin_user_notes.sql` (admin notes on /admin/users)
 - [x] Apply `supabase/migrations/050_marketing_email_opt_in.sql` (marketing email opt-in at signup)
 - [x] Apply `supabase/migrations/051_onboarding_reminders.sql` (3- and 7-day onboarding reminder emails; also schedules the daily job)
+- [x] Apply `supabase/migrations/052_auth_identities.sql` (Google sign-in identities)
+- [ ] Apply `supabase/migrations/053_onboarding_complete_notified.sql` (admin email when a cleaner finishes onboarding; until it's applied the email silently doesn't send)
+- [x] Apply `supabase/migrations/054_profile_city_state.sql` (city/state on profiles for the /admin/users filters). Signup writes these columns and fails without them. Backfill users who signed up before the deploy: `node --env-file=.env.local scripts/backfill-profile-city-state.mjs` (dry run), then again with `--write`. Re-run it once after deploying to catch signups made on the old code. ZIP → city data is from [GeoNames](https://www.geonames.org) (CC BY 4.0); rebuild with `scripts/build-zip-cities.mjs`
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel

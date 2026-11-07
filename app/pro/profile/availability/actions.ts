@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { WEEKDAY_KEYS, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { userFacingError } from '@/lib/userFacingError'
+import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 
 // Saved on its own, the moment it's toggled, so it never depends on the cleaner also
 // saving their hours. Those stay as they are, ready for when they come back.
@@ -44,6 +45,8 @@ export async function saveAvailabilityAction(
     .eq('id', session.profileId)
 
   if (error) return { error: userFacingError(error) }
+
+  await notifyIfOnboardingComplete(admin, session.profileId)
 
   revalidatePath('/pro/profile/availability')
   return { success: true }

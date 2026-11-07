@@ -12,6 +12,8 @@ function SubmitButton() {
       disabled={pending}
       className="w-full py-2.5 rounded-xl text-white font-semibold text-sm disabled:opacity-60 transition-opacity"
       style={{ backgroundColor: 'var(--color-brand)' }}
+      // Browser extensions (e.g. Edge autofill) inject fdprocessedid before hydration.
+      suppressHydrationWarning
     >
       {pending ? 'Signing in…' : 'Sign in'}
     </button>
@@ -45,6 +47,8 @@ export default function AdminLoginPage() {
               autoFocus
               placeholder="••••••••"
               className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand transition-colors"
+              // Browser extensions (e.g. Edge autofill) inject fdprocessedid before hydration.
+              suppressHydrationWarning
             />
           </div>
           {state?.error && (

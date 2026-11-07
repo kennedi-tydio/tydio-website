@@ -225,7 +225,7 @@ export default function DashboardHome({
   const [noTasksError, setNoTasksError] = useState(false)
   const priceErrorMessage =
     priceError === 'state_pricing_not_configured'
-      ? "Instant pricing isn't available in your state yet — we've let our team know."
+      ? "We can't price bookings in your area yet — we've let our team know."
       : "We couldn't calculate a price for one of your tasks. Try removing and re-adding it."
   const [, startTransition] = useTransition()
 

@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifyPassword } from '@/lib/auth/password'
 import { createSession } from '@/lib/auth/session'
+import { hasGoogleIdentity } from '@/lib/auth/googleAccount'
 import { sendEmail, emailShell } from '@/lib/email'
 import { BANNED_MESSAGE, isBanned } from '@/lib/bannedUsers'
 import { safeRedirectPath } from '@/lib/safeRedirect'
@@ -61,6 +62,9 @@ export async function loginAction(
   }
 
   if (!profile.password_hash) {
+    if (await hasGoogleIdentity(admin, profile.id)) {
+      return { error: 'This account signs in with Google. Use "Continue with Google", or choose "Forgot password?" to add a password.' }
+    }
     return { error: 'This account was created before our update. Please sign up again to set a password.' }
   }
 

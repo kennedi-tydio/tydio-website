@@ -10,6 +10,7 @@ import {
 } from '@/lib/pricingRules'
 import { estimateTaskDuration } from '@/lib/aiTaskEstimate'
 import { isSquareFootage, type SquareFootage } from '@/lib/squareFootage'
+import { ENTIRE_HOME_ROOM, entireHomeTier, isEntireHomeRoom } from '@/lib/entireHome'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { isTaskPriceable } from './isTaskPriceable'
@@ -65,6 +66,23 @@ function dishTaskToValidatedTask(task: TidyTask): ValidatedTask {
   }
 }
 
+// Whole-home tasks get a fixed tier from the task name (not the client's
+// stored tier), then scale with the address's square footage multiplier.
+function entireHomeTaskToValidatedTask(task: TidyTask): ValidatedTask {
+  const tier = entireHomeTier(task.name)
+  if (!tier) throw new UnpriceableTaskError(task)
+  const dirtLevel: DirtLevel = task.dirtLevel ?? 'standard'
+  return {
+    normalized_task_name: `${task.name} (${ENTIRE_HOME_ROOM})`,
+    tier,
+    estimated_minutes: TIER_MINUTE_MIDPOINTS[tier],
+    has_estimated_duration: false,
+    cleaning_type_surcharge: CLEANING_TYPE_SURCHARGE[dirtLevel],
+    additional_issue_surcharge: task.unusual.length * ADDITIONAL_ISSUE_SURCHARGE_PER_ITEM,
+    unusual_notes: [...task.unusual, task.notes].filter(Boolean).join('; ') || undefined,
+  }
+}
+
 function regularTaskToValidatedTask(task: TidyTask): ValidatedTask {
   const tier = task.tier ?? tierFromEstimatedMinutes(task.estimatedMinutes ?? -1)
   if (!tier) throw new UnpriceableTaskError(task)
@@ -85,6 +103,7 @@ function regularTaskToValidatedTask(task: TidyTask): ValidatedTask {
 export function taskToValidatedTasks(task: TidyTask): ValidatedTask[] {
   if (task.laundryLoads) return laundryTaskToValidatedTasks(task.laundryLoads)
   if (typeof task.hasDishwasher === 'boolean') return [dishTaskToValidatedTask(task)]
+  if (isEntireHomeRoom(task.room)) return [entireHomeTaskToValidatedTask(task)]
   return [regularTaskToValidatedTask(task)]
 }
 
@@ -105,7 +124,7 @@ export async function ensurePriceableTasks(
   draftId: string,
   allTasks: TidyTask[]
 ): Promise<TidyTask[]> {
-  const needsEstimate = allTasks.filter((t) => !isTaskPriceable(t))
+  const needsEstimate = allTasks.filter((t) => !isTaskPriceable(t) && !isEntireHomeRoom(t.room))
   if (needsEstimate.length === 0) return allTasks
 
   const patches = await Promise.all(
@@ -175,23 +194,30 @@ export type StatePricingResult =
   | { configured: true; state: string; medianFourHourPrice: number }
   | { configured: false; city: string | null; state: string | null }
 
-// Resolves the administrator-configured, active price for the state a
-// customer's service area is in. Never falls back to a default/guessed
-// price — if no active price is configured for that state, callers must
-// surface STATE_PRICING_NOT_CONFIGURED rather than completing the quote.
+// Resolves the administrator-configured, active price for the customer's
+// state. The state comes from their service area when they have one, and
+// otherwise from the city/state saved on their profile at signup (worked out
+// from their zip) — a customer granted access one-by-one from /admin/users
+// has no service area. Never falls back to a default/guessed price — if no
+// active price is configured for that state, callers must surface
+// STATE_PRICING_NOT_CONFIGURED rather than completing the quote.
 export async function resolveStatePricing(
   admin: ReturnType<typeof createAdminClient>,
-  serviceAreaId: string | null
+  serviceAreaId: string | null,
+  profileLocation?: { city: string | null; state: string | null }
 ): Promise<StatePricingResult> {
-  if (!serviceAreaId) return { configured: false, city: null, state: null }
+  let area: { city: string | null; state: string | null } | null = null
+  if (serviceAreaId) {
+    const { data } = await admin
+      .from('service_areas')
+      .select('city, state')
+      .eq('id', serviceAreaId)
+      .maybeSingle()
+    area = data
+  }
+  if (!area?.state && profileLocation?.state) area = profileLocation
 
-  const { data: area } = await admin
-    .from('service_areas')
-    .select('city, state')
-    .eq('id', serviceAreaId)
-    .maybeSingle()
-
-  if (!area) return { configured: false, city: null, state: null }
+  if (!area?.state) return { configured: false, city: area?.city ?? null, state: null }
 
   const { data: pricing } = await admin
     .from('state_pricing')

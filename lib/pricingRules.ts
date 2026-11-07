@@ -91,11 +91,26 @@ export const ADDITIONAL_ISSUE_SURCHARGE_PER_ITEM = 10
 // known, not inside this module.
 export const TOP_TIDY_PRO_SURCHARGE = 5
 
-// Added per cleaner when they're farther than this many miles away (but
-// still within the search radius) — applied the same way as the Top Tidy Pro
-// surcharge, downstream of calculatePrice.
-export const FAR_DISTANCE_SURCHARGE_MILES = 5
-export const FAR_DISTANCE_SURCHARGE = 5
+// Added per cleaner by how far they are from the job — applied the same way
+// as the Top Tidy Pro surcharge, downstream of calculatePrice. Each band
+// covers distances over the previous band's limit up to and including its
+// own; 5 miles or closer is free.
+export const DISTANCE_SURCHARGE_BANDS: { upToMiles: number; surcharge: number }[] = [
+  { upToMiles: 5, surcharge: 0 },
+  { upToMiles: 10, surcharge: 5 },
+  { upToMiles: 15, surcharge: 10 },
+  { upToMiles: 20, surcharge: 15 },
+  { upToMiles: 25, surcharge: 20 },
+  { upToMiles: 30, surcharge: 30 },
+]
+
+// Unknown distance (no coordinates) adds nothing. Past the last band, the
+// top surcharge applies.
+export function distanceSurcharge(distanceMiles: number | null | undefined): number {
+  if (distanceMiles == null || !Number.isFinite(distanceMiles)) return 0
+  const band = DISTANCE_SURCHARGE_BANDS.find((b) => distanceMiles <= b.upToMiles)
+  return band ? band.surcharge : DISTANCE_SURCHARGE_BANDS[DISTANCE_SURCHARGE_BANDS.length - 1].surcharge
+}
 
 // Scales the whole task price (base + cleaning-type + additional-issue
 // surcharges) by the size of the home being cleaned. Per-cleaner surcharges
@@ -241,7 +256,7 @@ export function servicePriceForCleaner(
   return (
     taskPrice +
     (cleaner.isTopTidyPro ? TOP_TIDY_PRO_SURCHARGE : 0) +
-    (cleaner.distanceMiles != null && cleaner.distanceMiles > FAR_DISTANCE_SURCHARGE_MILES ? FAR_DISTANCE_SURCHARGE : 0)
+    distanceSurcharge(cleaner.distanceMiles)
   )
 }
 

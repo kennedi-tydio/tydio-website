@@ -21,7 +21,7 @@ export default async function BookPage() {
   ] = await Promise.all([
     admin
       .from('profiles')
-      .select('first_name, booking_access_status, service_area_id')
+      .select('first_name, booking_access_status, service_area_id, city, state')
       .eq('id', session.profileId)
       .single(),
     admin
@@ -44,7 +44,7 @@ export default async function BookPage() {
   let tasks = allTasks.filter((t) => t.completed)
   if (tasks.length === 0) redirect('/dashboard')
 
-  const statePricing = await resolveStatePricing(admin, profile.service_area_id)
+  const statePricing = await resolveStatePricing(admin, profile.service_area_id, profile)
   if (!statePricing.configured) redirect('/dashboard?priceError=state_pricing_not_configured')
 
   // Backfill any task that's missing a price estimate (e.g. saved before an

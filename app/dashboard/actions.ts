@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import type { TidyTask } from './types'
 
-const DEFAULT_ROOMS = ['Kitchen', 'Bedroom', 'Bathroom']
+const DEFAULT_ROOMS = ['Entire home', 'Kitchen', 'Bedroom', 'Bathroom']
 
 export async function logoutAction() {
   await deleteSession()
@@ -31,6 +31,38 @@ export async function deleteDraft(draftId: string): Promise<void> {
   const admin = createAdminClient()
   await admin.from('booking_drafts').delete().eq('id', draftId).eq('customer_user_id', session.profileId)
   revalidatePath('/dashboard')
+}
+
+// Not exported: a 'use server' file may only export async functions.
+const MAX_ROOM_NAME_LENGTH = 40
+
+// Saves a room the customer typed in Add Task to their profile as soon as they
+// submit it, so it stays an option even if they back out of adding the task.
+export async function saveCustomRoom(name: string): Promise<{ error: string } | { room: string }> {
+  const session = await getSession()
+  if (!session) return { error: 'Please sign in again.' }
+
+  const room = name.trim().replace(/\s+/g, ' ')
+  if (!room) return { error: 'Enter a name.' }
+  if (room.length > MAX_ROOM_NAME_LENGTH) return { error: `Keep it under ${MAX_ROOM_NAME_LENGTH} characters.` }
+  if (DEFAULT_ROOMS.some(r => r.toLowerCase() === room.toLowerCase())) return { room }
+
+  const admin = createAdminClient()
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('custom_rooms')
+    .eq('id', session.profileId)
+    .single()
+  const existing = (profile?.custom_rooms as string[] | null) ?? []
+  const match = existing.find(r => r.toLowerCase() === room.toLowerCase())
+  if (match) return { room: match }
+
+  const { error } = await admin
+    .from('profiles')
+    .update({ custom_rooms: [...existing, room] })
+    .eq('id', session.profileId)
+  if (error) return { error: 'That couldn’t be saved. Please try again.' }
+  return { room }
 }
 
 export async function saveTasks(

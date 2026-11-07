@@ -8,7 +8,6 @@ export const metadata: Metadata = { title: 'Admin — Tydio' }
 
 const NAV_ITEMS = [
   { label: 'Overview', href: '/admin' },
-  { label: 'Service Areas', href: '/admin/service-areas' },
   { label: 'State Pricing', href: '/admin/state-pricing' },
   { label: 'Users', href: '/admin/users' },
   { label: 'Bookings', href: '/admin/bookings' },
@@ -16,6 +15,7 @@ const NAV_ITEMS = [
   { label: 'Insurance', href: '/admin/insurance' },
   { label: 'Background Checks', href: '/admin/background-checks' },
   { label: 'Appeals', href: '/admin/appeals' },
+  { label: 'Push Notifications', href: '/admin/push-notifications' },
 ]
 
 export default async function AdminAuthenticatedLayout({

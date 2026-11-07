@@ -1,6 +1,13 @@
 import OpenAI from 'openai'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Constructed lazily, on first use, not at module load: the OpenAI SDK throws
+// when no API key is set, and `next build` imports every route (this module is
+// pulled in by the admin layout) where OPENAI_API_KEY may not be present.
+let openai: OpenAI | null = null
+function getOpenAI(): OpenAI {
+  if (!openai) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return openai
+}
 
 const MIN_PLAUSIBLE_PRICE = 60
 const MAX_PLAUSIBLE_PRICE = 500
@@ -12,7 +19,7 @@ export async function researchAreaMarketPrice(area: {
 }): Promise<{ price: number; summary: string }> {
   const location = area.city ? `${area.city}, ${area.state}` : `${area.name}, ${area.state}`
 
-  const response = await openai.responses.create({
+  const response = await getOpenAI().responses.create({
     model: 'gpt-4o-mini',
     tools: [{ type: 'web_search' }],
     temperature: 0,
@@ -50,7 +57,7 @@ Respond with JSON only, no markdown formatting: { "price": number, "summary": st
 // source — plus temperature 0 — makes repeated runs land on the same figure
 // far more consistently.
 export async function researchStateMedianPrice(state: string): Promise<{ price: number; summary: string }> {
-  const response = await openai.responses.create({
+  const response = await getOpenAI().responses.create({
     model: 'gpt-4o-mini',
     tools: [{ type: 'web_search' }],
     temperature: 0,
