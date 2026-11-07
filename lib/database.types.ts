@@ -16,6 +16,8 @@ export interface Database {
           status: string
           street_address: string | null
           zip_code: string | null
+          city: string | null
+          state: string | null
           service_area_id: string | null
           booking_access_status: 'waitlisted' | 'booking_allowed' | 'paused' | 'closed' | 'denied'
           booking_access_granted_at: string | null
@@ -52,6 +54,8 @@ export interface Database {
           status?: string
           street_address?: string | null
           zip_code?: string | null
+          city?: string | null
+          state?: string | null
           service_area_id?: string | null
           booking_access_status?: 'waitlisted' | 'booking_allowed' | 'paused' | 'closed' | 'denied'
           booking_access_granted_at?: string | null
@@ -126,6 +130,7 @@ export interface Database {
           insurance_expiry_reminder_sent_at: string | null
           onboarding_reminder_sent_at: string | null
           onboarding_final_reminder_sent_at: string | null
+          onboarding_completed_notified_at: string | null
           insurance_document_url: string | null
           insurance_verified_at: string | null
           insurance_verified_by: string | null
@@ -191,6 +196,7 @@ export interface Database {
           insurance_expiry_reminder_sent_at?: string | null
           onboarding_reminder_sent_at?: string | null
           onboarding_final_reminder_sent_at?: string | null
+          onboarding_completed_notified_at?: string | null
           insurance_document_url?: string | null
           insurance_verified_at?: string | null
           insurance_verified_by?: string | null
@@ -1162,6 +1168,28 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['email_verification_tokens']['Insert']>
+        Relationships: []
+      }
+      auth_identities: {
+        Row: {
+          id: string
+          profile_id: string
+          provider: 'google'
+          provider_user_id: string
+          email: string | null
+          created_at: string
+          last_used_at: string | null
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          provider: 'google'
+          provider_user_id: string
+          email?: string | null
+          created_at?: string
+          last_used_at?: string | null
+        }
+        Update: Partial<Database['public']['Tables']['auth_identities']['Insert']>
         Relationships: []
       }
     }

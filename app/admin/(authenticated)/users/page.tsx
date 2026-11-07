@@ -6,6 +6,7 @@ import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
 import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleanerAction, pauseCleanerAction, refundBackgroundCheckFeeAction, resendSignedAgreementAction } from '../../actions'
 import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAccounts } from './AccountActions'
 import { UserNote } from './UserNote'
+import { zipLocation } from '@/lib/zipLocation'
 
 const SUSPENDED_COLOR = '#ef4444'
 
@@ -62,14 +63,19 @@ function backgroundCheckBadge(
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string }>
+  searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string; state?: string; city?: string }>
 }) {
-  const { search = '', role = '', status = '', verified = '' } = await searchParams
+  const { search = '', role = '', status = '', verified = '', state = '', city = '' } = await searchParams
   const admin = createAdminClient()
+  const locations = await userLocations(admin)
+  // City options are "City, ST" so two same-named cities stay distinct.
+  const cityFilter = parseCityOption(city)
+  const cityOptions = locations.filter((l) => !state || l.state === state)
+  const stateOptions = [...new Set(locations.map((l) => l.state))]
 
   let query = admin
     .from('profiles')
-    .select('id, first_name, last_name, email, phone, street_address, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at')
+    .select('id, first_name, last_name, email, phone, street_address, city, state, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at')
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -87,6 +93,7 @@ export default async function UsersPage({
         `first_name.ilike.%${search}%`,
         `last_name.ilike.%${search}%`,
         `zip_code.ilike.%${search}%`,
+        `city.ilike.%${search}%`,
         `phone.ilike.%${search}%`,
         ...(noteMatchIds.length ? [`id.in.(${noteMatchIds.join(',')})`] : []),
       ].join(',')
@@ -97,9 +104,11 @@ export default async function UsersPage({
   else if (status) query = query.eq('booking_access_status', status as 'waitlisted' | 'booking_allowed' | 'paused' | 'closed')
   if (verified === 'yes') query = query.not('email_verified_at', 'is', null)
   if (verified === 'no') query = query.is('email_verified_at', null)
+  if (state) query = query.eq('state', state)
+  if (cityFilter) query = query.eq('city', cityFilter.city).eq('state', cityFilter.state)
 
   const { data: users, error: usersError } = await query
-  const hasFilters = search || role || status || verified
+  const hasFilters = search || role || status || verified || state || city
 
   const cleanerIds = (users ?? []).filter((u) => u.role === 'TIDYPRO').map((u) => u.id)
   const { data: cleanerProfiles } = cleanerIds.length
@@ -175,7 +184,7 @@ export default async function UsersPage({
           aria-label="Search users"
           name="search"
           defaultValue={search}
-          placeholder="Search name, email, phone, ZIP, note…"
+          placeholder="Search name, email, phone, city, ZIP, note…"
           className="w-60 px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand transition-colors"
         />
         <select
@@ -213,6 +222,29 @@ export default async function UsersPage({
           <option value="yes">Email verified</option>
           <option value="no">Not verified</option>
         </select>
+        <select
+          aria-label="Filter by state"
+          name="state"
+          defaultValue={state}
+          className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="">All states</option>
+          {stateOptions.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Filter by city"
+          name="city"
+          defaultValue={city}
+          className="max-w-56 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="">All cities</option>
+          {cityOptions.map((l) => {
+            const value = `${l.city}, ${l.state}`
+            return <option key={value} value={value}>{value}</option>
+          })}
+        </select>
         <button
           type="submit"
           className="px-4 py-2 rounded-xl text-white text-sm font-semibold"
@@ -248,6 +280,8 @@ export default async function UsersPage({
                   <SelectAllAccounts />
                 </th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Name</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">City</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">State</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Email</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Phone</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Address</th>
@@ -299,6 +333,9 @@ export default async function UsersPage({
                   ? [[saved.street_address, saved.unit_number].filter(Boolean).join(' '), saved.city, saved.state, saved.zip_code]
                   : [user.street_address, proProfile?.zip_code ?? user.zip_code]
                 const addressText = address.filter(Boolean).join(', ')
+                // From their signup ZIP. Looked up here too, so accounts the
+                // backfill hasn't reached yet still show one.
+                const location = user.city && user.state ? { city: user.city, state: user.state } : zipLocation(user.zip_code)
                 return (
                   <tr key={user.id} className="hover:bg-slate-50 transition-colors">
                     <td className="pl-4 py-3">
@@ -307,6 +344,8 @@ export default async function UsersPage({
                     <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
                       {name}
                     </td>
+                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.city ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.state ?? '—'}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs">{user.email}</td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
                       {phone ? <a href={`tel:${phone}`} className="underline">{phone}</a> : '—'}
@@ -444,6 +483,35 @@ export default async function UsersPage({
       <DeletedAccounts accounts={deletedAccounts ?? []} />
     </div>
   )
+}
+
+// Every city/state pair among users, worked out from their ZIP at signup
+// (lib/zipLocation.ts), sorted by state then city. Paged because PostgREST caps
+// a response at 1,000 rows.
+async function userLocations(admin: ReturnType<typeof createAdminClient>): Promise<{ city: string; state: string }[]> {
+  const seen = new Map<string, { city: string; state: string }>()
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin
+      .from('profiles')
+      .select('city, state')
+      .not('city', 'is', null)
+      .not('state', 'is', null)
+      .order('id')
+      .range(from, from + 999)
+    if (error) {
+      console.error('[Tydio] Loading user locations failed:', error.message)
+      break
+    }
+    for (const row of data) if (row.city && row.state) seen.set(`${row.city}, ${row.state}`, { city: row.city, state: row.state })
+    if (data.length < 1000) break
+  }
+  return [...seen.values()].sort((a, b) => a.state.localeCompare(b.state) || a.city.localeCompare(b.city))
+}
+
+function parseCityOption(value: string): { city: string; state: string } | null {
+  const at = value.lastIndexOf(', ')
+  if (at <= 0) return null
+  return { city: value.slice(0, at), state: value.slice(at + 2) }
 }
 
 // Accounts deleted from this page. They're gone from the database; this is the log
