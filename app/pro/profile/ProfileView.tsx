@@ -94,6 +94,7 @@ type Props = {
   email: string
   location: string
   photoUrl: string | null
+  bio: string
   pendingEarnings: number | null
   overallEarnings: number
   unreadMessageCount: number
@@ -117,6 +118,7 @@ export default function ProfileView({
   email,
   location,
   photoUrl,
+  bio,
   pendingEarnings,
   overallEarnings,
   unreadMessageCount,
@@ -155,11 +157,14 @@ export default function ProfileView({
                   {location}
                 </p>
               )}
+              {bio && (
+                <p className="text-sm text-slate-600 mt-1.5 line-clamp-3 whitespace-pre-line break-words">{bio}</p>
+              )}
               <Link
                 href="/pro/profile/edit"
                 className="block w-full mt-2 py-1 rounded-full bg-slate-100 text-center text-xs font-medium text-slate-500 hover:bg-slate-200 transition-colors"
               >
-                Edit
+                Edit profile
               </Link>
             </div>
           </div>
