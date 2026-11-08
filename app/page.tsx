@@ -4,6 +4,7 @@ import Hero from "./components/Hero";
 import HowItWorks from "./components/HowItWorks";
 import WhyTydio from "./components/WhyTydio";
 import Pricing from "./components/Pricing";
+import SignupCta from "./components/SignupCta";
 import Footer from "./components/Footer";
 import ChatbaseScript from "./components/ChatbaseScript";
 
@@ -19,6 +20,7 @@ export default async function Home() {
         <HowItWorks />
         <WhyTydio />
         <Pricing />
+        <SignupCta />
       </main>
       <Footer />
       {!signedIn && <ChatbaseScript />}
