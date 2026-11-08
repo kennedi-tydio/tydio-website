@@ -9,9 +9,9 @@ export const metadata: Metadata = { title: 'Create account — Tydio' }
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ google?: string; role?: string }>
+  searchParams: Promise<{ google?: string; role?: string; no_account?: string }>
 }) {
-  const { google, role } = await searchParams
+  const { google, role, no_account } = await searchParams
   // Set by /auth/google/callback when a Google sign-in had no account yet.
   const pending = google === '1' ? await getPendingGoogleSignup() : null
   const pendingForThisRole = pending && pending.role === (role === 'pro' ? 'TIDYPRO' : 'USER') ? pending : null
@@ -23,6 +23,7 @@ export default async function SignupPage({
         <SignupForm
           googleEnabled={isGoogleSignInEnabled()}
           google={pendingForThisRole && { email: pendingForThisRole.email, firstName: pendingForThisRole.firstName, lastName: pendingForThisRole.lastName }}
+          googleNoAccount={Boolean(pendingForThisRole) && no_account === '1'}
         />
       </Suspense>
     </>

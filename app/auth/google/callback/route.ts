@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
     const url = new URL('/signup', req.url)
     if (saved.role === 'TIDYPRO') url.searchParams.set('role', 'pro')
     url.searchParams.set('google', '1')
+    if (saved.from === 'login') url.searchParams.set('no_account', '1')
     const res = NextResponse.redirect(url)
     res.cookies.set(PENDING_SIGNUP_COOKIE, await sealPendingSignup({ ...identity, role: saved.role }), pendingSignupCookieOptions)
     res.cookies.set(OAUTH_STATE_COOKIE, '', { ...oauthStateCookieOptions, maxAge: 0 })

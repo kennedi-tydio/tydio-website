@@ -10,7 +10,7 @@ import {
 } from '@/lib/auth/google'
 import { safeRedirectPath } from '@/lib/safeRedirect'
 
-// /auth/google?role=pro&next=/book — sends the person to Google.
+// /auth/google?role=pro&next=/book&from=signup — sends the person to Google.
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams
   const isPro = params.get('role') === 'pro'
@@ -22,7 +22,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(back)
   }
 
-  const state = newOAuthState(isPro ? 'TIDYPRO' : 'USER', safeRedirectPath(params.get('next')))
+  const state = newOAuthState(
+    isPro ? 'TIDYPRO' : 'USER',
+    safeRedirectPath(params.get('next')),
+    params.get('from') === 'signup' ? 'signup' : 'login',
+  )
 
   const res = NextResponse.redirect(googleAuthorizeUrl(state, googleRedirectUri(req.nextUrl.origin)))
   res.cookies.set(OAUTH_STATE_COOKIE, await sealOAuthState(state), oauthStateCookieOptions)
