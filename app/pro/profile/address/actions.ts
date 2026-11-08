@@ -60,7 +60,8 @@ export async function saveAddressAction(
   if (error) return { error: userFacingError(error) }
 
   await notifyIfOnboardingComplete(admin, session.profileId)
-  revalidatePath('/pro/profile/address')
+  revalidatePath('/pro/profile', 'layout')
+  revalidatePath('/pro/dashboard')
   return {
     street_address: streetAddress,
     unit_number: unitNumber,
@@ -72,15 +73,21 @@ export async function saveAddressAction(
   }
 }
 
-export async function removeAddressAction(): Promise<void> {
+// Clearing the coordinates takes the cleaner out of matching and puts "Add your
+// address" back on their onboarding list (see missingOnboardingSteps).
+export async function removeAddressAction(): Promise<{ ok: true } | { error: string }> {
   const session = await getSession()
-  if (!session || session.role !== 'TIDYPRO') return
+  if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
 
   const admin = createAdminClient()
-  await admin
+  const { error } = await admin
     .from('tidypro_profiles')
     .update({ street_address: null, unit_number: null, city: null, state: null, zip_code: null, latitude: null, longitude: null })
     .eq('id', session.profileId)
 
-  revalidatePath('/pro/profile/address')
+  if (error) return { error: userFacingError(error) }
+
+  revalidatePath('/pro/profile', 'layout')
+  revalidatePath('/pro/dashboard')
+  return { ok: true }
 }

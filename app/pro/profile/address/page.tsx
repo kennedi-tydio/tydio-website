@@ -6,7 +6,15 @@ import AddressView from './AddressView'
 
 export const metadata: Metadata = { title: 'Manage Address — Tydio' }
 
-export default async function ProAddressPage() {
+export default async function ProAddressPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ returnTo?: string }>
+}) {
+  // Only a known page, so the param can't be used to send someone off-site.
+  const { returnTo } = await searchParams
+  const returnHref = returnTo === 'edit' ? '/pro/profile/edit' : '/pro/profile'
+
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') redirect('/login')
 
@@ -33,5 +41,5 @@ export default async function ProAddressPage() {
         }
       : null
 
-  return <AddressView initialAddress={address} />
+  return <AddressView initialAddress={address} returnHref={returnHref} />
 }
