@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Script from 'next/script'
-import { US_STATES } from '@/lib/usStates'
+import { findUsState } from '@/lib/usStates'
 
 export interface PlaceDetails {
   streetAddress: string
@@ -21,6 +21,7 @@ interface AddressComponent {
 
 interface PlaceResult {
   address_components?: AddressComponent[]
+  formatted_address?: string
   geometry?: { location?: { lat: () => number; lng: () => number } }
 }
 
@@ -50,19 +51,27 @@ function componentValue(components: AddressComponent[], type: string, useShort =
   return useShort ? match.short_name : match.long_name
 }
 
-// Google normally returns a 2-letter short_name for administrative_area_level_1
-// ("GA"), but if that's ever missing while the long_name ("Georgia") is
-// present, fall back to resolving the code from the full name rather than
-// leaving the state field blank.
-function resolveStateCode(components: AddressComponent[]): string {
-  const match = components.find((c) => c.types.includes('administrative_area_level_1'))
-  if (!match) return ''
-  if (match.short_name) return match.short_name
-  const byName = US_STATES.find((s) => s.name.toLowerCase() === match.long_name.toLowerCase())
-  return byName?.code ?? match.long_name
+// The state field only takes a 2-letter code it knows ("GA"). Google usually puts
+// one in short_name, but anything else would leave the field blank, so try the
+// full name too, then the state in the address line itself
+// ("123 Main St, Atlanta, GA 30303, USA").
+function resolveStateCode(place: PlaceResult, inputText: string): string {
+  const match = (place.address_components ?? []).find((c) => c.types.includes('administrative_area_level_1'))
+  const fromComponent = findUsState(match?.short_name ?? '') ?? findUsState(match?.long_name ?? '')
+  if (fromComponent) return fromComponent.code
+  // Codes only here: matching full names would take the city in
+  // "Washington, DC" for Washington state.
+  for (const text of [place.formatted_address ?? '', inputText]) {
+    for (const part of text.split(',')) {
+      const code = part.trim().replace(/\s+\d{5}(-\d{4})?$/, '')
+      const state = /^[A-Z]{2}$/.test(code) ? findUsState(code) : undefined
+      if (state) return state.code
+    }
+  }
+  return ''
 }
 
-function parsePlace(place: PlaceResult): PlaceDetails {
+function parsePlace(place: PlaceResult, inputText: string): PlaceDetails {
   const components = place.address_components ?? []
   const streetNumber = componentValue(components, 'street_number')
   const route = componentValue(components, 'route')
@@ -75,7 +84,7 @@ function parsePlace(place: PlaceResult): PlaceDetails {
   return {
     streetAddress: [streetNumber, route].filter(Boolean).join(' '),
     city,
-    state: resolveStateCode(components),
+    state: resolveStateCode(place, inputText),
     zipCode: componentValue(components, 'postal_code'),
     latitude: loc ? loc.lat() : null,
     longitude: loc ? loc.lng() : null,
@@ -118,12 +127,12 @@ export default function AddressAutocomplete({
       const autocomplete = new googleMaps.maps.places.Autocomplete(inputRef.current, {
         types: ['address'],
         componentRestrictions: { country: 'us' },
-        fields: ['address_components', 'geometry'],
+        fields: ['address_components', 'formatted_address', 'geometry'],
       })
 
       autocomplete.addListener('place_changed', () => {
         try {
-          onPlaceSelectRef.current(parsePlace(autocomplete.getPlace()))
+          onPlaceSelectRef.current(parsePlace(autocomplete.getPlace(), inputRef.current?.value ?? ''))
         } catch {
           // Malformed/partial place result — leave whatever the user already typed in place.
         }
