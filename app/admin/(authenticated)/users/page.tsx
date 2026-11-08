@@ -7,6 +7,7 @@ import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleaner
 import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAccounts } from './AccountActions'
 import { UserNote } from './UserNote'
 import { zipLocation } from '@/lib/zipLocation'
+import { IconLeaf } from '@/app/components/IconLeaf'
 
 const SUSPENDED_COLOR = '#ef4444'
 
@@ -63,9 +64,9 @@ function backgroundCheckBadge(
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string; state?: string; city?: string }>
+  searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string; state?: string; city?: string; organic?: string }>
 }) {
-  const { search = '', role = '', status = '', verified = '', state = '', city = '' } = await searchParams
+  const { search = '', role = '', status = '', verified = '', state = '', city = '', organic = '' } = await searchParams
   const admin = createAdminClient()
   const locations = await userLocations(admin)
   // City options are "City, ST" so two same-named cities stay distinct.
@@ -106,15 +107,26 @@ export default async function UsersPage({
   if (verified === 'no') query = query.is('email_verified_at', null)
   if (state) query = query.eq('state', state)
   if (cityFilter) query = query.eq('city', cityFilter.city).eq('state', cityFilter.state)
+  if (organic === 'yes') {
+    // The setting lives on tidypro_profiles, so this narrows to Tidy Pros who ticked it.
+    const { data: organicPros, error: organicError } = await admin
+      .from('tidypro_profiles')
+      .select('id')
+      .eq('uses_organic_products', true)
+    if (organicError) throw new Error(`Failed to load organic Tidy Pros: ${organicError.message}`)
+    const organicIds = (organicPros ?? []).map((p) => p.id)
+    // An empty list would make .in() match nothing in an invalid way, so use an id no profile has.
+    query = query.eq('role', 'TIDYPRO').in('id', organicIds.length ? organicIds : ['00000000-0000-0000-0000-000000000000'])
+  }
 
   const { data: users, error: usersError } = await query
-  const hasFilters = search || role || status || verified || state || city
+  const hasFilters = search || role || status || verified || state || city || organic
 
   const cleanerIds = (users ?? []).filter((u) => u.role === 'TIDYPRO').map((u) => u.id)
   const { data: cleanerProfiles } = cleanerIds.length
     ? await admin
         .from('tidypro_profiles')
-        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, phone, street_address, city, state, zip_code')
+        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, phone, street_address, city, state, zip_code, uses_organic_products')
         .in('id', cleanerIds)
     : { data: [] }
   const cleanerById = new Map((cleanerProfiles ?? []).map((c) => [c.id, c]))
@@ -221,6 +233,15 @@ export default async function UsersPage({
           <option value="">All verified</option>
           <option value="yes">Email verified</option>
           <option value="no">Not verified</option>
+        </select>
+        <select
+          aria-label="Filter by organic products"
+          name="organic"
+          defaultValue={organic}
+          className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="">All products</option>
+          <option value="yes">Uses organic products</option>
         </select>
         <select
           aria-label="Filter by state"
@@ -342,7 +363,10 @@ export default async function UsersPage({
                       {user.role !== 'ADMIN' && <RowSelectCheckbox profileId={user.id} label={name} />}
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
-                      {name}
+                      <span className="inline-flex items-center gap-1.5">
+                        {name}
+                        {proProfile?.uses_organic_products && <IconLeaf size={14} title="Uses organic cleaning products" />}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.city ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.state ?? '—'}</td>

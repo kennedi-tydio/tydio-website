@@ -52,6 +52,7 @@ type Props = {
   location: string
   photoUrl: string | null
   allergies: string[]
+  usesOrganicProducts: boolean
   unreadMessageCount: number
 }
 
@@ -63,6 +64,7 @@ export default function EditProfileView({ location, unreadMessageCount, photoUrl
   const [bio, setBio] = useState(initial.bio)
   const [phone, setPhone] = useState(initial.phone)
   const [allergies, setAllergies] = useState(initial.allergies)
+  const [usesOrganicProducts, setUsesOrganicProducts] = useState(initial.usesOrganicProducts)
   const [allergyDraft, setAllergyDraft] = useState('')
   const [editingAllergies, setEditingAllergies] = useState(false)
   const [photoUrl, setPhotoUrl] = useState(initialPhotoUrl)
@@ -108,7 +110,7 @@ export default function EditProfileView({ location, unreadMessageCount, photoUrl
     // A typed allergy that wasn't explicitly added still counts — otherwise
     // Save would quietly drop what's sitting in the box.
     const nextAllergies = withDraftAllergy(allergies)
-    const result = await updateProfileAction({ firstName, lastName, bio, phone, allergies: nextAllergies })
+    const result = await updateProfileAction({ firstName, lastName, bio, phone, allergies: nextAllergies, usesOrganicProducts })
     setSaving(false)
     if ('error' in result) {
       setError(result.error)
@@ -128,6 +130,11 @@ export default function EditProfileView({ location, unreadMessageCount, photoUrl
   // this page wouldn't show up in it and would be lost on the way back.
   async function handleViewAsCustomer() {
     if (await save()) router.push('/pro/profile/preview')
+  }
+
+  // Same for the address page, which sends them back here once an address is saved.
+  async function handleEditLocation() {
+    if (await save()) router.push('/pro/profile/address?returnTo=edit')
   }
 
   return (
@@ -207,15 +214,47 @@ export default function EditProfileView({ location, unreadMessageCount, photoUrl
           />
         </label>
 
+        <label className={`${FIELD_CLASS} mb-3 flex items-center justify-between gap-3 cursor-pointer`}>
+          <span>
+            <span className="block text-sm text-slate-800">I use organic cleaning products</span>
+            <span className="block text-xs text-slate-400 mt-0.5">Shown to customers on your profile</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={usesOrganicProducts}
+            onChange={(e) => {
+              setUsesOrganicProducts(e.target.checked)
+              setJustSaved(false)
+            }}
+            className="peer sr-only"
+          />
+          {/* Drawn box instead of the native one, whose checkmark colour the
+              browser picks (dark on our teal); the real input stays for
+              keyboard, screen readers and label clicks. */}
+          <span
+            aria-hidden="true"
+            className="w-5 h-5 shrink-0 rounded-md border-2 border-slate-300 flex items-center justify-center transition-colors peer-checked:bg-brand peer-checked:border-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand peer-focus-visible:ring-offset-2 [&>svg]:opacity-0 peer-checked:[&>svg]:opacity-100"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2.5 6.2l2.3 2.3 4.7-4.9" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </label>
+
         {/* City and state come from the Tidy Pro's address, which also sets the
             coordinates used for matching, so it's changed there rather than
             as free text here. */}
-        <Link href="/pro/profile/address" className={`${FIELD_CLASS} mb-3`}>
+        <button
+          type="button"
+          onClick={handleEditLocation}
+          disabled={saving}
+          className={`${FIELD_CLASS} mb-3 w-full text-left disabled:opacity-50`}
+        >
           <span className={LABEL_CLASS}>Location</span>
           <span className={`block text-sm ${location ? 'text-slate-800' : 'text-slate-400'}`}>
             {location || 'Add your address'}
           </span>
-        </Link>
+        </button>
 
         <label className={`${FIELD_CLASS} mb-6`}>
           <span className={LABEL_CLASS}>Phone number</span>

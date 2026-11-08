@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { WEEKDAY_KEYS, type WeekdayKey, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { US_STATES } from '@/lib/usStates'
+import { IconLeaf } from '@/app/components/IconLeaf'
 
 const DAY_LABELS: Record<WeekdayKey, string> = {
   sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
@@ -77,6 +78,7 @@ type Props = {
   averageResponseTimeMinutes: number | null
   availability: WeeklyAvailability
   allergies: string[]
+  usesOrganicProducts: boolean
   reviewsHref: string
   // Set when a Tidy Pro is viewing their own profile as a customer would: back
   // returns here, and Book/Message are on the page for show but do nothing.
@@ -97,6 +99,7 @@ export default function CleanerDetailView({
   averageResponseTimeMinutes,
   availability,
   allergies,
+  usesOrganicProducts,
   reviewsHref,
   previewBackHref,
 }: Props) {
@@ -160,13 +163,16 @@ export default function CleanerDetailView({
             )}
           </div>
 
-          {bio && (
-            <>
-              <div className="border-t border-slate-100 pt-4 mb-4">
-                <h2 className="font-semibold text-slate-900 mb-1.5">About</h2>
-                <p className="text-sm text-slate-500 leading-relaxed">{bio}</p>
-              </div>
-            </>
+          {(bio || usesOrganicProducts) && (
+            <div className="border-t border-slate-100 pt-4 mb-4">
+              <h2 className="font-semibold text-slate-900 mb-1.5">About</h2>
+              {bio && <p className="text-sm text-slate-500 leading-relaxed">{bio}</p>}
+              {usesOrganicProducts && (
+                <p className={`flex items-center gap-1.5 text-sm text-slate-600 ${bio ? 'mt-2' : ''}`}>
+                  <IconLeaf /> This cleaner uses organic cleaning products
+                </p>
+              )}
+            </div>
           )}
 
           <div className="border-t border-slate-100 pt-4 mb-4">

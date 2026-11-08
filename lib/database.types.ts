@@ -100,6 +100,7 @@ export interface Database {
           current_period_earnings: number
           total_earnings: number
           allergies: Json
+          uses_organic_products: boolean
           rating: number
           review_count: number
           is_verified: boolean
@@ -167,6 +168,7 @@ export interface Database {
           current_period_earnings?: number
           total_earnings?: number
           allergies?: Json
+          uses_organic_products?: boolean
           rating?: number
           review_count?: number
           is_verified?: boolean

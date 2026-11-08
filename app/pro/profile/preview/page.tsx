@@ -17,7 +17,7 @@ export default async function ProProfilePreviewPage() {
   const [{ data: tidyPro, error }, { data: profile }] = await Promise.all([
     admin
       .from('tidypro_profiles')
-      .select('bio, profile_photo_url, city, state, rating, review_count, is_verified, is_insured, average_response_time_minutes, availability, allergies')
+      .select('bio, profile_photo_url, city, state, rating, review_count, is_verified, is_insured, average_response_time_minutes, availability, allergies, uses_organic_products')
       .eq('id', session.profileId)
       .maybeSingle(),
     admin.from('profiles').select('first_name, last_name').eq('id', session.profileId).maybeSingle(),
@@ -44,6 +44,7 @@ export default async function ProProfilePreviewPage() {
       isInsured={tidyPro.is_insured}
       averageResponseTimeMinutes={tidyPro.average_response_time_minutes}
       availability={(tidyPro.availability as WeeklyAvailability | null) ?? {}}
+      usesOrganicProducts={tidyPro.uses_organic_products ?? false}
       allergies={Array.isArray(tidyPro.allergies) ? (tidyPro.allergies as string[]) : []}
       reviewsHref="/pro/profile/preview/reviews"
       previewBackHref="/pro/profile/edit"

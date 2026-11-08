@@ -26,6 +26,7 @@ export async function updateProfileAction(input: {
   bio: string
   phone: string
   allergies: string[]
+  usesOrganicProducts: boolean
 }): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
@@ -66,7 +67,12 @@ export async function updateProfileAction(input: {
 
   const { error: tidyProError } = await admin
     .from('tidypro_profiles')
-    .update({ bio: input.bio.trim() || null, phone, allergies })
+    .update({
+      bio: input.bio.trim() || null,
+      phone,
+      allergies,
+      uses_organic_products: input.usesOrganicProducts === true,
+    })
     .eq('id', session.profileId)
   if (tidyProError) return { error: userFacingError(tidyProError) }
 
