@@ -3,9 +3,10 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getRatingVisibleToTidyPro, getUnreadMessageCountForTidyPro } from '@/lib/bookings'
-import { isBackgroundCheckStepDone, isBackgroundCheckSubmitted, shouldShowVerifiedScreen } from '@/lib/backgroundCheck'
+import { isBackgroundCheckStepDone, shouldShowVerifiedScreen } from '@/lib/backgroundCheck'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 import { DEFAULT_BOOKING_TIME_ZONE, bookingStartInstant, scheduleForViewer, shiftDateISO, todayInZone } from '@/lib/bookingTime'
+import { NO_ACCEPTANCE_STATS, getAcceptanceStats } from '@/lib/acceptanceRate'
 import DashboardHome, { type TodayJob, type UpcomingJob } from './DashboardHome'
 import PendingDashboardHome from './PendingDashboardHome'
 
@@ -47,13 +48,24 @@ export default async function ProDashboardPage() {
 
   const unreadMessageCount = await getUnreadMessageCountForTidyPro(admin, session.profileId)
 
-  if (tidyPro.cleaner_status !== 'approved') {
+  // The background check counts as done once they're approved (an admin can approve
+  // without one). A failed check isn't something they can finish, so it isn't listed.
+  const onboardingSteps = [
+    ...(tidyPro.cleaner_status === 'approved' || backgroundCheck?.status === 'failed'
+      ? []
+      : [{ label: 'Complete background check', href: '/pro/onboarding/almost-there' }]),
+    ...missingOnboardingSteps(tidyPro),
+  ]
+
+  // A cleaner still waiting on their check gets the regular dashboard, with the
+  // check listed as a requested action. Only a failed check gets its own screen.
+  if (tidyPro.cleaner_status !== 'approved' && backgroundCheck?.status === 'failed') {
     return (
       <PendingDashboardHome
         firstName={profile.first_name ?? 'there'}
         unreadMessageCount={unreadMessageCount}
         backgroundCheckFailed={backgroundCheck?.status === 'failed'}
-        backgroundCheckSubmitted={isBackgroundCheckSubmitted(backgroundCheck)}
+        onboardingSteps={onboardingSteps}
       />
     )
   }
@@ -128,6 +140,8 @@ export default async function ProDashboardPage() {
     }
   })
 
+  const acceptance = (await getAcceptanceStats(admin, [session.profileId])).get(session.profileId) ?? NO_ACCEPTANCE_STATS
+
   const visibleRating = await getRatingVisibleToTidyPro(admin, session.profileId, tidyPro.rating, tidyPro.review_count)
 
   return (
@@ -137,10 +151,11 @@ export default async function ProDashboardPage() {
       jobsCompleted={jobsCompleted ?? 0}
       rating={visibleRating.rating}
       reviewCount={visibleRating.reviewCount}
+      acceptance={acceptance}
       todaysJobs={todaysJobs}
       upcomingJobs={upcomingJobs}
       unreadMessageCount={unreadMessageCount}
-      onboardingSteps={missingOnboardingSteps(tidyPro)}
+      onboardingSteps={onboardingSteps}
     />
   )
 }

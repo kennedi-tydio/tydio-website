@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { backgroundCheckStatusLabel, isBackgroundCheckSubmitted, isPastBackgroundCheckScreens } from '@/lib/backgroundCheck'
+import { backgroundCheckStage, backgroundCheckStatusLabel, isPastBackgroundCheckScreens } from '@/lib/backgroundCheck'
 
 export const metadata: Metadata = { title: "You're Almost There — Tydio" }
 
@@ -23,13 +23,11 @@ function IconClose() {
   )
 }
 
-function IconCheckCircle() {
+function IconShieldOutline() {
   return (
-    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-brand)' }}>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M20 6L9 17l-5-5" />
-      </svg>
-    </div>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1a2332" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z" />
+    </svg>
   )
 }
 
@@ -69,9 +67,12 @@ export default async function OnboardingAlmostTherePage() {
     .eq('pro_id', session.profileId)
     .maybeSingle()
 
+  // Shown as soon as the check is paid for (or requested, when there's no fee),
+  // not just once the form is in, so the cleaner knows to watch for the email.
+  const stage = backgroundCheckStage(backgroundCheck)
   if (
     !tidyPro?.terms_accepted ||
-    !isBackgroundCheckSubmitted(backgroundCheck) ||
+    stage === 'not_started' ||
     isPastBackgroundCheckScreens(tidyPro.cleaner_status, backgroundCheck)
   ) {
     redirect('/pro/onboarding')
@@ -82,6 +83,18 @@ export default async function OnboardingAlmostTherePage() {
     .select('insurance_status')
     .eq('id', session.profileId)
     .maybeSingle()
+
+  const { data: profile } = await admin.from('profiles').select('email').eq('id', session.profileId).maybeSingle()
+  const email = profile?.email ?? session.email
+
+  const backgroundCheckNote =
+    stage === 'needs_link'
+      ? `Stay tuned to your inbox at ${email}. We'll email you a link to complete your background check soon.`
+      : stage === 'link_sent'
+      ? `We've emailed a link to complete your background check to ${email}. Check your inbox, and your spam folder too.`
+      : stage === 'failed'
+      ? 'Your background check was not approved.'
+      : "You've submitted your background check, and it's being reviewed."
 
   const insuranceStatus = insuranceProfile?.insurance_status ?? null
   const insuranceBadgeLabel =
@@ -110,8 +123,13 @@ export default async function OnboardingAlmostTherePage() {
 
         <div className="flex flex-col gap-3 mb-6">
           <div className="rounded-2xl border border-slate-100 px-4 py-4 flex items-center gap-3 shadow-sm">
-            <IconCheckCircle />
-            <p className="text-sm font-bold text-slate-900 flex-1">Complete your background check</p>
+            <div className="w-9 h-9 flex items-center justify-center flex-shrink-0">
+              <IconShieldOutline />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-slate-900">Complete your background check</p>
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 break-words">{backgroundCheckNote}</p>
+            </div>
             <Badge>{backgroundCheckStatusLabel(backgroundCheck)}</Badge>
           </div>
           <Link

@@ -9,6 +9,7 @@ import { stripe } from '@/lib/stripe'
 import { getOrCreateStripeCustomerId } from '@/lib/stripe/customer'
 import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
 import { computeIsTopTidyPro, hasBookingConflict, haversineDistanceMiles } from '@/lib/cleanerMatching'
+import { overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
 import { cleanerPayoutForServicePrice, grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
@@ -189,7 +190,7 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
   const [{ data: tidyProStats }, { data: tidyProIdentity }] = await Promise.all([
     admin
       .from('tidypro_profiles')
-      .select('rating, total_accepted_bookings, latitude, longitude, profile_photo_url, phone, sms_consent, is_away')
+      .select('rating, total_accepted_bookings, latitude, longitude, profile_photo_url, phone, sms_consent, is_away, time_off')
       .eq('id', draft.selected_tidy_pro_id)
       .maybeSingle(),
     admin.from('profiles').select('first_name, last_name').eq('id', draft.selected_tidy_pro_id).maybeSingle(),
@@ -198,6 +199,14 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
   // They may have gone away after this customer picked them. Checked before the charge.
   if (tidyProStats?.is_away) {
     return { error: 'This Tidy Pro is away right now. Please go back and choose another Tidy Pro.' }
+  }
+
+  // Or marked this time off.
+  if (
+    tidyProStats &&
+    overlapsTimeOff(parseTimeOff(tidyProStats.time_off), draft.scheduled_date, draft.scheduled_time, breakdown.total_task_minutes)
+  ) {
+    return { error: 'This Tidy Pro isn’t available at this time anymore. Please go back and choose another time or Tidy Pro.' }
   }
 
   // Someone else may have booked this slot since it was picked.

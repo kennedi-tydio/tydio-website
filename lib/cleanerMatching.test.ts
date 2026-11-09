@@ -8,7 +8,36 @@ import {
   hasAnyDayAvailabilityBlock,
   type WeeklyAvailability,
   findAvailableCleaners,
+  isAvailableForBooking,
 } from './cleanerMatching'
+
+describe('isAvailableForBooking', () => {
+  const bookable = {
+    active_for_booking: true,
+    cleaner_status: 'approved',
+    is_away: false,
+    profile_photo_url: 'https://example.com/p.jpg',
+    bio: 'Hi',
+    availability: { mon: [{ start: '09:00', end: '12:00' }] },
+    stripe_onboarding_completed: true,
+    travel_radius_miles: 10,
+    latitude: 33.75,
+    longitude: -84.39,
+  }
+
+  it('is true for an approved, active, onboarded Tidy Pro who is not away', () => {
+    expect(isAvailableForBooking(bookable)).toBe(true)
+  })
+
+  it.each([
+    ['paused or suspended', { active_for_booking: false }],
+    ['not approved yet', { cleaner_status: 'applied' }],
+    ['away', { is_away: true }],
+    ['missing an onboarding step', { stripe_onboarding_completed: false }],
+  ])('is false when %s', (_label, overrides) => {
+    expect(isAvailableForBooking({ ...bookable, ...overrides })).toBe(false)
+  })
+})
 
 describe('computeIsTopTidyPro', () => {
   it('is true at/above the rating threshold with more than the minimum bookings', () => {
@@ -68,6 +97,9 @@ describe('findAvailableCleaners with "Any day"', () => {
   const atlanta = { latitude: 33.75, longitude: -84.39 }
   const cleaner = (id: string, overrides: Record<string, unknown> = {}) => ({
     id,
+    active_for_booking: true,
+    cleaner_status: 'approved',
+    is_away: false,
     rating: 5,
     review_count: 1,
     is_verified: true,

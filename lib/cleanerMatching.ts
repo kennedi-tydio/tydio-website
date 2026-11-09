@@ -1,5 +1,6 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { isDateInTimeOff, overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -126,6 +127,29 @@ export async function hasBookingConflict(
   })
 }
 
+// Whether customers can currently find and book this Tidy Pro in search: the same
+// rules findAvailableCleaners applies before narrowing by date, time and distance.
+// Suspending or pausing someone turns off active_for_booking, so that's covered too.
+export function isAvailableForBooking(cleaner: {
+  active_for_booking: boolean
+  cleaner_status: string | null
+  is_away: boolean
+  profile_photo_url: string | null
+  bio: string | null
+  availability: unknown
+  stripe_onboarding_completed: boolean
+  travel_radius_miles: number | null
+  latitude: number | null
+  longitude: number | null
+}): boolean {
+  return (
+    cleaner.active_for_booking &&
+    cleaner.cleaner_status === 'approved' &&
+    !cleaner.is_away &&
+    missingOnboardingSteps(cleaner).length === 0
+  )
+}
+
 export async function findAvailableCleaners(
   params: {
     latitude: number
@@ -138,7 +162,7 @@ export async function findAvailableCleaners(
 ): Promise<CleanerMatch[]> {
   const { data: candidates } = await admin
     .from('tidypro_profiles')
-    .select('id, rating, review_count, is_verified, total_accepted_bookings, profile_photo_url, bio, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, availability')
+    .select('id, active_for_booking, cleaner_status, is_away, rating, review_count, is_verified, total_accepted_bookings, profile_photo_url, bio, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, availability, time_off')
     .eq('active_for_booking', true)
     .eq('cleaner_status', 'approved')
     .eq('is_away', false)
@@ -148,7 +172,7 @@ export async function findAvailableCleaners(
   if (!candidates || candidates.length === 0) return []
 
   const nearby = candidates
-    .filter((c) => missingOnboardingSteps(c).length === 0)
+    .filter((c) => isAvailableForBooking(c))
     .map((c) => ({
       ...c,
       distanceMiles: haversineDistanceMiles(
@@ -170,7 +194,15 @@ export async function findAvailableCleaners(
       ? { start: params.time, end: minutesToTime(minutesSinceMidnight(params.time) + params.durationMinutes) }
       : undefined
 
-    available = nearby.filter((c) => hasAvailabilityBlock((c.availability as WeeklyAvailability) ?? {}, weekday, timeRange))
+    available = nearby.filter((c) => {
+      // With a time, only time off during the job counts; without one, only a whole day off.
+      const timeOff = parseTimeOff(c.time_off)
+      const off = params.time ? overlapsTimeOff(timeOff, date, params.time, params.durationMinutes) : isDateInTimeOff(timeOff, date)
+      return (
+        !off &&
+        hasAvailabilityBlock((c.availability as WeeklyAvailability) ?? {}, weekday, timeRange)
+      )
+    })
 
     if (available.length > 0) {
       const { data: existingBookings } = await admin

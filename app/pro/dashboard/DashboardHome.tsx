@@ -1,5 +1,7 @@
 import Link from 'next/link'
 import TodayJobRow from './TodayJobRow'
+import OnboardingIncompleteBanner from './OnboardingIncompleteBanner'
+import { ACCEPTANCE_RATE_THRESHOLD, formatAcceptanceRate, isAcceptanceRateLow, type AcceptanceStats } from '@/lib/acceptanceRate'
 
 export type TodayJob = {
   id: string
@@ -108,6 +110,7 @@ export default function DashboardHome({
   jobsCompleted,
   rating,
   reviewCount,
+  acceptance,
   todaysJobs,
   upcomingJobs,
   unreadMessageCount,
@@ -118,6 +121,7 @@ export default function DashboardHome({
   jobsCompleted: number
   rating: number
   reviewCount: number
+  acceptance: AcceptanceStats
   todaysJobs: TodayJob[]
   upcomingJobs: UpcomingJob[]
   unreadMessageCount: number
@@ -126,6 +130,8 @@ export default function DashboardHome({
   return (
     <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full">
+
+        {onboardingSteps.length > 0 && <OnboardingIncompleteBanner />}
 
         <p className="text-sm text-slate-500 mb-1">Welcome {firstName}</p>
 
@@ -150,7 +156,7 @@ export default function DashboardHome({
         <h1 className="text-3xl font-bold text-slate-900 mb-6">Dashboard</h1>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-3 gap-3 mb-3">
           <div className="rounded-2xl border border-slate-100 shadow-sm py-4 px-2 text-center">
             <p className="text-2xl font-bold text-slate-900">{jobsToday}</p>
             <p className="text-xs text-slate-400 mt-1 leading-tight">Jobs Today</p>
@@ -170,6 +176,8 @@ export default function DashboardHome({
             <p className="text-xs text-slate-400 mt-1 leading-tight">Average Rating</p>
           </div>
         </div>
+
+        <AcceptanceRateCard stats={acceptance} />
 
         {/* Today's Jobs */}
         <div className="flex items-center justify-between mb-3">
@@ -248,5 +256,32 @@ export default function DashboardHome({
         </div>
       </nav>
     </main>
+  )
+}
+
+function AcceptanceRateCard({ stats }: { stats: AcceptanceStats }) {
+  const answered = stats.accepted + stats.declined
+  const low = isAcceptanceRateLow(stats)
+  return (
+    <div
+      className={`rounded-2xl border shadow-sm px-4 py-4 mb-8 ${low ? 'border-amber-200 bg-amber-50' : 'border-slate-100'}`}
+    >
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm font-bold text-slate-900">Acceptance Rate</p>
+        <p className={`text-2xl font-bold ${low ? 'text-amber-700' : 'text-slate-900'}`}>{formatAcceptanceRate(stats)}</p>
+      </div>
+      <p className="text-xs text-slate-500 leading-relaxed mt-1">
+        {answered === 0
+          ? 'Your share of booking requests accepted will show here once you answer your first one.'
+          : `${stats.accepted} of ${answered} request${answered === 1 ? '' : 's'} accepted.`}
+        {low && (
+          <>
+            {' '}Please keep it at {Math.round(ACCEPTANCE_RATE_THRESHOLD * 100)}% or higher. Add{' '}
+            <Link href="/pro/profile/availability" className="underline font-semibold text-slate-700">time off</Link>{' '}
+            for days you can&apos;t work, so you don&apos;t get requests for them.
+          </>
+        )}
+      </p>
+    </div>
   )
 }

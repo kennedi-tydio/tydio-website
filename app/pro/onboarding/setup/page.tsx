@@ -167,7 +167,7 @@ export default async function OnboardingSetupPage() {
 
         {backgroundCheckStarted ? (
           <Link
-            href={backgroundCheckSubmitted ? '/pro/onboarding/almost-there' : '/pro/dashboard'}
+            href="/pro/onboarding/almost-there"
             className="w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide text-center block"
             style={{ backgroundColor: 'var(--color-brand)' }}
           >

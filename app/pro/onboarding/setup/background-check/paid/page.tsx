@@ -20,10 +20,12 @@ export default async function BackgroundCheckPaidPage() {
     .eq('pro_id', session.profileId)
     .maybeSingle()
 
-  if (!hasPaidFee(check) && check?.stripe_checkout_session_id) {
+  let paid = hasPaidFee(check)
+  if (!paid && check?.stripe_checkout_session_id) {
     const checkout = await stripe.checkout.sessions.retrieve(check.stripe_checkout_session_id)
-    await recordFeePaymentIfPaid(admin, checkout)
+    paid = await recordFeePaymentIfPaid(admin, checkout)
   }
 
-  redirect('/pro/onboarding/setup/background-check')
+  // A payment that hasn't gone through goes back to the fee screen, which says why.
+  redirect(paid ? '/pro/onboarding/almost-there' : '/pro/onboarding/setup/background-check')
 }

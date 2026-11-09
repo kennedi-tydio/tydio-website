@@ -19,7 +19,7 @@ export default function StartBackgroundCheckButton({ label, feeCents }: { label:
       } else if ('error' in result) {
         setError(result.error)
       } else {
-        router.refresh()
+        router.push('/pro/onboarding/almost-there')
       }
     })
   }

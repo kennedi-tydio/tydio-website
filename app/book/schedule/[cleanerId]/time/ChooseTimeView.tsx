@@ -5,6 +5,7 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import { confirmSelectionAction } from './actions'
 import { WEEKDAY_KEYS, minutesSinceMidnight, minutesToTime, rangesOverlap, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import LoadingScreen from '@/app/components/LoadingSpinner'
+import { isDateInTimeOff, timeOffBlocksOn, type TimeOffRange } from '@/lib/timeOff'
 import { useLocalClock } from '@/app/components/useLocalClock'
 
 export type BusyRange = { time: string; durationMinutes: number }
@@ -32,6 +33,8 @@ type Props = {
   draftId: string
   cleanerId: string
   availability: WeeklyAvailability
+  // Days the Tidy Pro marked off. Shown as unavailable, like a day they don't work.
+  timeOff: TimeOffRange[]
   busyByDate: Record<string, BusyRange[]>
   durationMinutes: number
   todayISO: string
@@ -52,6 +55,7 @@ function ChooseTimeForm({
   draftId,
   cleanerId,
   availability,
+  timeOff,
   busyByDate,
   durationMinutes,
   todayISO,
@@ -65,12 +69,16 @@ function ChooseTimeForm({
     return (dateISO: string): string[] => {
       const weekday = WEEKDAY_KEYS[new Date(`${dateISO}T00:00:00`).getDay()]
       const blocks = availability[weekday] ?? []
-      if (blocks.length === 0) return []
+      if (blocks.length === 0 || isDateInTimeOff(timeOff, dateISO)) return []
 
-      const busy = (busyByDate[dateISO] ?? []).map((b) => {
-        const start = minutesSinceMidnight(b.time)
-        return { start, end: start + b.durationMinutes }
-      })
+      // Part-day time off blocks slots the same way an existing booking does.
+      const busy = [
+        ...(busyByDate[dateISO] ?? []).map((b) => {
+          const start = minutesSinceMidnight(b.time)
+          return { start, end: start + b.durationMinutes }
+        }),
+        ...timeOffBlocksOn(timeOff, dateISO),
+      ]
 
       // Same-day bookings need at least an hour's lead time — a slot
       // starting earlier than that isn't enough notice for a Tidy Pro.
@@ -88,7 +96,7 @@ function ChooseTimeForm({
       }
       return Array.from(new Set(slots)).sort()
     }
-  }, [availability, busyByDate, durationMinutes, todayISO, nowMinutes])
+  }, [availability, timeOff, busyByDate, durationMinutes, todayISO, nowMinutes])
 
   const dateStatus = useMemo(() => {
     return (dateISO: string): DateStatus => {
