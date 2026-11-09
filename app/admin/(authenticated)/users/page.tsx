@@ -7,6 +7,10 @@ import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleaner
 import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAccounts } from './AccountActions'
 import { UserNote } from './UserNote'
 import { zipLocation } from '@/lib/zipLocation'
+import { IconLeaf } from '@/app/components/IconLeaf'
+import { onboardingStatusLabel, remainingOnboardingActions } from '@/lib/onboardingProgress'
+import { isAvailableForBooking } from '@/lib/cleanerMatching'
+import { ACCEPTANCE_RATE_THRESHOLD, NO_ACCEPTANCE_STATS, formatAcceptanceRate, getAcceptanceStats, getAllAcceptanceStats, isAcceptanceRateLow } from '@/lib/acceptanceRate'
 
 const SUSPENDED_COLOR = '#ef4444'
 
@@ -63,9 +67,9 @@ function backgroundCheckBadge(
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string; state?: string; city?: string }>
+  searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string; state?: string; city?: string; organic?: string; acceptance?: string; available?: string }>
 }) {
-  const { search = '', role = '', status = '', verified = '', state = '', city = '' } = await searchParams
+  const { search = '', role = '', status = '', verified = '', state = '', city = '', organic = '', acceptance = '', available = '' } = await searchParams
   const admin = createAdminClient()
   const locations = await userLocations(admin)
   // City options are "City, ST" so two same-named cities stay distinct.
@@ -106,18 +110,50 @@ export default async function UsersPage({
   if (verified === 'no') query = query.is('email_verified_at', null)
   if (state) query = query.eq('state', state)
   if (cityFilter) query = query.eq('city', cityFilter.city).eq('state', cityFilter.state)
+  if (organic === 'yes') {
+    // The setting lives on tidypro_profiles, so this narrows to Tidy Pros who ticked it.
+    const { data: organicPros, error: organicError } = await admin
+      .from('tidypro_profiles')
+      .select('id')
+      .eq('uses_organic_products', true)
+    if (organicError) throw new Error(`Failed to load organic Tidy Pros: ${organicError.message}`)
+    const organicIds = (organicPros ?? []).map((p) => p.id)
+    // An empty list would make .in() match nothing in an invalid way, so use an id no profile has.
+    query = query.eq('role', 'TIDYPRO').in('id', organicIds.length ? organicIds : ['00000000-0000-0000-0000-000000000000'])
+  }
+
+  if (acceptance === 'low') {
+    const lowIds = [...(await getAllAcceptanceStats(admin))].filter(([, stats]) => isAcceptanceRateLow(stats)).map(([id]) => id)
+    query = query.eq('role', 'TIDYPRO').in('id', lowIds.length ? lowIds : ['00000000-0000-0000-0000-000000000000'])
+  }
+
+  if (available === 'yes' || available === 'no') {
+    // Worked out the same way customer search decides who's bookable (lib/cleanerMatching).
+    const { data: pros, error: prosError } = await admin
+      .from('tidypro_profiles')
+      .select('id, active_for_booking, cleaner_status, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude')
+      .eq('active_for_booking', true)
+      .eq('cleaner_status', 'approved')
+      .eq('is_away', false)
+    if (prosError) throw new Error(`Failed to load Tidy Pro availability: ${prosError.message}`)
+    const availableIds = (pros ?? []).filter(isAvailableForBooking).map((p) => p.id)
+    query = query.eq('role', 'TIDYPRO')
+    if (available === 'yes') query = query.in('id', availableIds.length ? availableIds : ['00000000-0000-0000-0000-000000000000'])
+    else if (availableIds.length) query = query.not('id', 'in', `(${availableIds.join(',')})`)
+  }
 
   const { data: users, error: usersError } = await query
-  const hasFilters = search || role || status || verified || state || city
+  const hasFilters = search || role || status || verified || state || city || organic || acceptance || available
 
   const cleanerIds = (users ?? []).filter((u) => u.role === 'TIDYPRO').map((u) => u.id)
   const { data: cleanerProfiles } = cleanerIds.length
     ? await admin
         .from('tidypro_profiles')
-        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, phone, street_address, city, state, zip_code')
+        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, phone, street_address, city, state, zip_code, uses_organic_products')
         .in('id', cleanerIds)
     : { data: [] }
   const cleanerById = new Map((cleanerProfiles ?? []).map((c) => [c.id, c]))
+  const acceptanceByProId = await getAcceptanceStats(admin, cleanerIds)
 
   // A customer's default saved address, else their first one.
   const customerIds = (users ?? []).filter((u) => u.role === 'USER').map((u) => u.id)
@@ -223,6 +259,34 @@ export default async function UsersPage({
           <option value="no">Not verified</option>
         </select>
         <select
+          aria-label="Filter by organic products"
+          name="organic"
+          defaultValue={organic}
+          className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="">All products</option>
+          <option value="yes">Uses organic products</option>
+        </select>
+        <select
+          aria-label="Filter by acceptance rate"
+          name="acceptance"
+          defaultValue={acceptance}
+          className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="">All acceptance rates</option>
+          <option value="low">Below {Math.round(ACCEPTANCE_RATE_THRESHOLD * 100)}% acceptance</option>
+        </select>
+        <select
+          aria-label="Filter by availability for bookings"
+          name="available"
+          defaultValue={available}
+          className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="">All availability</option>
+          <option value="yes">Available for bookings</option>
+          <option value="no">Not available for bookings</option>
+        </select>
+        <select
           aria-label="Filter by state"
           name="state"
           defaultValue={state}
@@ -287,7 +351,10 @@ export default async function UsersPage({
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Address</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Role</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Availability</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Onboarding Left</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Background Check</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Acceptance</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Verified</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Joined</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Note</th>
@@ -315,8 +382,10 @@ export default async function UsersPage({
                     : withDate('banned', ban.banned_at)
                   : user.suspended_at
                   ? withDate('suspended', user.suspended_at)
-                  : cleaner
-                  ? `${cleaner.cleaner_status ?? 'applied'}${!cleaner.active_for_booking ? ' · not bookable' : cleaner.is_away ? ' · away' : missingOnboardingSteps(cleaner).length > 0 ? ' · onboarding incomplete' : ''}`
+                  : cleaner && (cleaner.cleaner_status === 'approved' || cleaner.cleaner_status === 'paused')
+                  ? `${cleaner.cleaner_status}${!cleaner.active_for_booking ? ' · not bookable' : cleaner.is_away ? ' · away' : missingOnboardingSteps(cleaner).length > 0 ? ' · onboarding incomplete' : ''}`
+                  : user.role === 'TIDYPRO'
+                  ? onboardingStatusLabel({ bookingAccessStatus: user.booking_access_status, backgroundCheck: backgroundCheckByProId.get(user.id) })
                   : user.booking_access_status ?? '—'
                 const name =
                   [user.first_name, user.last_name].filter(Boolean).join(' ') || '—'
@@ -342,7 +411,10 @@ export default async function UsersPage({
                       {user.role !== 'ADMIN' && <RowSelectCheckbox profileId={user.id} label={name} />}
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
-                      {name}
+                      <span className="inline-flex items-center gap-1.5">
+                        {name}
+                        {proProfile?.uses_organic_products && <IconLeaf size={14} title="Uses organic cleaning products" />}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.city ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.state ?? '—'}</td>
@@ -373,6 +445,35 @@ export default async function UsersPage({
                               </form>
                             )}
                           </div>
+                        )
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {proProfile && isAvailableForBooking(proProfile) && (
+                        <span
+                          role="img"
+                          aria-label="Available for bookings"
+                          title="Available for bookings"
+                          className="inline-block w-2.5 h-2.5 rounded-full bg-green-500"
+                        />
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top min-w-48">
+                      {user.role === 'TIDYPRO' && (() => {
+                        const remaining = remainingOnboardingActions({
+                          bookingAccessStatus: user.booking_access_status,
+                          cleanerStatus: proProfile?.cleaner_status ?? null,
+                          hasSignedAgreement: signatureByProId.has(user.id),
+                          backgroundCheck: bgCheck,
+                          profile: proProfile,
+                        })
+                        if (remaining.length === 0) return <span className="text-xs font-semibold text-green-600">✓ Done</span>
+                        return (
+                          <ul className="text-xs text-slate-500 list-disc pl-4 space-y-0.5">
+                            {remaining.map((step) => (
+                              <li key={step} className={step.endsWith('(Tydio)') ? 'text-amber-600 font-medium' : undefined}>{step}</li>
+                            ))}
+                          </ul>
                         )
                       })()}
                     </td>
@@ -408,6 +509,23 @@ export default async function UsersPage({
                           Manage
                         </a>
                       )}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {user.role === 'TIDYPRO' && (() => {
+                        const stats = acceptanceByProId.get(user.id) ?? NO_ACCEPTANCE_STATS
+                        const answered = stats.accepted + stats.declined
+                        const low = isAcceptanceRateLow(stats)
+                        return (
+                          <>
+                            <span className={`text-xs font-semibold ${low ? 'text-red-600' : 'text-slate-700'}`}>
+                              {formatAcceptanceRate(stats)}
+                            </span>
+                            <p className="text-xs text-slate-400 mt-1">
+                              {answered === 0 ? 'No requests answered' : `${stats.declined} of ${answered} declined`}
+                            </p>
+                          </>
+                        )
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       {user.email_verified_at ? (

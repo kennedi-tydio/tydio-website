@@ -30,6 +30,7 @@ import {
 } from '@/lib/notifications'
 import { userFacingError } from '@/lib/userFacingError'
 import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
+import { checkAcceptanceRate } from '@/lib/acceptanceRate'
 
 export async function sendMessageAction(bookingId: string, body: string): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
@@ -100,6 +101,7 @@ export async function acceptBookingRequestAction(bookingId: string): Promise<{ s
 
   if (booking.request_group_id) await cancelOtherRequests(admin, booking.request_group_id, bookingId)
   await withdrawPendingProposals(admin, bookingId)
+  await checkAcceptanceRate(admin, session.profileId)
 
   const { data: proProfile } = await admin.from('profiles').select('first_name').eq('id', session.profileId).maybeSingle()
   await notifyCustomer(admin, booking.user_id, notifyBookingAccepted(proProfile?.first_name ?? 'Your Tidy Pro', bookingId))
@@ -306,6 +308,7 @@ export async function declineBookingRequestAction(bookingId: string): Promise<{ 
     if (error) return { error: userFacingError(error) }
 
     await closeGroupIfNoRequestsLeft(admin, booking.request_group_id)
+    await checkAcceptanceRate(admin, session.profileId)
 
     revalidatePath(`/pro/messages/${bookingId}`)
     revalidatePath('/pro/messages')
@@ -321,6 +324,7 @@ export async function declineBookingRequestAction(bookingId: string): Promise<{ 
   if (error) return { error: userFacingError(error) }
 
   await notifyCustomer(admin, booking.user_id, notifyBookingDeclined(bookingId))
+  await checkAcceptanceRate(admin, session.profileId)
 
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/pro/messages')

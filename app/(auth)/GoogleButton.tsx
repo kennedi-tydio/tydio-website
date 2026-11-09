@@ -1,9 +1,10 @@
 // A plain link, not next/link: /auth/google is a route handler that redirects
 // to Google, so it must be a full navigation and never prefetched.
-export function GoogleButton({ isPro, next }: { isPro: boolean; next?: string }) {
+export function GoogleButton({ isPro, next, from = 'login' }: { isPro: boolean; next?: string; from?: 'login' | 'signup' }) {
   const params = new URLSearchParams()
   if (isPro) params.set('role', 'pro')
   if (next) params.set('next', next)
+  if (from === 'signup') params.set('from', 'signup')
   const qs = params.toString()
 
   return (

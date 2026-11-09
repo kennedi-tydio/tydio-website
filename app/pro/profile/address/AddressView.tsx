@@ -1,39 +1,63 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from '@/app/components/NavigationSpinner'
 import { removeAddressAction, type SavedAddress } from './actions'
 import AddressForm from './AddressForm'
+import ModalShell from '@/app/components/ModalShell'
 
 function addressLine(a: SavedAddress): string {
   return `${[a.street_address, a.unit_number].filter(Boolean).join(' ')}, ${a.city}, ${a.state} ${a.zip_code}`
 }
 
-export default function AddressView({ initialAddress }: { initialAddress: SavedAddress | null }) {
+export default function AddressView({
+  initialAddress,
+  returnHref,
+}: {
+  initialAddress: SavedAddress | null
+  returnHref: string
+}) {
+  const router = useRouter()
   const [address, setAddress] = useState(initialAddress)
   const [showForm, setShowForm] = useState(false)
-  const [, startTransition] = useTransition()
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState<string | null>(null)
 
-  function handleRemove() {
+  function closeConfirm() {
+    setConfirmingRemove(false)
+    setRemoveError(null)
+  }
+
+  async function handleRemove() {
+    setRemoving(true)
+    setRemoveError(null)
+    const result = await removeAddressAction()
+    setRemoving(false)
+    if ('error' in result) {
+      setRemoveError(result.error)
+      return
+    }
     setAddress(null)
-    startTransition(() => {
-      removeAddressAction()
-    })
+    setConfirmingRemove(false)
   }
 
   function handleSaved(saved: SavedAddress) {
     setAddress(saved)
     setShowForm(false)
+    // Arrived from editing their profile, so take them back to finish it.
+    if (returnHref !== '/pro/profile') router.push(returnHref)
   }
 
   return (
     <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-16 max-w-sm mx-auto w-full">
-        <Link href="/pro/profile" className="flex items-center gap-1.5 mb-6 text-sm text-slate-500">
+        <Link href={returnHref} className="flex items-center gap-1.5 mb-6 text-sm text-slate-500">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M10 12L6 8l4-4" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Back to Profile
+          {returnHref === '/pro/profile' ? 'Back to Profile' : 'Back to editing profile'}
         </Link>
 
         <h1 className="text-2xl font-bold text-slate-900 mb-6">Manage Address</h1>
@@ -48,7 +72,7 @@ export default function AddressView({ initialAddress }: { initialAddress: SavedA
             <div className="flex items-center justify-between gap-3 px-4 py-3.5">
               <p className="text-sm font-semibold text-slate-900 truncate">{addressLine(address)}</p>
               <button
-                onClick={handleRemove}
+                onClick={() => setConfirmingRemove(true)}
                 aria-label="Remove address"
                 className="text-slate-300 hover:text-red-500 flex-shrink-0"
               >
@@ -74,6 +98,41 @@ export default function AddressView({ initialAddress }: { initialAddress: SavedA
       </div>
 
       {showForm && <AddressForm onSaved={handleSaved} onClose={() => setShowForm(false)} />}
+
+      {confirmingRemove && (
+        <ModalShell
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          panelClassName="w-full max-w-sm bg-white rounded-t-3xl px-6 pt-6 pb-10 shadow-2xl"
+          onClose={removing ? () => {} : closeConfirm}
+          labelledBy="remove-address-title"
+        >
+          <h2 id="remove-address-title" className="font-bold text-slate-900 text-lg mb-1">Are you sure?</h2>
+          <p className="text-sm text-slate-500 mb-6">
+            You need an address to receive bookings. Without one, you won&apos;t get any new bookings until you add
+            an address again.
+          </p>
+          {removeError && (
+            <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-xl px-4 py-3 -mt-2 mb-6">{removeError}</p>
+          )}
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleRemove}
+              disabled={removing}
+              className="w-full py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
+              style={{ backgroundColor: '#ef4444' }}
+            >
+              {removing ? 'Removing…' : 'OK, remove address'}
+            </button>
+            <button
+              onClick={closeConfirm}
+              disabled={removing}
+              className="w-full py-3 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm disabled:opacity-50"
+            >
+              Keep address
+            </button>
+          </div>
+        </ModalShell>
+      )}
     </main>
   )
 }

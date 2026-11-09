@@ -6,6 +6,7 @@ import { shiftDateISO } from '@/lib/bookingTime'
 import { buildValidatedTaskPool } from '@/app/dashboard/taskPricing'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
+import { parseTimeOff } from '@/lib/timeOff'
 import ChooseTimeView, { type BusyRange } from './ChooseTimeView'
 
 export const metadata: Metadata = { title: 'Choose a Time — Tydio' }
@@ -23,7 +24,7 @@ export default async function ChooseTimePage({
 
   const { data: tidyPro, error } = await admin
     .from('tidypro_profiles')
-    .select('availability')
+    .select('availability, time_off')
     .eq('id', cleanerId)
     .maybeSingle()
 
@@ -88,6 +89,7 @@ export default async function ChooseTimePage({
       draftId={draft.id}
       cleanerId={cleanerId}
       availability={(tidyPro.availability as WeeklyAvailability | null) ?? {}}
+      timeOff={parseTimeOff(tidyPro.time_off)}
       busyByDate={Object.fromEntries(busyByDate)}
       durationMinutes={durationMinutes}
       initialDate={draft.scheduled_date}

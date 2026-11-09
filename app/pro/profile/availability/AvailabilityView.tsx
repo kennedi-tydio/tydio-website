@@ -3,9 +3,10 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
-import { saveAvailabilityAction, setAwayAction } from './actions'
+import { addTimeOffAction, removeTimeOffAction, saveAvailabilityAction, setAwayAction } from './actions'
 import { WEEKDAY_KEYS, type WeekdayKey, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import TimeSelect from '@/app/components/form/TimeSelect'
+import type { TimeOffRange } from '@/lib/timeOff'
 
 const DAY_LABELS: Record<WeekdayKey, string> = {
   sun: 'Sun',
@@ -38,12 +39,39 @@ function IconTrash() {
   )
 }
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function formatDate(iso: string, withYear: boolean): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return `${MONTHS_SHORT[m - 1]} ${d}${withYear ? `, ${y}` : ''}`
+}
+
+function formatTime(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+}
+
+function formatRange(range: TimeOffRange): string {
+  const sameYear = range.start.slice(0, 4) === range.end.slice(0, 4)
+  if (range.startTime && range.endTime) {
+    if (range.start === range.end) return `${formatDate(range.start, true)}, ${formatTime(range.startTime)} – ${formatTime(range.endTime)}`
+    return `${formatDate(range.start, !sameYear)}, ${formatTime(range.startTime)} – ${formatDate(range.end, true)}, ${formatTime(range.endTime)}`
+  }
+  const days = range.start === range.end ? formatDate(range.start, true) : `${formatDate(range.start, !sameYear)} – ${formatDate(range.end, true)}`
+  return `${days} (all day)`
+}
+
 export default function AvailabilityView({
   initialAvailability,
   initialAway,
+  initialTimeOff,
+  todayISO,
 }: {
   initialAvailability: WeeklyAvailability
   initialAway: boolean
+  initialTimeOff: TimeOffRange[]
+  todayISO: string
 }) {
   const router = useRouter()
   const [availability, setAvailability] = useState<WeeklyAvailability>(initialAvailability)
@@ -51,6 +79,58 @@ export default function AvailabilityView({
   const [savingAway, setSavingAway] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [timeOff, setTimeOff] = useState<TimeOffRange[]>(initialTimeOff)
+  const [offStart, setOffStart] = useState('')
+  const [offEnd, setOffEnd] = useState('')
+  const [offAllDay, setOffAllDay] = useState(true)
+  const [offStartTime, setOffStartTime] = useState('09:00')
+  const [offEndTime, setOffEndTime] = useState('17:00')
+  const [savingTimeOff, setSavingTimeOff] = useState(false)
+  const [timeOffError, setTimeOffError] = useState<string | null>(null)
+  const [timeOffNotice, setTimeOffNotice] = useState<string | null>(null)
+
+  async function handleAddTimeOff() {
+    if (!offStart) {
+      setTimeOffError('Please choose a date.')
+      return
+    }
+    setSavingTimeOff(true)
+    setTimeOffError(null)
+    setTimeOffNotice(null)
+    const result = await addTimeOffAction({
+      start: offStart,
+      end: offEnd || undefined,
+      ...(offAllDay ? {} : { startTime: offStartTime, endTime: offEndTime }),
+    })
+    setSavingTimeOff(false)
+    if ('error' in result) {
+      setTimeOffError(result.error)
+      return
+    }
+    setTimeOff(result.timeOff)
+    setOffStart('')
+    setOffEnd('')
+    setOffAllDay(true)
+    if (result.conflicts > 0) {
+      setTimeOffNotice(
+        `You already have ${result.conflicts === 1 ? 'a booking or request' : `${result.conflicts} bookings or requests`} on ${result.conflicts === 1 ? 'that date' : 'those dates'}. Time off only stops new bookings, so check your Messages and Bookings.`
+      )
+    }
+  }
+
+  async function handleRemoveTimeOff(range: TimeOffRange) {
+    setSavingTimeOff(true)
+    setTimeOffError(null)
+    setTimeOffNotice(null)
+    const result = await removeTimeOffAction(range)
+    setSavingTimeOff(false)
+    if ('error' in result) {
+      setTimeOffError(result.error)
+      return
+    }
+    setTimeOff(result.timeOff)
+  }
 
   async function handleToggleAway() {
     const next = !away
@@ -196,6 +276,101 @@ export default function AvailabilityView({
             )
           })}
         </div>
+
+        <section aria-labelledby="time-off-heading" className="mb-8">
+          <h2 id="time-off-heading" className="text-lg font-bold text-slate-900">Time off</h2>
+          <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-4">
+            Pick a day, or a start and end date, that you can&apos;t work. Leave &quot;All day&quot; checked, or uncheck it to set the hours you&apos;re
+            off. Customers won&apos;t be able to book you during that time.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="text-xs font-semibold text-slate-700">From</span>
+              <input
+                type="date"
+                value={offStart}
+                min={todayISO}
+                onChange={(e) => {
+                  setOffStart(e.target.value)
+                  if (offEnd && e.target.value > offEnd) setOffEnd('')
+                }}
+                className="w-full min-w-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 min-w-0">
+              <span className="text-xs font-semibold text-slate-700">To <span className="font-normal text-slate-400">(optional)</span></span>
+              <input
+                type="date"
+                value={offEnd}
+                min={offStart || todayISO}
+                onChange={(e) => setOffEnd(e.target.value)}
+                className="w-full min-w-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900"
+              />
+            </label>
+          </div>
+          <label className="flex items-center gap-2.5 text-sm text-slate-700 mb-2 cursor-pointer">
+            <input type="checkbox" checked={offAllDay} onChange={(e) => setOffAllDay(e.target.checked)} />
+            All day
+          </label>
+          {!offAllDay && (
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className="text-xs font-semibold text-slate-700">Start time</span>
+                <TimeSelect value={offStartTime} onChange={setOffStartTime} className="w-full min-w-0" ariaLabel="Time off start time" />
+              </div>
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className="text-xs font-semibold text-slate-700">End time</span>
+                <TimeSelect value={offEndTime} onChange={setOffEndTime} className="w-full min-w-0" ariaLabel="Time off end time" />
+              </div>
+              {offEnd && offEnd !== offStart && (
+                <p className="col-span-2 text-xs text-slate-400 leading-relaxed">
+                  From the start time on the first day to the end time on the last day.
+                </p>
+              )}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={handleAddTimeOff}
+            disabled={savingTimeOff || !offStart}
+            className="w-full py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {savingTimeOff ? 'Saving…' : 'Add time off'}
+          </button>
+
+          {timeOffError && (
+            <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3 leading-relaxed">
+              {timeOffError}
+            </p>
+          )}
+          {timeOffNotice && (
+            <p role="status" className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mt-3 leading-relaxed">
+              {timeOffNotice}
+            </p>
+          )}
+
+          {timeOff.length > 0 ? (
+            <ul className="mt-4 rounded-2xl border border-slate-100 shadow-sm divide-y divide-slate-100">
+              {timeOff.map((range) => (
+                <li key={`${range.start}_${range.end}_${range.startTime ?? ''}_${range.endTime ?? ''}`} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <span className="text-sm text-slate-900">{formatRange(range)}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTimeOff(range)}
+                    disabled={savingTimeOff}
+                    aria-label={`Remove time off ${formatRange(range)}`}
+                    className="w-8 h-8 flex-shrink-0 flex items-center justify-center text-slate-300 hover:text-red-500 disabled:opacity-50"
+                  >
+                    <IconTrash />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 text-sm text-slate-400">No time off scheduled.</p>
+          )}
+        </section>
 
         {error && (
           <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4 leading-relaxed">

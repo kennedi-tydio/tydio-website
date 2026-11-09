@@ -52,10 +52,13 @@ type GooglePrefill = { email: string; firstName: string; lastName: string }
 export default function SignupForm({
   googleEnabled = false,
   google = null,
+  googleNoAccount = false,
 }: {
   googleEnabled?: boolean
   // Set when the person came back from Google without a Tydio account yet.
   google?: GooglePrefill | null
+  // They tried to sign in with Google from the login page and had no account.
+  googleNoAccount?: boolean
 }) {
   const [state, action] = useActionState<SignupState, FormData>(signupAction, {})
   const searchParams = useSearchParams()
@@ -140,13 +143,17 @@ export default function SignupForm({
           : 'Book a Tydio cleaning in minutes.'}
       </p>
 
-      {google ? (
+      {google && googleNoAccount ? (
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+          No account exists with <span className="font-semibold">{google.email}</span>. Please create an account below.
+        </p>
+      ) : google ? (
         <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
           Signing up with Google as <span className="font-semibold">{google.email}</span>. Fill in the rest to finish.
         </p>
       ) : googleEnabled && (
         <>
-          <GoogleButton isPro={isPro} />
+          <GoogleButton isPro={isPro} from="signup" />
           <OrDivider />
         </>
       )}

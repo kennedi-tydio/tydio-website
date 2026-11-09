@@ -67,15 +67,19 @@ export type OAuthState = {
   verifier: string
   role: SignInRole
   next: string | null
+  // Which page's Google button started this. Coming from /login means they
+  // expected an account, so landing on signup comes with a "no account" error.
+  from: 'login' | 'signup'
 }
 
-export function newOAuthState(role: SignInRole, next: string | null): OAuthState {
+export function newOAuthState(role: SignInRole, next: string | null, from: 'login' | 'signup' = 'login'): OAuthState {
   return {
     state: base64url(randomBytes(24)),
     nonce: base64url(randomBytes(24)),
     verifier: base64url(randomBytes(32)),
     role,
     next,
+    from,
   }
 }
 
@@ -109,7 +113,7 @@ export async function openOAuthState(token: string | undefined): Promise<OAuthSt
     const p = payload as unknown as OAuthState
     if (!p.state || !p.nonce || !p.verifier) return null
     if (p.role !== 'USER' && p.role !== 'TIDYPRO') return null
-    return { state: p.state, nonce: p.nonce, verifier: p.verifier, role: p.role, next: p.next ?? null }
+    return { state: p.state, nonce: p.nonce, verifier: p.verifier, role: p.role, next: p.next ?? null, from: p.from === 'signup' ? 'signup' : 'login' }
   } catch {
     return null
   }

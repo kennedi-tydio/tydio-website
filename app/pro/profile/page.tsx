@@ -27,7 +27,7 @@ export default async function ProProfilePage() {
 
   const { data: tidyPro } = await admin
     .from('tidypro_profiles')
-    .select('profile_photo_url, city, state, stripe_account_id')
+    .select('bio, profile_photo_url, city, state, stripe_account_id')
     .eq('id', session.profileId)
     .maybeSingle()
 
@@ -64,6 +64,7 @@ export default async function ProProfilePage() {
       email={profile.email}
       location={[tidyPro?.city, tidyPro?.state].filter(Boolean).join(', ')}
       photoUrl={tidyPro?.profile_photo_url ?? null}
+      bio={tidyPro?.bio?.trim() ?? ''}
       pendingEarnings={pendingEarnings}
       overallEarnings={earnings.overall}
       unreadMessageCount={unreadMessageCount}

@@ -17,7 +17,7 @@ export default async function ProEditProfilePage() {
     admin.from('profiles').select('first_name, last_name, phone').eq('id', session.profileId).maybeSingle(),
     admin
       .from('tidypro_profiles')
-      .select('bio, profile_photo_url, city, state, phone, allergies')
+      .select('bio, profile_photo_url, city, state, phone, allergies, uses_organic_products')
       .eq('id', session.profileId)
       .maybeSingle(),
     getUnreadMessageCountForTidyPro(admin, session.profileId),
@@ -35,6 +35,7 @@ export default async function ProEditProfilePage() {
       location={[tidyPro?.city, tidyPro?.state].filter(Boolean).join(', ')}
       photoUrl={tidyPro?.profile_photo_url ?? null}
       allergies={Array.isArray(tidyPro?.allergies) ? (tidyPro.allergies as string[]) : []}
+      usesOrganicProducts={tidyPro?.uses_organic_products ?? false}
       unreadMessageCount={unreadMessageCount}
     />
   )

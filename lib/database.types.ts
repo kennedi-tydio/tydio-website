@@ -100,6 +100,7 @@ export interface Database {
           current_period_earnings: number
           total_earnings: number
           allergies: Json
+          uses_organic_products: boolean
           rating: number
           review_count: number
           is_verified: boolean
@@ -131,6 +132,8 @@ export interface Database {
           onboarding_reminder_sent_at: string | null
           onboarding_final_reminder_sent_at: string | null
           onboarding_completed_notified_at: string | null
+          time_off: Json
+          low_acceptance_alerted_at: string | null
           insurance_document_url: string | null
           insurance_verified_at: string | null
           insurance_verified_by: string | null
@@ -167,6 +170,7 @@ export interface Database {
           current_period_earnings?: number
           total_earnings?: number
           allergies?: Json
+          uses_organic_products?: boolean
           rating?: number
           review_count?: number
           is_verified?: boolean
@@ -197,6 +201,8 @@ export interface Database {
           onboarding_reminder_sent_at?: string | null
           onboarding_final_reminder_sent_at?: string | null
           onboarding_completed_notified_at?: string | null
+          time_off?: Json
+          low_acceptance_alerted_at?: string | null
           insurance_document_url?: string | null
           insurance_verified_at?: string | null
           insurance_verified_by?: string | null
@@ -1193,7 +1199,16 @@ export interface Database {
         Relationships: []
       }
     }
-    Views: Record<string, never>
+    Views: {
+      tidypro_acceptance_stats: {
+        Row: {
+          tidy_pro_id: string
+          accepted_count: number
+          declined_count: number
+        }
+        Relationships: []
+      }
+    }
     Functions: {
       accept_booking_request: {
         Args: { p_booking_id: string; p_tidy_pro_id: string }

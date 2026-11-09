@@ -18,9 +18,12 @@ export function isAdminSecret(value: string | null | undefined): boolean {
 }
 
 export async function isAdminAuthed(): Promise<boolean> {
+  // Read cookies before anything can return early: it's what marks every admin
+  // page as rendered per request. Without it, a build where ADMIN_SECRET isn't
+  // set would try to prerender admin pages, and their database queries.
+  const store = await cookies()
   const secret = process.env.ADMIN_SECRET
   if (!secret) return false
-  const store = await cookies()
   const value = store.get(COOKIE)?.value
   if (!value) return false
   const expected = Buffer.from(adminCookieValue(secret))

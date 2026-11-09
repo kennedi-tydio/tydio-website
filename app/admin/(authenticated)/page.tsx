@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { ACCEPTANCE_RATE_THRESHOLD, getAllAcceptanceStats, isAcceptanceRateLow } from '@/lib/acceptanceRate'
 
 function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
@@ -25,6 +26,8 @@ export default async function AdminOverviewPage() {
     admin.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'TIDYPRO').eq('booking_access_status', 'waitlisted'),
   ])
 
+  const lowAcceptanceCount = [...(await getAllAcceptanceStats(admin)).values()].filter(isAcceptanceRateLow).length
+
   const total = (customers ?? []).length
   const waitlisted = (customers ?? []).filter(u => u.booking_access_status === 'waitlisted').length
   const bookingAllowed = (customers ?? []).filter(u => u.booking_access_status === 'booking_allowed').length
@@ -45,6 +48,14 @@ export default async function AdminOverviewPage() {
         <StatCard label="Total Areas" value={(areas ?? []).length} href="/admin/service-areas" />
         <StatCard label="New Users (7d)" value={recentCount ?? 0} color="teal" href={`/admin/users?role=USER`} />
         <StatCard label="Tidy Pro Waitlist" value={tidyProWaitlistCount ?? 0} color="amber" href="/admin/users?role=TIDYPRO&status=waitlisted" />
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8 -mt-4">
+        <StatCard
+          label={`Tidy Pros Below ${Math.round(ACCEPTANCE_RATE_THRESHOLD * 100)}% Acceptance`}
+          value={lowAcceptanceCount}
+          color="amber"
+          href="/admin/users?role=TIDYPRO&acceptance=low"
+        />
       </div>
 
       {(activationEvents ?? []).length > 0 && (

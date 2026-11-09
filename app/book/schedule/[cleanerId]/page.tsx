@@ -20,7 +20,7 @@ export default async function CleanerDetailPage({
 
   const { data: tidyPro, error } = await admin
     .from('tidypro_profiles')
-    .select('bio, profile_photo_url, city, state, rating, review_count, is_verified, is_insured, average_response_time_minutes, availability, allergies')
+    .select('bio, profile_photo_url, city, state, rating, review_count, is_verified, is_insured, average_response_time_minutes, availability, allergies, uses_organic_products')
     .eq('id', cleanerId)
     .maybeSingle()
 
@@ -49,6 +49,7 @@ export default async function CleanerDetailPage({
       isInsured={tidyPro.is_insured}
       averageResponseTimeMinutes={tidyPro.average_response_time_minutes}
       availability={(tidyPro.availability as WeeklyAvailability | null) ?? {}}
+      usesOrganicProducts={tidyPro.uses_organic_products ?? false}
       allergies={allergies}
       reviewsHref={`/book/schedule/${cleanerId}/reviews`}
     />

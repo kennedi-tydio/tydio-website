@@ -6,6 +6,11 @@ import type { Metadata } from 'next'
 
 export const metadata: Metadata = { title: 'Admin — Tydio' }
 
+// Every admin page reads live data behind a login, so none can be prerendered.
+// Without this, a build that runs without env vars tries to, and fails creating
+// a Supabase client while collecting page data.
+export const dynamic = 'force-dynamic'
+
 const NAV_ITEMS = [
   { label: 'Overview', href: '/admin' },
   { label: 'State Pricing', href: '/admin/state-pricing' },

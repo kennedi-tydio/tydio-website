@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { US_STATES } from '@/lib/usStates'
+import { US_STATES, findUsState } from '@/lib/usStates'
 
 type Props = {
   value: string
@@ -11,40 +11,38 @@ type Props = {
 }
 
 export default function StateSelect({ value, onChange, placeholder = 'State', className }: Props) {
-  const selected = US_STATES.find((s) => s.code === value)
-  const [query, setQuery] = useState(selected?.name ?? '')
+  const selected = findUsState(value)
+  // What they're typing to search, or null when the box should just show the
+  // chosen state. Reading the name straight from `value` means a state filled
+  // in from elsewhere (picking a Google address suggestion) always shows up.
+  const [draft, setDraft] = useState<string | null>(null)
+  const query = draft ?? selected?.name ?? ''
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
-  const [syncedValue, setSyncedValue] = useState(value)
   const rootRef = useRef<HTMLDivElement>(null)
-
-  if (value !== syncedValue) {
-    setSyncedValue(value)
-    setQuery(selected?.name ?? '')
-  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setOpen(false)
-        setQuery(selected?.name ?? '')
+        setDraft(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [selected?.name])
+  }, [])
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = (draft ?? '').trim().toLowerCase()
     if (!q) return US_STATES
     return US_STATES.filter(
       (s) => s.name.toLowerCase().startsWith(q) || s.code.toLowerCase() === q
     )
-  }, [query])
+  }, [draft])
 
-  function selectState(code: string, name: string) {
+  function selectState(code: string) {
     onChange(code)
-    setQuery(name)
+    setDraft(null)
     setOpen(false)
   }
 
@@ -63,12 +61,12 @@ export default function StateSelect({ value, onChange, placeholder = 'State', cl
     } else if (e.key === 'Enter') {
       e.preventDefault()
       const match = results[highlight]
-      if (match) selectState(match.code, match.name)
+      if (match) selectState(match.code)
     } else if (e.key === 'Escape') {
       // Keeps an enclosing ModalShell from closing too.
       if (open) e.preventDefault()
       setOpen(false)
-      setQuery(selected?.name ?? '')
+      setDraft(null)
     }
   }
 
@@ -84,7 +82,7 @@ export default function StateSelect({ value, onChange, placeholder = 'State', cl
         placeholder={placeholder}
         value={query}
         onChange={(e) => {
-          setQuery(e.target.value)
+          setDraft(e.target.value)
           setOpen(true)
           setHighlight(0)
         }}
@@ -106,15 +104,15 @@ export default function StateSelect({ value, onChange, placeholder = 'State', cl
                 key={s.code}
                 type="button"
                 role="option"
-                aria-selected={s.code === value}
+                aria-selected={s.code === selected?.code}
                 onMouseDown={(e) => {
                   e.preventDefault()
-                  selectState(s.code, s.name)
+                  selectState(s.code)
                 }}
                 onMouseEnter={() => setHighlight(i)}
                 className={`w-full text-left px-4 py-2.5 text-sm ${
                   i === highlight ? 'bg-slate-100 text-slate-900' : 'text-slate-700'
-                } ${s.code === value ? 'font-semibold' : ''}`}
+                } ${s.code === selected?.code ? 'font-semibold' : ''}`}
               >
                 {s.name} <span className="text-slate-400">({s.code})</span>
               </button>

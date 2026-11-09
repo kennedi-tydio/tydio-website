@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import OnboardingIncompleteBanner from './OnboardingIncompleteBanner'
 
 function IconHome({ active }: { active?: boolean }) {
   return (
@@ -57,16 +58,18 @@ export default function PendingDashboardHome({
   firstName,
   unreadMessageCount,
   backgroundCheckFailed,
-  backgroundCheckSubmitted,
+  onboardingSteps,
 }: {
   firstName: string
   unreadMessageCount: number
   backgroundCheckFailed: boolean
-  backgroundCheckSubmitted: boolean
+  onboardingSteps: { label: string; href: string }[]
 }) {
   return (
     <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full">
+        {onboardingSteps.length > 0 && <OnboardingIncompleteBanner />}
+
         <p className="text-sm text-slate-500 mb-1">Welcome {firstName}</p>
         <h1 className="text-3xl font-bold text-slate-900 mb-6">{backgroundCheckFailed ? 'Not Approved' : 'Pending'}</h1>
 
@@ -98,23 +101,23 @@ export default function PendingDashboardHome({
           </>
         )}
 
-        <h2 className="text-2xl font-bold text-slate-900 mb-3">Requested Actions</h2>
-        {!backgroundCheckSubmitted && (
-          <Link
-            href="/pro/onboarding/setup/background-check"
-            className="w-full bg-white rounded-2xl px-5 py-4 mb-3 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
-          >
-            <span className="font-semibold text-slate-800 text-sm">Complete your background check</span>
-            <IconChevronRight />
-          </Link>
+        {onboardingSteps.length > 0 && (
+          <>
+            <h2 className="text-2xl font-bold text-slate-900 mb-3">Requested Actions</h2>
+            <div className="flex flex-col gap-3">
+              {onboardingSteps.map((step) => (
+                <Link
+                  key={step.label}
+                  href={step.href}
+                  className="w-full bg-white rounded-2xl px-5 py-4 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
+                >
+                  <span className="font-semibold text-slate-800 text-sm">{step.label}</span>
+                  <IconChevronRight />
+                </Link>
+              ))}
+            </div>
+          </>
         )}
-        <Link
-          href="/pro/profile"
-          className="w-full bg-white rounded-2xl px-5 py-4 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
-        >
-          <span className="font-semibold text-slate-800 text-sm">Set up your profile</span>
-          <IconChevronRight />
-        </Link>
       </div>
 
       {/* ── Bottom navigation ── */}
