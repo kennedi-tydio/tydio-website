@@ -721,6 +721,21 @@ export async function saveUserNoteAction(
   return { message: note ? 'Saved' : 'Note removed' }
 }
 
+// Stars or unstars a Tidy Pro on /admin/users. Repeating either is harmless.
+export async function setFavoriteTidyProAction(proId: string, favorite: boolean): Promise<{ error?: string }> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const admin = createAdminClient()
+  const { error } = favorite
+    ? await admin.from('admin_favorite_tidy_pros').upsert({ pro_id: proId }, { onConflict: 'pro_id', ignoreDuplicates: true })
+    : await admin.from('admin_favorite_tidy_pros').delete().eq('pro_id', proId)
+  if (error) return { error: `Couldn't update favorites: ${error.message}` }
+
+  revalidatePath('/admin/users')
+  revalidatePath(`/admin/tidy-pros/${proId}`)
+  return {}
+}
+
 export async function resendSignedAgreementAction(signatureId: string): Promise<void> {
   if (!(await isAdminAuthed())) return
   const result = await emailSignedAgreement(createAdminClient(), signatureId)

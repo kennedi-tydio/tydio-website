@@ -130,6 +130,31 @@ export function sameTimeOffRange(a: TimeOffRange, b: TimeOffRange): boolean {
   return a.start === b.start && a.end === b.end && (a.startTime ?? null) === (b.startTime ?? null) && (a.endTime ?? null) === (b.endTime ?? null)
 }
 
+
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function formatDate(iso: string, withYear: boolean): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return `${MONTHS_SHORT[m - 1]} ${d}${withYear ? `, ${y}` : ''}`
+}
+
+function formatTime(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+}
+
+// How a range reads to people: "Dec 3, 2026, 1:00 PM – 5:00 PM" or "Dec 24 – Dec 26, 2026 (all day)".
+export function formatTimeOffRange(range: TimeOffRange): string {
+  const sameYear = range.start.slice(0, 4) === range.end.slice(0, 4)
+  if (range.startTime && range.endTime) {
+    if (range.start === range.end) return `${formatDate(range.start, true)}, ${formatTime(range.startTime)} – ${formatTime(range.endTime)}`
+    return `${formatDate(range.start, !sameYear)}, ${formatTime(range.startTime)} – ${formatDate(range.end, true)}, ${formatTime(range.endTime)}`
+  }
+  const days = range.start === range.end ? formatDate(range.start, true) : `${formatDate(range.start, !sameYear)} – ${formatDate(range.end, true)}`
+  return `${days} (all day)`
+}
+
 function nextDayISO(dateISO: string): string {
   const d = new Date(`${dateISO}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + 1)

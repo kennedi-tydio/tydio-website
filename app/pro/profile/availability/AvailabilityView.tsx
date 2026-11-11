@@ -6,7 +6,7 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import { addTimeOffAction, removeTimeOffAction, saveAvailabilityAction, setAwayAction } from './actions'
 import { WEEKDAY_KEYS, type WeekdayKey, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import TimeSelect from '@/app/components/form/TimeSelect'
-import type { TimeOffRange } from '@/lib/timeOff'
+import { formatTimeOffRange as formatRange, type TimeOffRange } from '@/lib/timeOff'
 
 const DAY_LABELS: Record<WeekdayKey, string> = {
   sun: 'Sun',
@@ -37,29 +37,6 @@ function IconTrash() {
       <path d="M10 11v6M14 11v6" />
     </svg>
   )
-}
-
-const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function formatDate(iso: string, withYear: boolean): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  return `${MONTHS_SHORT[m - 1]} ${d}${withYear ? `, ${y}` : ''}`
-}
-
-function formatTime(hhmm: string): string {
-  const [h, m] = hhmm.split(':').map(Number)
-  const h12 = h % 12 === 0 ? 12 : h % 12
-  return `${h12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
-}
-
-function formatRange(range: TimeOffRange): string {
-  const sameYear = range.start.slice(0, 4) === range.end.slice(0, 4)
-  if (range.startTime && range.endTime) {
-    if (range.start === range.end) return `${formatDate(range.start, true)}, ${formatTime(range.startTime)} – ${formatTime(range.endTime)}`
-    return `${formatDate(range.start, !sameYear)}, ${formatTime(range.startTime)} – ${formatDate(range.end, true)}, ${formatTime(range.endTime)}`
-  }
-  const days = range.start === range.end ? formatDate(range.start, true) : `${formatDate(range.start, !sameYear)} – ${formatDate(range.end, true)}`
-  return `${days} (all day)`
 }
 
 export default function AvailabilityView({

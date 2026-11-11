@@ -6,10 +6,12 @@ import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
 import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleanerAction, pauseCleanerAction, refundBackgroundCheckFeeAction, resendSignedAgreementAction } from '../../actions'
 import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAccounts } from './AccountActions'
 import { UserNote } from './UserNote'
+import { FavoriteStar } from './FavoriteStar'
 import { zipLocation } from '@/lib/zipLocation'
 import { IconLeaf } from '@/app/components/IconLeaf'
 import { onboardingStatusLabel, remainingOnboardingActions } from '@/lib/onboardingProgress'
-import { isAvailableForBooking } from '@/lib/cleanerMatching'
+import { WEEKDAY_KEYS, formatCompactTime, isAvailableForBooking, type WeeklyAvailability } from '@/lib/cleanerMatching'
+import Link from 'next/link'
 import { ACCEPTANCE_RATE_THRESHOLD, NO_ACCEPTANCE_STATS, formatAcceptanceRate, getAcceptanceStats, getAllAcceptanceStats, isAcceptanceRateLow } from '@/lib/acceptanceRate'
 
 const SUSPENDED_COLOR = '#ef4444'
@@ -67,9 +69,9 @@ function backgroundCheckBadge(
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string; state?: string; city?: string; organic?: string; acceptance?: string; available?: string }>
+  searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string; state?: string; city?: string; organic?: string; acceptance?: string; available?: string; favorite?: string }>
 }) {
-  const { search = '', role = '', status = '', verified = '', state = '', city = '', organic = '', acceptance = '', available = '' } = await searchParams
+  const { search = '', role = '', status = '', verified = '', state = '', city = '', organic = '', acceptance = '', available = '', favorite = '' } = await searchParams
   const admin = createAdminClient()
   const locations = await userLocations(admin)
   // City options are "City, ST" so two same-named cities stay distinct.
@@ -127,6 +129,14 @@ export default async function UsersPage({
     query = query.eq('role', 'TIDYPRO').in('id', lowIds.length ? lowIds : ['00000000-0000-0000-0000-000000000000'])
   }
 
+  if (favorite === 'yes') {
+    const { data: favorites, error: favoritesError } = await admin.from('admin_favorite_tidy_pros').select('pro_id')
+    if (favoritesError) throw new Error(`Failed to load favorite Tidy Pros: ${favoritesError.message}`)
+    const favoriteIds = (favorites ?? []).map((f) => f.pro_id)
+    // An empty list would make .in() match nothing in an invalid way, so use an id no profile has.
+    query = query.eq('role', 'TIDYPRO').in('id', favoriteIds.length ? favoriteIds : ['00000000-0000-0000-0000-000000000000'])
+  }
+
   if (available === 'yes' || available === 'no') {
     // Worked out the same way customer search decides who's bookable (lib/cleanerMatching).
     const { data: pros, error: prosError } = await admin
@@ -143,17 +153,21 @@ export default async function UsersPage({
   }
 
   const { data: users, error: usersError } = await query
-  const hasFilters = search || role || status || verified || state || city || organic || acceptance || available
+  const hasFilters = search || role || status || verified || state || city || organic || acceptance || available || favorite
 
   const cleanerIds = (users ?? []).filter((u) => u.role === 'TIDYPRO').map((u) => u.id)
   const { data: cleanerProfiles } = cleanerIds.length
     ? await admin
         .from('tidypro_profiles')
-        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, phone, street_address, city, state, zip_code, uses_organic_products')
+        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, phone, street_address, city, state, zip_code, uses_organic_products, time_off')
         .in('id', cleanerIds)
     : { data: [] }
   const cleanerById = new Map((cleanerProfiles ?? []).map((c) => [c.id, c]))
   const acceptanceByProId = await getAcceptanceStats(admin, cleanerIds)
+  const { data: favoriteRows } = cleanerIds.length
+    ? await admin.from('admin_favorite_tidy_pros').select('pro_id').in('pro_id', cleanerIds)
+    : { data: [] }
+  const favoriteProIds = new Set((favoriteRows ?? []).map((f) => f.pro_id))
 
   // A customer's default saved address, else their first one.
   const customerIds = (users ?? []).filter((u) => u.role === 'USER').map((u) => u.id)
@@ -275,6 +289,15 @@ export default async function UsersPage({
         >
           <option value="">All acceptance rates</option>
           <option value="low">Below {Math.round(ACCEPTANCE_RATE_THRESHOLD * 100)}% acceptance</option>
+        </select>
+        <select
+          aria-label="Filter by favorites"
+          name="favorite"
+          defaultValue={favorite}
+          className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="">All Tidy Pros</option>
+          <option value="yes">★ Favorites</option>
         </select>
         <select
           aria-label="Filter by availability for bookings"
@@ -412,7 +435,16 @@ export default async function UsersPage({
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
                       <span className="inline-flex items-center gap-1.5">
-                        {name}
+                        {user.role === 'TIDYPRO' && (
+                          <FavoriteStar key={`${user.id}-${favoriteProIds.has(user.id)}`} proId={user.id} name={name} initialFavorite={favoriteProIds.has(user.id)} />
+                        )}
+                        {user.role === 'TIDYPRO' && proProfile ? (
+                          <Link href={`/admin/tidy-pros/${user.id}`} className="underline hover:text-slate-950">
+                            {name}
+                          </Link>
+                        ) : (
+                          name
+                        )}
                         {proProfile?.uses_organic_products && <IconLeaf size={14} title="Uses organic cleaning products" />}
                       </span>
                     </td>
@@ -448,14 +480,24 @@ export default async function UsersPage({
                         )
                       })()}
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      {proProfile && isAvailableForBooking(proProfile) && (
-                        <span
-                          role="img"
-                          aria-label="Available for bookings"
-                          title="Available for bookings"
-                          className="inline-block w-2.5 h-2.5 rounded-full bg-green-500"
-                        />
+                    <td className="px-4 py-3 align-top">
+                      {proProfile && (
+                        <div className="flex items-start gap-2">
+                          {isAvailableForBooking(proProfile) && (
+                            <span
+                              role="img"
+                              aria-label="Available for bookings"
+                              title="Available for bookings"
+                              className="inline-block w-2.5 h-2.5 rounded-full bg-green-500 mt-1 flex-shrink-0"
+                            />
+                          )}
+                          <WeeklyHours
+                            availability={(proProfile.availability as WeeklyAvailability | null) ?? {}}
+                            away={proProfile.is_away}
+                            hasTimeOff={Array.isArray(proProfile.time_off) && proProfile.time_off.length > 0}
+                            profileHref={`/admin/tidy-pros/${user.id}`}
+                          />
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 align-top min-w-48">
@@ -606,6 +648,45 @@ export default async function UsersPage({
 // Every city/state pair among users, worked out from their ZIP at signup
 // (lib/zipLocation.ts), sorted by state then city. Paged because PostgREST caps
 // a response at 1,000 rows.
+const DAY_SHORT: Record<string, string> = { sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' }
+
+// A Tidy Pro's weekly hours, one line per day they work. Time off is on their profile page.
+function WeeklyHours({
+  availability,
+  away,
+  hasTimeOff,
+  profileHref,
+}: {
+  availability: WeeklyAvailability
+  away: boolean
+  hasTimeOff: boolean
+  profileHref: string
+}) {
+  const days = WEEKDAY_KEYS.filter((day) => (availability[day] ?? []).length > 0)
+  return (
+    <div className="text-xs text-slate-500 whitespace-nowrap">
+      {away && <p className="font-semibold text-amber-600">Away</p>}
+      {days.length === 0 ? (
+        <p className="text-slate-400">No hours set</p>
+      ) : (
+        <ul className="space-y-0.5">
+          {days.map((day) => (
+            <li key={day}>
+              <span className="font-medium text-slate-700">{DAY_SHORT[day]}</span>{' '}
+              {(availability[day] ?? []).map((r) => `${formatCompactTime(r.start)}–${formatCompactTime(r.end)}`).join(', ')}
+            </li>
+          ))}
+        </ul>
+      )}
+      {hasTimeOff && (
+        <Link href={profileHref} className="block mt-1 text-slate-500 underline">
+          Has time off
+        </Link>
+      )}
+    </div>
+  )
+}
+
 async function userLocations(admin: ReturnType<typeof createAdminClient>): Promise<{ city: string; state: string }[]> {
   const seen = new Map<string, { city: string; state: string }>()
   for (let from = 0; ; from += 1000) {
