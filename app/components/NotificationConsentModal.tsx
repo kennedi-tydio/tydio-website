@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { setSmsConsentAction, setPushConsentAction } from '@/app/actions/notificationConsent'
 import {
@@ -13,6 +12,7 @@ import {
   useNotificationPermission,
 } from '@/app/components/pushSubscription'
 import ModalShell from './ModalShell'
+import SmsOptInPrompt from './SmsOptInPrompt'
 import AddToHomeScreenGuide from './AddToHomeScreenGuide'
 import { dismissInstallGuide, useInstallGuideDismissed } from './installGuide'
 
@@ -146,46 +146,15 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
   return (
     <ModalShell panelClassName="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl" labelledBy="consent-title" closeOnBackdrop={false}>
       {step === 'sms' ? (
-        <>
-          <h2 id="consent-title" className="text-lg font-bold text-slate-900 mb-1">Stay updated by text?</h2>
-          <p className="text-sm text-slate-500 mb-4">
-            We&apos;ll text you about booking requests, updates, and messages. Message frequency varies. Msg &amp; data
-            rates may apply. Reply STOP to opt out, HELP for help. See our{' '}
-            <Link href="/terms#sms" className="text-sky-600 underline underline-offset-2">Terms</Link> and{' '}
-            <Link href="/privacy" className="text-sky-600 underline underline-offset-2">Privacy Policy</Link>.
-          </p>
-          {/* Only ask for a number when we don't already have one on file */}
-          {!initialPhone && (
-            <input
-              aria-label="Phone number"
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="Phone number"
-              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm mb-3"
-            />
-          )}
-          {error && <p role="alert" className="text-xs text-red-600 mb-3">{error}</p>}
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => handleSmsResponse(false)}
-              disabled={working}
-              className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
-            >
-              No thanks
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSmsResponse(true)}
-              disabled={working}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
-              style={{ backgroundColor: 'var(--color-brand)' }}
-            >
-              {working ? 'Saving…' : 'Yes, text me'}
-            </button>
-          </div>
-        </>
+        <SmsOptInPrompt
+          titleId="consent-title"
+          showPhone={!initialPhone}
+          phone={phone}
+          onPhoneChange={setPhone}
+          error={error}
+          working={working}
+          onRespond={handleSmsResponse}
+        />
       ) : step === 'install' ? (
         <AddToHomeScreenGuide titleId="consent-title" onDone={handleInstallDone} />
       ) : (

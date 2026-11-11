@@ -924,6 +924,18 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['admin_user_notes']['Insert']>
         Relationships: []
       }
+      admin_favorite_tidy_pros: {
+        Row: {
+          pro_id: string
+          created_at: string
+        }
+        Insert: {
+          pro_id: string
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['admin_favorite_tidy_pros']['Insert']>
+        Relationships: []
+      }
       rate_limit_events: {
         Row: {
           id: string

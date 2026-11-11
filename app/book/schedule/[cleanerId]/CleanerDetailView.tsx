@@ -2,19 +2,12 @@
 
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
-import { WEEKDAY_KEYS, type WeekdayKey, type WeeklyAvailability } from '@/lib/cleanerMatching'
+import { WEEKDAY_KEYS, formatCompactTime, type WeekdayKey, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { US_STATES } from '@/lib/usStates'
 import { IconLeaf } from '@/app/components/IconLeaf'
 
 const DAY_LABELS: Record<WeekdayKey, string> = {
   sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
-}
-
-function formatCompactTime(hhmm: string): string {
-  const [h, m] = hhmm.split(':').map(Number)
-  const period = h >= 12 ? 'pm' : 'am'
-  const h12 = h % 12 === 0 ? 12 : h % 12
-  return m === 0 ? `${h12}${period}` : `${h12}:${String(m).padStart(2, '0')}${period}`
 }
 
 function formatResponseTime(minutes: number | null): string | null {
@@ -83,6 +76,8 @@ type Props = {
   // Set when a Tidy Pro is viewing their own profile as a customer would: back
   // returns here, and Book/Message are on the page for show but do nothing.
   previewBackHref?: string
+  // Shown inside another page's <main> (the admin console), so it can't be one itself.
+  embedded?: boolean
 }
 
 export default function CleanerDetailView({
@@ -102,7 +97,9 @@ export default function CleanerDetailView({
   usesOrganicProducts,
   reviewsHref,
   previewBackHref,
+  embedded = false,
 }: Props) {
+  const Root = embedded ? 'div' : 'main'
   const router = useRouter()
   const stateName = state ? US_STATES.find((s) => s.code === state)?.name ?? state : null
   const location = [city, stateName].filter(Boolean).join(', ')
@@ -110,7 +107,7 @@ export default function CleanerDetailView({
   const initials = name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <Root id={embedded ? undefined : 'main-content'} className={`${embedded ? '' : 'min-h-screen '}bg-white flex flex-col`}>
       <div className="flex-1 overflow-y-auto max-w-sm mx-auto w-full pb-16">
         {/* Hero photo */}
         <div className="relative h-56 bg-slate-200 flex-shrink-0">
@@ -236,6 +233,6 @@ export default function CleanerDetailView({
           )}
         </div>
       </div>
-    </main>
+    </Root>
   )
 }

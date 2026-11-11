@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
 import Footer from '../components/Footer'
+import SmsOptInPrompt from '../components/SmsOptInPrompt'
 
 export const metadata: Metadata = { title: 'Text Message Opt-In — Tydio' }
 
@@ -24,19 +25,26 @@ export default function SmsOptInPage() {
         <article className="max-w-3xl mx-auto px-6 py-12 text-slate-600 leading-relaxed space-y-6">
           <h1 className="text-3xl sm:text-4xl font-bold text-slate-900">How you opt in to Tydio texts</h1>
           <p>
-            Tydio sends text messages only to customers and Tidy Pros who choose to receive them. After you create an
-            account and log in, Tydio asks whether you&apos;d like updates by text. You can tap <strong>Yes, text me</strong>{' '}
-            to opt in or <strong>No thanks</strong> to decline. Texts are optional and are not required to use Tydio.
+            Tydio sends text messages only to customers and Tidy Pros who choose to receive them. Texts are optional
+            and are not required to use Tydio.
           </p>
-          <figure className="space-y-2">
-            <Image
-              src="/sms-opt-in.png"
-              alt='The "Stay updated by text?" prompt with No thanks and Yes, text me buttons'
-              width={241}
-              height={137}
-              className="rounded-xl border border-slate-200"
-            />
-            <figcaption className="text-sm text-slate-500">The opt-in prompt shown in the Tydio app after login.</figcaption>
+          <ol className="list-decimal pl-6 space-y-1">
+            <li>You create a Tydio account at tydioapp.com and log in.</li>
+            <li>Tydio shows the prompt below, which asks whether you want text updates from Tydio.</li>
+            <li>
+              You enter your mobile number (if it isn&apos;t already on your account) and tap <strong>Yes, text me</strong>{' '}
+              to opt in, or <strong>No thanks</strong> to decline. Nothing is checked or selected for you.
+            </li>
+            <li>We save your choice to your account, and you can change it any time in your profile settings.</li>
+          </ol>
+          <figure className="space-y-3">
+            {/* The real prompt component, rendered here for reviewers. Buttons do nothing on this page. */}
+            <div className="max-w-sm rounded-3xl bg-white px-6 pt-6 pb-8 shadow-2xl ring-1 ring-slate-200" aria-label="Example of the Tydio text message opt-in prompt">
+              <SmsOptInPrompt showPhone phone="" />
+            </div>
+            <figcaption className="text-sm text-slate-500">
+              The exact opt-in prompt Tydio shows in the app after login (shown here as a non-working example).
+            </figcaption>
           </figure>
           <h2 className="text-xl font-semibold text-slate-900">What we text about</h2>
           <p>

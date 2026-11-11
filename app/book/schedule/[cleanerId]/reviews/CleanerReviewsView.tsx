@@ -21,15 +21,19 @@ export default function CleanerReviewsView({
   reviewCount,
   reviews,
   backHref,
+  embedded = false,
 }: {
   name: string
   rating: number
   reviewCount: number
   reviews: CleanerReview[]
   backHref: string
+  // Shown inside another page's <main> (the admin console), so it can't be one itself.
+  embedded?: boolean
 }) {
+  const Root = embedded ? 'div' : 'main'
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <Root id={embedded ? undefined : 'main-content'} className={`${embedded ? '' : 'min-h-screen '}bg-white flex flex-col`}>
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-16 max-w-sm mx-auto w-full">
         <Link
           href={backHref}
@@ -75,6 +79,6 @@ export default function CleanerReviewsView({
           </div>
         )}
       </div>
-    </main>
+    </Root>
   )
 }
