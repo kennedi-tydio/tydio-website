@@ -98,7 +98,7 @@ describe('calculatePrice — square footage multiplier', () => {
     ['2000_2999', 1.2, 240],
     ['3000_plus', 1.3, 260],
   ] as const)('%s prices at %sx', (squareFootage, multiplier, total) => {
-    const breakdown = calculatePrice([task({ estimated_minutes: 240 })], 'GA', 200, squareFootage)
+    const breakdown = calculatePrice([task({ estimated_minutes: 240, scales_with_home_size: true })], 'GA', 200, squareFootage)
     expect(breakdown.square_footage_multiplier).toBe(multiplier)
     expect(breakdown.total_customer_charge).toBe(total)
     expect(breakdown.square_footage_adjustment).toBe(total - 200)
@@ -107,7 +107,7 @@ describe('calculatePrice — square footage multiplier', () => {
   it('scales the surcharges along with the base price, and keeps payout at 80% of the result', () => {
     // $100 base + $5 standard + $10 issue = $115, then x1.2.
     const breakdown = calculatePrice(
-      [task({ estimated_minutes: 120, cleaning_type_surcharge: 5, additional_issue_surcharge: 10 })],
+      [task({ estimated_minutes: 120, cleaning_type_surcharge: 5, additional_issue_surcharge: 10, scales_with_home_size: true })],
       'GA',
       200,
       '2000_2999'
@@ -116,6 +116,14 @@ describe('calculatePrice — square footage multiplier', () => {
     expect(breakdown.total_customer_charge).toBe(138)
     expect(breakdown.square_footage_adjustment).toBe(23)
     expect(breakdown.cleaner_payout).toBe(110.4)
+  })
+})
+
+describe('calculatePrice — tasks that do not scale with home size', () => {
+  it('leaves a task unscaled unless it is marked as scaling', () => {
+    const breakdown = calculatePrice([task({ estimated_minutes: 240 })], 'GA', 200, '3000_plus')
+    expect(breakdown.total_customer_charge).toBe(200)
+    expect(breakdown.square_footage_adjustment).toBe(0)
   })
 })
 

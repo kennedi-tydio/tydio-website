@@ -1,5 +1,7 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { providesServices, type TidyProService } from '@/lib/tidyProServices'
+import { withPushStatus } from '@/lib/pushRequirement'
 import { isDateInTimeOff, overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -147,8 +149,10 @@ export function isAvailableForBooking(cleaner: {
   availability: unknown
   stripe_onboarding_completed: boolean
   travel_radius_miles: number | null
+  services_provided: string[] | null
   latitude: number | null
   longitude: number | null
+  has_push: boolean
 }): boolean {
   return (
     cleaner.active_for_booking &&
@@ -165,12 +169,15 @@ export async function findAvailableCleaners(
     date: string | null // "YYYY-MM-DD", or null for "Any day"
     time: string | null // "HH:MM" or null for "Anytime"
     durationMinutes: number
+    // What the booking's tasks need (requiredServicesForTasks). Only Tidy Pros
+    // who provide every one of them are matched.
+    requiredServices: TidyProService[]
   },
   admin: AdminClient
 ): Promise<CleanerMatch[]> {
   const { data: candidates } = await admin
     .from('tidypro_profiles')
-    .select('id, active_for_booking, cleaner_status, is_away, rating, review_count, is_verified, total_accepted_bookings, profile_photo_url, bio, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, availability, time_off')
+    .select('id, active_for_booking, cleaner_status, is_away, rating, review_count, is_verified, total_accepted_bookings, profile_photo_url, bio, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude, availability, time_off')
     .eq('active_for_booking', true)
     .eq('cleaner_status', 'approved')
     .eq('is_away', false)
@@ -179,8 +186,8 @@ export async function findAvailableCleaners(
 
   if (!candidates || candidates.length === 0) return []
 
-  const nearby = candidates
-    .filter((c) => isAvailableForBooking(c))
+  const nearby = (await withPushStatus(admin, candidates))
+    .filter((c) => isAvailableForBooking(c) && providesServices(c.services_provided, params.requiredServices))
     .map((c) => ({
       ...c,
       distanceMiles: haversineDistanceMiles(

@@ -1,5 +1,6 @@
 'use server'
 
+import { requiredServicesForTasks } from '@/lib/tidyProServices'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { findAvailableCleaners, type CleanerMatch } from '@/lib/cleanerMatching'
@@ -17,11 +18,25 @@ export interface Schedule {
   time: string | null // "HH:MM", null = Anytime
 }
 
+function locationKey(location: ScheduledLocation | null): string {
+  if (!location) return ''
+  return location.type === 'address' ? `address:${location.addressId}` : 'current_location'
+}
+
 export async function saveSchedule(draftId: string, schedule: Schedule): Promise<void> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return
 
   const admin = createAdminClient()
+  const { data: current } = await admin
+    .from('booking_drafts')
+    .select('scheduled_location')
+    .eq('id', draftId)
+    .eq('customer_user_id', session.profileId)
+    .maybeSingle()
+  // Entry instructions typed for one home shouldn't follow the booking to another.
+  const placeChanged = locationKey(current?.scheduled_location as ScheduledLocation | null) !== locationKey(schedule.location)
+
   await admin
     .from('booking_drafts')
     .update({
@@ -29,6 +44,7 @@ export async function saveSchedule(draftId: string, schedule: Schedule): Promise
       scheduled_date: schedule.date,
       scheduled_time: schedule.time,
       any_day_selected: schedule.date == null,
+      ...(placeChanged ? { entry_instructions: null } : {}),
     })
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)
@@ -112,6 +128,7 @@ export async function searchAvailableCleaners(
       date: schedule.date,
       time: schedule.time,
       durationMinutes,
+      requiredServices: requiredServicesForTasks(tasks),
     },
     admin
   )

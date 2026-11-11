@@ -3,6 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import Stripe from 'stripe'
 import { getSession } from '@/lib/auth/session'
+import { customerNeedsPush } from '@/lib/pushRequirement'
+import { PETS_REQUIRED_MESSAGE } from '@/lib/customerPets'
+import { customerNeedsPets, customerPetsSummary } from '@/lib/customerPetsData'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
 import { stripe } from '@/lib/stripe'
@@ -19,6 +22,12 @@ import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import { notifyNewBookingRequest } from '@/lib/notifications'
 import { userFacingError } from '@/lib/userFacingError'
+import { bookedTaskName, dropUnmatchedLaundryLinks } from '@/lib/laundry'
+import { SERVICES_NOT_OFFERED_MESSAGE, providesServices, requiredServicesForTasks } from '@/lib/tidyProServices'
+import { getReplacementOptions, validateExtraCleanerSelection } from '@/lib/bookingRequestGroups'
+import type { CleanerMatch } from '@/lib/cleanerMatching'
+import { MAX_ENTRY_INSTRUCTIONS_LENGTH } from '@/lib/entryInstructions'
+import { draftEntryInstructions } from '@/lib/entryInstructionsData'
 
 async function loadOwnedDraftTasks(
   admin: ReturnType<typeof createAdminClient>,
@@ -40,7 +49,9 @@ export async function updateTaskNoteAction(draftId: string, taskId: string, note
 
   const admin = createAdminClient()
   const tasks = await loadOwnedDraftTasks(admin, draftId, session.profileId)
-  const updated = tasks.map((t) => (t.id === taskId ? { ...t, notes: note } : t))
+  // A pet task's instructions fed its photo check and estimate; changing them
+  // means re-adding the task so both are redone.
+  const updated = tasks.map((t) => (t.id === taskId && !t.pet ? { ...t, notes: note } : t))
 
   await admin
     .from('booking_drafts')
@@ -72,8 +83,8 @@ export async function removeTaskFromBookingAction(draftId: string, taskId: strin
 }
 
 export interface DraftDetailsUpdate {
-  pets?: string
   notes?: string
+  entryInstructions?: string
   suppliesProvided?: boolean
   giftCode?: string
 }
@@ -82,9 +93,12 @@ export async function updateDraftDetailsAction(draftId: string, updates: DraftDe
   const session = await getSession()
   if (!session || session.role !== 'USER') return
 
-  const payload: { pets?: string; notes?: string; supplies_provided?: boolean; gift_code?: string } = {}
-  if (updates.pets !== undefined) payload.pets = updates.pets
+  const payload: { notes?: string; entry_instructions?: string; supplies_provided?: boolean; gift_code?: string } = {}
   if (updates.notes !== undefined) payload.notes = updates.notes
+  // Stored as typed (blank included) so a cleared field doesn't refill from the address.
+  if (updates.entryInstructions !== undefined) {
+    payload.entry_instructions = updates.entryInstructions.slice(0, MAX_ENTRY_INSTRUCTIONS_LENGTH)
+  }
   if (updates.suppliesProvided !== undefined) payload.supplies_provided = updates.suppliesProvided
   if (updates.giftCode !== undefined) payload.gift_code = updates.giftCode
   if (Object.keys(payload).length === 0) return
@@ -133,7 +147,18 @@ export async function applyPromoCodeAction(
 // logic the review page itself uses so the charged total can't drift from
 // what the customer saw. Callers should route to the resulting booking's
 // message thread on success.
-export async function confirmBookingAction(draftId: string, timeZone?: string): Promise<{ bookingId: string } | { error: string }> {
+//
+// The customer can optionally ask up to 2 more Tidy Pros at the same time. They're
+// charged once, at their first choice's price, and every request shares that payment
+// in a request group: the first to accept gets the booking and the rest are canceled.
+// See lib/bookingRequestGroups.
+export async function confirmBookingAction(
+  draftId: string,
+  timeZone?: string,
+  extraCleanerIds: string[] = [],
+  // Also save this booking's entry instructions on the address, for next time.
+  saveEntryInstructionsToAddress = false
+): Promise<{ bookingId: string } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
 
@@ -141,11 +166,15 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
 
   const suspended = await bookingBlockedBySuspension(admin, session.profileId)
   if (suspended) return { error: suspended }
+  if (await customerNeedsPush(admin, session.profileId)) {
+    return { error: 'Turn on push notifications in Profile → Notifications before booking, so we can reach you about it.' }
+  }
+  if (await customerNeedsPets(admin, session.profileId)) return { error: PETS_REQUIRED_MESSAGE }
 
   const { data: draft } = await admin
     .from('booking_drafts')
     .select(
-      'id, task_list, scheduled_location, scheduled_date, scheduled_time, selected_tidy_pro_id, pets, notes, supplies_provided, selected_payment_method_id'
+      'id, task_list, scheduled_location, scheduled_date, scheduled_time, selected_tidy_pro_id, notes, entry_instructions, supplies_provided, selected_payment_method_id'
     )
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)
@@ -162,7 +191,7 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
   }
 
   const allTasks = (draft.task_list as TidyTask[] | null) ?? []
-  const tasks = allTasks.filter((t) => t.completed)
+  const tasks = dropUnmatchedLaundryLinks(allTasks.filter((t) => t.completed))
   if (tasks.length === 0) return { error: 'No tasks selected.' }
 
   const { data: profile } = await admin
@@ -173,6 +202,9 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
 
   const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null, profile ?? undefined)
   if (!statePricing.configured) return { error: 'Pricing is not available for your area.' }
+
+  // The Tidy Pro sees the pets as they were when the booking was requested.
+  const petsText = await customerPetsSummary(admin, session.profileId)
 
   const squareFootage = await resolveLocationSquareFootage(
     admin,
@@ -190,7 +222,7 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
   const [{ data: tidyProStats }, { data: tidyProIdentity }] = await Promise.all([
     admin
       .from('tidypro_profiles')
-      .select('rating, total_accepted_bookings, latitude, longitude, profile_photo_url, phone, sms_consent, is_away, time_off')
+      .select('rating, total_accepted_bookings, latitude, longitude, profile_photo_url, phone, sms_consent, is_away, time_off, services_provided')
       .eq('id', draft.selected_tidy_pro_id)
       .maybeSingle(),
     admin.from('profiles').select('first_name, last_name').eq('id', draft.selected_tidy_pro_id).maybeSingle(),
@@ -199,6 +231,11 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
   // They may have gone away after this customer picked them. Checked before the charge.
   if (tidyProStats?.is_away) {
     return { error: 'This Tidy Pro is away right now. Please go back and choose another Tidy Pro.' }
+  }
+
+  // Or stopped offering something this booking needs.
+  if (tidyProStats && !providesServices(tidyProStats.services_provided, requiredServicesForTasks(tasks))) {
+    return { error: SERVICES_NOT_OFFERED_MESSAGE }
   }
 
   // Or marked this time off.
@@ -214,7 +251,25 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
     return { error: 'This Tidy Pro was just booked at this time. Please go back and choose another time or Tidy Pro.' }
   }
 
+  // The others must still be free and able to do everything, checked the same way they
+  // were offered. Before the charge, so nobody pays for a request that can't be sent.
+  let extraCleaners: CleanerMatch[] = []
+  if (extraCleanerIds.length > 0) {
+    const options = await getReplacementOptions(admin, {
+      tidy_pro_id: draft.selected_tidy_pro_id,
+      scheduled_location: draft.scheduled_location,
+      scheduled_date: draft.scheduled_date,
+      scheduled_time: draft.scheduled_time,
+      estimated_duration_minutes: breakdown.total_task_minutes,
+      task_list: tasks,
+    })
+    const selectionError = validateExtraCleanerSelection(extraCleanerIds, draft.selected_tidy_pro_id, options.map((o) => o.id))
+    if (selectionError) return { error: selectionError }
+    extraCleaners = extraCleanerIds.map((id) => options.find((o) => o.id === id)!)
+  }
+
   const location = draft.scheduled_location as ScheduledLocation | null
+  const entryInstructions = await draftEntryInstructions(admin, session.profileId, draft.entry_instructions, location)
   const isTopTidyPro = tidyProStats ? computeIsTopTidyPro(tidyProStats.rating, tidyProStats.total_accepted_bookings) : false
   const distanceMiles =
     location?.latitude != null && location?.longitude != null && tidyProStats?.latitude != null && tidyProStats?.longitude != null
@@ -266,13 +321,38 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
     return { error: message }
   }
 
-  const { data: booking, error } = await admin
+  // Several cleaners share the one payment through a group, created first so each
+  // request can point at it.
+  let groupId: string | null = null
+  if (extraCleaners.length > 0) {
+    const { data: group, error: groupError } = await admin
+      .from('booking_request_groups')
+      .insert({
+        user_id: session.profileId,
+        stripe_payment_intent_id: paymentIntent.id,
+        amount_cents: Math.round(totalPrice * 100),
+      })
+      .select('id')
+      .single()
+    if (groupError || !group) {
+      await stripe.refunds.create({ payment_intent: paymentIntent.id }).catch(() => {})
+      return { error: userFacingError(groupError, 'Failed to create booking.') }
+    }
+    groupId = group.id
+  }
+
+  const cleaners = [
+    { id: draft.selected_tidy_pro_id, name: cleanerName, photoUrl: tidyProStats?.profile_photo_url ?? null },
+    ...extraCleaners.map((c) => ({ id: c.id, name: c.name, photoUrl: c.photoUrl })),
+  ]
+
+  const { data: requests, error } = await admin
     .from('bookings')
-    .insert({
+    .insert(cleaners.map((cleaner) => ({
       user_id: session.profileId,
-      tidy_pro_id: draft.selected_tidy_pro_id,
-      tidy_pro_name: cleanerName,
-      tidy_pro_photo_url: tidyProStats?.profile_photo_url ?? null,
+      tidy_pro_id: cleaner.id,
+      tidy_pro_name: cleaner.name,
+      tidy_pro_photo_url: cleaner.photoUrl,
       scheduled_date: draft.scheduled_date,
       scheduled_time: draft.scheduled_time,
       // The customer's time is the source of truth for when this booking happens.
@@ -287,40 +367,65 @@ export async function confirmBookingAction(draftId: string, timeZone?: string): 
       cleaner_pay: cleanerPayoutForServicePrice(servicePrice),
       tip: 0,
       will_provide_supplies: draft.supplies_provided,
-      pets: draft.pets,
+      pets: petsText,
       notes: draft.notes,
+      entry_instructions: entryInstructions,
       decision_status: 'pending',
       status: 'pending',
       tidy_pro_unread: true,
       stripe_payment_intent_id: paymentIntent.id,
-    })
-    .select('id')
-    .single()
+      request_group_id: groupId,
+    })))
+    .select('id, tidy_pro_id')
 
-  if (error || !booking) {
+  const booking = requests?.find((r) => r.tidy_pro_id === draft.selected_tidy_pro_id)
+  if (error || !requests || !booking) {
     // The charge succeeded but the booking couldn't be created — refund
     // rather than leave the customer charged for nothing.
     await stripe.refunds.create({ payment_intent: paymentIntent.id }).catch(() => {})
+    if (groupId) await admin.from('booking_request_groups').delete().eq('id', groupId)
     return { error: userFacingError(error, 'Failed to create booking.') }
   }
 
+  if (groupId) await admin.from('booking_request_groups').update({ primary_booking_id: booking.id }).eq('id', groupId)
+
   await admin.from('booking_tasks').insert(
-    tasks.map((task) => ({
-      booking_id: booking.id,
-      task_name: task.name || task.room,
-      task_category: task.room,
-      task_icon: task.room.toLowerCase(),
-      is_completed: false,
-    })) as never
+    requests.flatMap((request) =>
+      tasks.map((task) => ({
+        booking_id: request.id,
+        task_name: bookedTaskName(task),
+        task_category: task.room,
+        task_icon: task.room.toLowerCase(),
+        is_completed: false,
+      }))
+    ) as never
   )
 
   await admin.from('booking_drafts').delete().eq('id', draftId)
 
-  const payload = notifyNewBookingRequest(profile?.first_name ?? 'A customer', booking.id)
-  if (canSendSms(tidyProStats?.sms_consent ?? null, tidyProStats?.phone ?? null)) {
-    await sendSmsForPayload(tidyProStats!.phone!, payload).catch(() => {})
+  if (saveEntryInstructionsToAddress && location?.type === 'address') {
+    await admin
+      .from('user_addresses')
+      .update({ entry_instructions: entryInstructions, updated_at: new Date().toISOString() })
+      .eq('id', location.addressId)
+      .eq('user_id', session.profileId)
+    revalidatePath('/dashboard/profile/addresses')
   }
-  await sendPushForPayload(draft.selected_tidy_pro_id, payload).catch(() => {})
+
+  await Promise.all(
+    requests.map(async (request) => {
+      if (!request.tidy_pro_id) return
+      const payload = notifyNewBookingRequest(profile?.first_name ?? 'A customer', request.id)
+      const contact =
+        request.tidy_pro_id === draft.selected_tidy_pro_id
+          ? tidyProStats
+          : (await admin.from('tidypro_profiles').select('phone, sms_consent').eq('id', request.tidy_pro_id).maybeSingle()).data
+      if (canSendSms(contact?.sms_consent ?? null, contact?.phone ?? null)) {
+        await sendSmsForPayload(contact!.phone!, payload).catch(() => {})
+      }
+      await sendPushForPayload(request.tidy_pro_id, payload).catch(() => {})
+    })
+  )
 
   revalidatePath('/dashboard')
   revalidatePath('/dashboard/messages')

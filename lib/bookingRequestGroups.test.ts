@@ -33,6 +33,7 @@ import {
   refundBookingInFull,
   refundLateCancellation,
   restoreBookingTasks,
+  validateExtraCleanerSelection,
   validateReplacementSelection,
 } from './bookingRequestGroups'
 
@@ -229,6 +230,50 @@ describe('closeGroupIfNoRequestsLeft', () => {
   })
 })
 
+describe('closeGroupIfNoRequestsLeft for a booking first sent to several cleaners', () => {
+  const initialGroup = { original_booking_id: null, primary_booking_id: 'b1', user_id: 'customer_1' }
+
+  it('hands the payment back to the first choice instead of refunding, so the customer can choose others', async () => {
+    const { admin, updates } = fakeAdmin(
+      { bookings: [{ count: 0 }], booking_request_groups: [{ data: [{ id: 'g1' }] }] },
+      { booking_request_groups: initialGroup }
+    )
+    await closeGroupIfNoRequestsLeft(admin, 'g1')
+
+    expect(refundCreate).not.toHaveBeenCalled()
+    expect(updates[0]).toEqual({ table: 'booking_request_groups', values: { status: 'closed' } })
+    expect(updates[1]).toEqual({
+      table: 'bookings',
+      values: { status: 'declined', decision_status: 'declined', request_group_id: null, user_unread: true },
+    })
+    expect(push.mock.calls[0][1]).toMatchObject({ url: expect.stringContaining('/dashboard/bookings/b1/replace') })
+  })
+
+  it('does nothing if a cleaner accepted at the same moment', async () => {
+    const { admin, updates } = fakeAdmin(
+      { bookings: [{ count: 0 }], booking_request_groups: [{ data: [] }] },
+      { booking_request_groups: initialGroup }
+    )
+    await closeGroupIfNoRequestsLeft(admin, 'g1')
+    expect(updates.some((u) => u.table === 'bookings')).toBe(false)
+    expect(push).not.toHaveBeenCalled()
+  })
+})
+
+describe('validateExtraCleanerSelection', () => {
+  it('allows none, or up to 2 more', () => {
+    expect(validateExtraCleanerSelection([], 'p0', ['p1', 'p2'])).toBeNull()
+    expect(validateExtraCleanerSelection(['p1', 'p2'], 'p0', ['p1', 'p2'])).toBeNull()
+  })
+
+  it('refuses more than 3 in total, repeats, or anyone no longer available', () => {
+    expect(validateExtraCleanerSelection(['p1', 'p2', 'p3'], 'p0', ['p1', 'p2', 'p3'])).toMatch(/up to 3/)
+    expect(validateExtraCleanerSelection(['p0'], 'p0', ['p0'])).toMatch(/only once/)
+    expect(validateExtraCleanerSelection(['p1', 'p1'], 'p0', ['p1'])).toMatch(/only once/)
+    expect(validateExtraCleanerSelection(['p9'], 'p0', ['p1'])).toMatch(/no longer available/)
+  })
+})
+
 describe('cancelGroupForCustomer', () => {
   it('refunds and cancels every request', async () => {
     const { admin } = fakeAdmin(
@@ -291,6 +336,35 @@ describe('cancelBookingAsAdmin', () => {
     expect(await cancelBookingAsAdmin(admin, 'b1', 'half')).toEqual({ success: true })
     expect(refundCreate).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 1887 }, { idempotencyKey: 'refund-booking-late-pi_1' })
     expect(push.mock.calls.some(([, payload]: any) => payload.body.includes('$18.87 has been refunded'))).toBe(true)
+  })
+
+  it('refunds exactly the amount the admin enters', async () => {
+    const { admin, updates } = fakeAdmin({ bookings: [{ data: [{ id: 'b1' }] }] }, { bookings: { ...booking, total_customer_charge: 40 } })
+    refundCreate.mockResolvedValue({ id: 're_custom' } as any)
+    expect(await cancelBookingAsAdmin(admin, 'b1', 'custom', null, 12.5)).toEqual({ success: true })
+    expect(refundCreate).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 1250 }, { idempotencyKey: 'refund-booking-custom-pi_1-1250' })
+    expect(updates.find((u) => u.table === 'bookings')?.values).toMatchObject({ status: 'cancelled', stripe_refund_id: 're_custom' })
+  })
+
+  it('refunds a custom amount once for a booking out to several cleaners', async () => {
+    const { admin } = fakeAdmin(
+      {
+        booking_request_groups: [{ data: [{ user_id: 'customer_1', stripe_payment_intent_id: 'pi_1', original_booking_id: null, primary_booking_id: 'b1' }] }],
+        bookings: [{ data: [{ id: 'b1', tidy_pro_id: 'p1' }, { id: 'b2', tidy_pro_id: 'p2' }] }],
+      },
+      { bookings: { ...booking, status: 'pending', request_group_id: 'g1', total_customer_charge: 40 } }
+    )
+    expect(await cancelBookingAsAdmin(admin, 'b1', 'custom', null, 30)).toEqual({ success: true })
+    expect(refundCreate).toHaveBeenCalledOnce()
+    expect(refundCreate).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 3000 }, expect.anything())
+  })
+
+  it('refuses a custom refund of nothing, or more than was paid', async () => {
+    for (const amount of [0, -5, null, 40.01]) {
+      const { admin } = fakeAdmin({}, { bookings: { ...booking, total_customer_charge: 40 } })
+      expect(await cancelBookingAsAdmin(admin, 'b1', 'custom', null, amount)).toHaveProperty('error')
+    }
+    expect(refundCreate).not.toHaveBeenCalled()
   })
 
   it('cancels with no money moved when the admin chooses no refund', async () => {

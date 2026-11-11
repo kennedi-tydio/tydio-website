@@ -5,8 +5,9 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isSquareFootage, type SquareFootage } from '@/lib/squareFootage'
 import { userFacingError } from '@/lib/userFacingError'
+import { normalizeEntryInstructions } from '@/lib/entryInstructions'
 
-const ADDRESS_COLUMNS = 'id, label, street_address, unit_number, city, state, zip_code, latitude, longitude, is_default, square_footage'
+const ADDRESS_COLUMNS = 'id, label, street_address, unit_number, city, state, zip_code, latitude, longitude, is_default, square_footage, entry_instructions'
 
 export interface NewAddressInput {
   label: string
@@ -33,6 +34,8 @@ export interface SavedAddress {
   is_default: boolean
   // Null only for addresses saved before square footage was required.
   square_footage: string | null
+  // Gate codes, where a key is kept — prefilled on bookings at this address.
+  entry_instructions: string | null
 }
 
 export async function createAddressAction(
@@ -108,6 +111,29 @@ export async function updateAddressSquareFootageAction(
 
   revalidatePath('/dashboard/profile/addresses')
   revalidatePath('/book/schedule')
+  return data
+}
+
+export async function updateAddressEntryInstructionsAction(
+  addressId: string,
+  entryInstructions: string
+): Promise<SavedAddress | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('user_addresses')
+    .update({ entry_instructions: normalizeEntryInstructions(entryInstructions), updated_at: new Date().toISOString() })
+    .eq('id', addressId)
+    .eq('user_id', session.profileId)
+    .select(ADDRESS_COLUMNS)
+    .single()
+
+  if (error || !data) return { error: userFacingError(error, 'Failed to save entry instructions.') }
+
+  revalidatePath('/dashboard/profile/addresses')
+  revalidatePath('/book/review')
   return data
 }
 

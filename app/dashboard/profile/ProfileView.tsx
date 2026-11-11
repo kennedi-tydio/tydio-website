@@ -4,7 +4,6 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePostHog } from 'posthog-js/react'
 import { logoutAction, deleteAccountAction } from '../actions'
-import { updatePetsAction } from './actions'
 import ModalShell from '@/app/components/ModalShell'
 
 function IconHome() {
@@ -93,18 +92,16 @@ type Props = {
   firstName: string
   lastName: string
   email: string
-  pets: string
   unreadMessageCount: number
 }
 
-export default function ProfileView({ firstName, lastName, email, pets: initialPets, unreadMessageCount }: Props) {
+export default function ProfileView({ firstName, lastName, email, unreadMessageCount }: Props) {
   const initials = `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase()
   const fullName = [firstName, lastName].filter(Boolean).join(' ')
   const posthog = usePostHog()
   const [showLogout, setShowLogout] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
-  const [pets, setPets] = useState(initialPets)
 
   return (
     <main id="main-content" className="min-h-screen flex flex-col" style={{ backgroundColor: '#f5f7fa' }}>
@@ -135,19 +132,6 @@ export default function ProfileView({ firstName, lastName, email, pets: initialP
             <p className="text-sm text-slate-400 italic">Write a short bio to help cleaners get to know you...</p>
           </div>
 
-          <div className="mb-4">
-            <p className="text-xs text-slate-400 mb-1">Pets</p>
-            <textarea
-              aria-label="Pets"
-              value={pets}
-              onChange={(e) => setPets(e.target.value)}
-              onBlur={(e) => { void updatePetsAction(e.target.value) }}
-              placeholder="Do you have any pets? Let your Tidy Pro know what to expect."
-              rows={2}
-              className="w-full text-sm text-slate-700 placeholder-slate-400 focus:outline-none resize-none"
-            />
-          </div>
-
           <button className="w-full py-2.5 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600 hover:bg-slate-200 transition-colors">
             Edit
           </button>
@@ -156,6 +140,7 @@ export default function ProfileView({ firstName, lastName, email, pets: initialP
         {/* Menu items */}
         {[
           { label: 'Manage Addresses', href: '/dashboard/profile/addresses' },
+          { label: 'Pets', href: '/dashboard/profile/pets' },
           { label: 'Payment methods', href: '/dashboard/profile/payment-methods' },
           { label: 'Notifications', href: '/dashboard/profile/notifications' },
           { label: 'Accessibility', href: '/dashboard/profile/accessibility' },

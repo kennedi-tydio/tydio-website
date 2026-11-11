@@ -180,6 +180,7 @@ export default async function CurrentBookingPage({
         alreadyReviewed={alreadyReviewed}
         lateCancelRefund={lateCancelRefundAmount}
         noShowReportableAtMs={noShowReportableAtMs}
+        addressLine={addressLine}
       />
     )
   }

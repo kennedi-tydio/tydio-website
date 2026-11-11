@@ -7,6 +7,9 @@ import { cityAndState } from '@/lib/address'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import OnTheWayView from './OnTheWayView'
 import TaskListView from './TaskListView'
+import type { TidyTask } from '@/app/dashboard/types'
+import { isPetTask } from '@/lib/petTasks'
+import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 import NoAccessView from './NoAccessView'
 import PastBookingDetailView from './PastBookingDetailView'
 import { canLeaveCustomerReview } from '@/lib/cleanerReviewWindow'
@@ -28,7 +31,7 @@ export default async function ProActiveBookingPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, user_id, status, progress_status, cleaner_marked_complete_at, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, notes, entry_instructions, pets, will_provide_supplies, cleaner_pay, tip, time_zone, arrived_at'
+      'id, user_id, status, progress_status, cleaner_marked_complete_at, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, task_list, notes, entry_instructions, pets, will_provide_supplies, cleaner_pay, tip, time_zone, arrived_at'
     )
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
@@ -69,6 +72,10 @@ export default async function ProActiveBookingPage({
     .order('created_at', { ascending: true })
 
   const tasks = taskRows ?? []
+  // Pet enclosure / litter box tasks carry their scope, instructions and
+  // checked photos on the booking's task list.
+  const petTasks = ((booking.task_list as TidyTask[] | null) ?? []).filter(isPetTask)
+  const photoUrls = await signedTaskPhotoUrls(admin, petTasks)
 
   if (isUpcoming) {
     return (
@@ -87,6 +94,8 @@ export default async function ProActiveBookingPage({
         addressLabel={addressLabel}
         addressArea={addressLine}
         tasks={tasks}
+        petTasks={petTasks}
+        photoUrls={photoUrls}
         suppliesProvided={booking.will_provide_supplies ?? false}
         pets={booking.pets}
         notes={booking.notes}
@@ -115,6 +124,8 @@ export default async function ProActiveBookingPage({
         addressLabel={addressLabel}
         addressArea={cityAndState(addressLine)}
         tasks={tasks}
+        petTasks={petTasks}
+        photoUrls={photoUrls}
         suppliesProvided={booking.will_provide_supplies ?? false}
         pets={booking.pets}
         notes={booking.notes}
@@ -149,6 +160,7 @@ export default async function ProActiveBookingPage({
         bookingId={booking.id}
         customerName={customerProfile?.first_name ?? customerName}
         entryInstructions={booking.entry_instructions}
+        addressLine={addressLine}
         reportableAtMs={noAccessReportableAt(booking.scheduled_date, booking.scheduled_time, booking.arrived_at, booking.time_zone)?.getTime() ?? null}
       />
     )
@@ -160,12 +172,15 @@ export default async function ProActiveBookingPage({
       bookingId={booking.id}
       customerName={customerName}
       addressLabel={addressLabel}
+      addressLine={addressLine}
       scheduledDate={schedule.date}
       scheduledTime={schedule.time}
       durationMinutes={booking.estimated_duration_minutes ?? 30}
       pets={booking.pets}
       notes={booking.notes}
       tasks={tasks}
+      petTasks={petTasks}
+      photoUrls={photoUrls}
     />
   )
 }

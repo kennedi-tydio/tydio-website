@@ -3,10 +3,13 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
-import { saveTasks, deleteDraft } from './actions'
+import { saveTasks, deleteDraft, removeTaskPhotoAction } from './actions'
 import AddTaskModal from './AddTaskModal'
 import { isTaskPriceable } from './isTaskPriceable'
 import type { TidyTask } from './types'
+import ModalShell from '@/app/components/ModalShell'
+import { LAUNDRY_ADDED_MESSAGE, isLaundromatPartialCycle, laundryDetailLabel, type LaundryService } from '@/lib/laundry'
+import { formatEstimatedMinutes, isPetTask, petDetailLabel } from '@/lib/petTasks'
 
 // ── icons ────────────────────────────────────────────────────────────────────
 
@@ -220,9 +223,14 @@ export default function DashboardHome({
   )
   const [draftId, setDraftId] = useState<string | null>(initialDraftId)
   const [showModal, setShowModal] = useState(false)
+  // Rooms saved in Add Task during this visit. savedRooms is only read when
+  // the page loads, so without this a new room would vanish from the next
+  // Add Task (if the task was cancelled or later deleted) until a reload.
+  const [roomsSavedThisVisit, setRoomsSavedThisVisit] = useState<string[]>([])
   const [collapsedRooms, setCollapsedRooms] = useState<Set<string>>(new Set())
   const [showPriceError, setShowPriceError] = useState(!!priceError)
   const [noTasksError, setNoTasksError] = useState(false)
+  const [laundryAddedNotice, setLaundryAddedNotice] = useState<LaundryService | null>(null)
   const priceErrorMessage =
     priceError === 'state_pricing_not_configured'
       ? "We can't price bookings in your area yet — we've let our team know."
@@ -255,7 +263,15 @@ export default function DashboardHome({
   }
 
   function handleDeleteSelected() {
-    const remaining = tasks.filter(t => !t.completed)
+    const deletedIds = new Set(tasks.filter(t => t.completed).map(t => t.id))
+    // A Wash/Dry task whose same-laundry partner is deleted isn't linked anymore.
+    const remaining = tasks
+      .filter(t => !t.completed)
+      .map(t => (t.sameLaundryAsTaskId && deletedIds.has(t.sameLaundryAsTaskId) ? { ...t, sameLaundryAsTaskId: null } : t))
+    // A deleted pet task's photos aren't needed anymore.
+    for (const t of tasks) {
+      if (t.completed && isPetTask(t)) t.pet.photos.forEach(path => void removeTaskPhotoAction(path))
+    }
     setTasks(remaining)
     startTransition(async () => {
       if (remaining.length === 0 && draftId) {
@@ -269,10 +285,32 @@ export default function DashboardHome({
   }
 
   function handleAddTask(task: TidyTask) {
-    const updated = [...tasks, task]
+    // A new Wash/Dry task for the same laundry as an existing one links both ways.
+    const linked = tasks.map(t => (task.sameLaundryAsTaskId === t.id ? { ...t, sameLaundryAsTaskId: task.id } : t))
+    const updated = [...linked, task]
     setTasks(updated)
     setShowModal(false)
     persist(updated)
+    // Shown once per laundry task added — set here, on the add itself, so it
+    // never reappears on a rerender or any later change to the task list.
+    if (task.laundryService) setLaundryAddedNotice(task.laundryService)
+  }
+
+  // Removes one task (a Wash/Dry task replaced by a Wash & dry task in Add
+  // Task); its same-laundry partner isn't linked anymore.
+  function handleRemoveTask(taskId: string) {
+    const updated = tasks
+      .filter(t => t.id !== taskId)
+      .map(t => (t.sameLaundryAsTaskId === taskId ? { ...t, sameLaundryAsTaskId: null } : t))
+    setTasks(updated)
+    if (updated.length === 0 && draftId) {
+      startTransition(async () => {
+        await deleteDraft(draftId)
+        setDraftId(null)
+      })
+    } else {
+      persist(updated)
+    }
   }
 
   function handleToggle(taskId: string) {
@@ -415,8 +453,13 @@ export default function DashboardHome({
                       {roomTasks.map(task => {
                         const dirtLabel = task.dirtLevel === 'light' ? 'Light touch-up' : task.dirtLevel === 'standard' ? 'Standard cleaning' : task.dirtLevel === 'heavy' ? 'Heavy cleaning' : null
                         const dishwasherLabel = task.hasDishwasher === true ? 'Has dishwasher' : task.hasDishwasher === false ? 'No dishwasher — hand wash' : null
-                        const laundryLabel = task.laundryLoads ? `${task.laundryLoads.wash} wash · ${task.laundryLoads.dry} dry · ${task.laundryLoads.fold} fold` : null
-                        const meta = [dirtLabel, dishwasherLabel, laundryLabel, ...(task.unusual ?? [])].filter(Boolean).join(' · ')
+                        const laundryLabel = task.laundryService
+                          ? laundryDetailLabel(task)
+                          : task.laundryLoads ? `${task.laundryLoads.wash} wash · ${task.laundryLoads.dry} dry · ${task.laundryLoads.fold} fold` : null
+                        const petLabel = isPetTask(task)
+                          ? [petDetailLabel(task), `${task.pet.photos.length} photo${task.pet.photos.length === 1 ? '' : 's'}`, formatEstimatedMinutes(task.estimatedMinutes)].filter(Boolean).join(' · ')
+                          : null
+                        const meta = [dirtLabel, dishwasherLabel, laundryLabel, petLabel, ...(task.unusual ?? [])].filter(Boolean).join(' · ')
                         const priceable = isTaskPriceable(task)
                         return (
                           <button
@@ -445,7 +488,11 @@ export default function DashboardHome({
                               )}
                               {!priceable && (
                                 <p className="text-xs text-red-600 mt-0.5">
-                                  Price unavailable — remove and re-add this task
+                                  {isPetTask(task) && task.pet.photos.length === 0
+                                    ? 'Photos expired after 7 days. Remove and re-add this task with new photos'
+                                    : isLaundromatPartialCycle(task)
+                                      ? 'Laundromat trips are full cycles only. Remove and re-add this task as Wash & dry'
+                                      : 'Price unavailable — remove and re-add this task'}
                                 </p>
                               )}
                             </div>
@@ -548,11 +595,37 @@ export default function DashboardHome({
       {/* ── Add Task Modal ── */}
       {showModal && (
         <AddTaskModal
-          savedRooms={savedRooms}
+          savedRooms={[...savedRooms, ...roomsSavedThisVisit]}
           existingRooms={roomList}
+          existingTasks={tasks}
+          onRoomSaved={room => setRoomsSavedThisVisit(prev => (prev.includes(room) ? prev : [...prev, room]))}
+          onRemoveTask={handleRemoveTask}
           onSave={handleAddTask}
           onClose={() => setShowModal(false)}
         />
+      )}
+
+      {/* ── Laundry task added ── */}
+      {laundryAddedNotice && (
+        <ModalShell
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          panelClassName="w-full max-w-sm bg-white rounded-3xl px-6 pt-6 pb-6 shadow-2xl"
+          onClose={() => setLaundryAddedNotice(null)}
+          labelledBy="laundry-added-title"
+        >
+          <h2 id="laundry-added-title" className="text-lg font-bold text-slate-900 mb-2">
+            Laundry tasks are booked separately
+          </h2>
+          <p className="text-sm text-slate-600 leading-relaxed mb-5">{LAUNDRY_ADDED_MESSAGE[laundryAddedNotice]}</p>
+          <button
+            type="button"
+            onClick={() => setLaundryAddedNotice(null)}
+            className="w-full py-3 rounded-xl text-sm font-semibold text-white"
+            style={{ backgroundColor: '#1a2332' }}
+          >
+            Got it
+          </button>
+        </ModalShell>
       )}
     </main>
   )

@@ -37,6 +37,13 @@ export function entireHomeTaskKind(name: string): EntireHomeTaskKind | null {
   return null
 }
 
+// A floor sweeping and/or mopping task in any room. Its effort grows with the
+// size of the home, so it gets the square footage multiplier.
+export function isFloorSweepOrMopTask(name: string | null | undefined): boolean {
+  const kind = entireHomeTaskKind(name ?? '')
+  return kind === 'sweep' || kind === 'mop' || kind === 'sweepAndMop'
+}
+
 export function entireHomeTier(name: string): Tier | null {
   const kind = entireHomeTaskKind(name)
   return kind ? ENTIRE_HOME_TIER[kind] : null

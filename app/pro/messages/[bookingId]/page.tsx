@@ -9,6 +9,7 @@ import { bookingStartInstant, scheduleForViewer } from '@/lib/bookingTime'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
 import ProMessageThreadView, { type ChatMessage } from './ProMessageThreadView'
+import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 
 export const metadata: Metadata = { title: 'Messages — Tydio' }
 
@@ -101,6 +102,7 @@ export default async function ProMessageThreadPage({
       addressLabel={addressLabel}
       addressLine={addressLine}
       tasks={(booking.task_list as TidyTask[] | null) ?? []}
+      photoUrls={await signedTaskPhotoUrls(admin, (booking.task_list as TidyTask[] | null) ?? [])}
       pets={booking.pets}
       notes={booking.notes}
       suppliesProvided={booking.will_provide_supplies ?? false}

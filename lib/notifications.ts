@@ -37,6 +37,14 @@ export function notifyBookingDeclined(bookingId: string): NotificationPayload {
   }
 }
 
+export function notifyAllRequestsDeclined(bookingId: string): NotificationPayload {
+  return {
+    title: 'Booking declined',
+    body: 'The Tidy Pros you asked declined your booking. Choose up to 3 other cleaners with no new charge, or cancel your booking for a refund.',
+    url: siteUrl(`/dashboard/bookings/${bookingId}/replace`),
+  }
+}
+
 export function notifyRequestFilled(bookingId: string): NotificationPayload {
   return {
     title: 'Request no longer available',
@@ -86,12 +94,13 @@ export function notifyCleanerCancelledRefunded(cleanerFirstName: string): Notifi
 }
 
 // `refunded` is what Stripe returned, or null if it couldn't be looked up.
-export function notifyAdminCancelledBooking(refund: 'full' | 'minus_fee' | 'half' | 'none', refunded: number | null): NotificationPayload {
+export function notifyAdminCancelledBooking(refund: 'full' | 'minus_fee' | 'half' | 'custom' | 'none', refunded: number | null): NotificationPayload {
   const amount = refunded != null ? `$${refunded.toFixed(2)}` : 'your payment'
   const outcome = {
     full: `${amount} has been refunded in full`,
     minus_fee: `${amount} has been refunded, minus the nonrefundable Stripe fee`,
     half: `${amount} has been refunded, half of what you paid`,
+    custom: `${amount} has been refunded`,
     none: 'your payment was not refunded. We’ve emailed you the reason',
   }[refund]
   return {

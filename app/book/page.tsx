@@ -2,9 +2,11 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { dropUnmatchedLaundryLinks } from '@/lib/laundry'
 import { resolveStatePricing, priceTaskListForState, ensurePriceableTasks } from '@/app/dashboard/taskPricing'
 import type { TidyTask } from '@/app/dashboard/types'
 import BookingSummary from './BookingSummary'
+import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 
 export const metadata: Metadata = { title: 'Book a Cleaning — Tydio' }
 
@@ -41,7 +43,7 @@ export default async function BookPage() {
   // `completed` marks a task as checked/selected in the dashboard list —
   // only selected tasks are included in the booking.
   const allTasks = (draft?.task_list as TidyTask[] | null) ?? []
-  let tasks = allTasks.filter((t) => t.completed)
+  let tasks = dropUnmatchedLaundryLinks(allTasks.filter((t) => t.completed))
   if (tasks.length === 0) redirect('/dashboard')
 
   const statePricing = await resolveStatePricing(admin, profile.service_area_id, profile)
@@ -52,7 +54,7 @@ export default async function BookPage() {
   // booking over it.
   if (draft?.id) {
     const repaired = await ensurePriceableTasks(admin, draft.id, allTasks)
-    tasks = repaired.filter((t) => t.completed)
+    tasks = dropUnmatchedLaundryLinks(repaired.filter((t) => t.completed))
   }
 
   let breakdown
@@ -74,5 +76,14 @@ export default async function BookPage() {
       })
   }
 
-  return <BookingSummary tasks={tasks} firstName={profile.first_name ?? 'Your'} />
+  const photoUrls = await signedTaskPhotoUrls(admin, tasks)
+
+  return (
+    <BookingSummary
+      tasks={tasks}
+      firstName={profile.first_name ?? 'Your'}
+      photoUrls={photoUrls}
+      durationMinutes={breakdown.total_task_minutes}
+    />
+  )
 }

@@ -1,10 +1,14 @@
 'use client'
 
 import { useState } from 'react'
+import EmergencyButton from '@/app/components/EmergencyButton'
 import { useRouter } from '@/app/components/NavigationSpinner'
+import type { TidyTask } from '@/app/dashboard/types'
+import PetTaskDetails from '@/app/components/PetTaskDetails'
 import Link from 'next/link'
 import { markBookingDoneAction } from '@/app/pro/messages/[bookingId]/actions'
 import PhotoCaptureModal from './PhotoCaptureModal'
+import { formatVisitDuration } from '@/lib/laundry'
 
 export type ProBookingTaskRow = {
   id: string
@@ -73,24 +77,32 @@ type Props = {
   bookingId: string
   customerName: string
   addressLabel: string | null
+  // Prefilled into the Text 911 message on the emergency sheet.
+  addressLine?: string | null
   scheduledDate: string | null
   scheduledTime: string | null
   durationMinutes: number
   pets: string | null
   notes: string | null
   tasks: ProBookingTaskRow[]
+  // Pet enclosure / litter box details and signed photo URLs.
+  petTasks?: TidyTask[]
+  photoUrls?: Record<string, string>
 }
 
 export default function TaskListView({
   bookingId,
   customerName,
   addressLabel,
+  addressLine = null,
   scheduledDate,
   scheduledTime,
   durationMinutes,
   pets,
   notes,
   tasks: initialTasks,
+  petTasks = [],
+  photoUrls = {},
 }: Props) {
   const router = useRouter()
   const [tasks, setTasks] = useState(initialTasks)
@@ -124,14 +136,17 @@ export default function TaskListView({
   return (
     <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
-        <button
-          type="button"
-          onClick={() => router.push('/pro/dashboard')}
-          aria-label="Back"
-          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4"
-        >
-          <IconBack />
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            type="button"
+            onClick={() => router.push('/pro/dashboard')}
+            aria-label="Back"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2"
+          >
+            <IconBack />
+          </button>
+          <EmergencyButton addressLine={addressLine} />
+        </div>
 
         <p className="text-xs text-slate-400 mb-0.5">Happening Now</p>
         <h1 className="text-2xl font-bold text-slate-900 mb-2">{customerName}</h1>
@@ -140,7 +155,7 @@ export default function TaskListView({
           {scheduledDate && scheduledTime && addressLabel && <span>|</span>}
           {addressLabel && <span>{addressLabel}</span>}
         </div>
-        {scheduledTime && <p className="text-xs text-slate-400 -mt-5 mb-6">{formatTimeRange(scheduledTime, durationMinutes)}</p>}
+        {scheduledTime && <p className="text-xs text-slate-400 -mt-5 mb-6">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
 
         <p className="text-sm font-bold" style={{ color: 'var(--color-brand)' }}>
           Tasks
@@ -194,6 +209,8 @@ export default function TaskListView({
           })}
         </div>
 
+        <PetTaskDetails tasks={petTasks} photoUrls={photoUrls} className="mb-6" />
+
         <p className="text-xs text-slate-400 text-center mb-8">Cleaning supplies will be provided</p>
 
         {(pets || notes) && (
@@ -204,7 +221,7 @@ export default function TaskListView({
             {pets && (
               <div className="mt-2">
                 <p className="text-sm font-bold text-slate-900">Pets</p>
-                <p className="text-sm text-slate-600">{pets}</p>
+                <p className="text-sm text-slate-600 whitespace-pre-line">{pets}</p>
               </div>
             )}
             {notes && (

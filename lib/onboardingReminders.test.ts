@@ -25,8 +25,10 @@ const finished = {
   availability: { mon: [['09:00', '17:00']] },
   stripe_onboarding_completed: true,
   travel_radius_miles: 10,
+  services_provided: ['taskBased'],
   latitude: 1,
   longitude: 1,
+  has_push: true,
 }
 
 function cleaner(overrides: any = {}) {
@@ -55,6 +57,7 @@ function fakeAdmin(rows: any[], profile: any = goodProfile, check: any = null) {
         then: (resolve: any) => {
           if (isUpdate) return resolve({ data: [{ id: 'p1' }], error: null })
           if (table === 'profiles') return resolve({ data: profile ? [profile] : [] })
+          if (table === 'push_subscriptions') return resolve({ data: rows.map((r) => ({ profile_id: r.id })), error: null })
           if (table === 'background_checks') return resolve({ data: check ? [{ pro_id: 'p1', ...check }] : [] })
           return resolve({ data: rows, error: null })
         },

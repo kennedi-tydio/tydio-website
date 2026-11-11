@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import EmergencyButton from '@/app/components/EmergencyButton'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import Link from 'next/link'
 import { arriveAndStartCleaningAction } from './actions'
 import { markArrivedAction } from '@/app/pro/messages/[bookingId]/actions'
+import { formatVisitDuration } from '@/lib/laundry'
 
 function IconBack() {
   return (
@@ -144,9 +146,12 @@ export default function OnTheWayView({
           >
             <IconBack />
           </button>
-          <Link href={`/pro/messages/${bookingId}`} aria-label="Message" className="w-9 h-9 flex items-center justify-center">
-            <IconMessage />
-          </Link>
+          <div className="flex items-center gap-2">
+            <EmergencyButton addressLine={addressLine} />
+            <Link href={`/pro/messages/${bookingId}`} aria-label="Message" className="w-9 h-9 flex items-center justify-center">
+              <IconMessage />
+            </Link>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 mb-6">
@@ -187,7 +192,7 @@ export default function OnTheWayView({
         </div>
 
         {scheduledDate && <p className="text-sm font-semibold text-slate-900">{formatDateLabel(scheduledDate)}</p>}
-        {scheduledTime && <p className="text-sm text-slate-500 mb-5">{formatTimeRange(scheduledTime, durationMinutes)}</p>}
+        {scheduledTime && <p className="text-sm text-slate-500 mb-5">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
 
         {entryInstructions && (
           <div className="mb-5">

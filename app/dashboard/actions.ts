@@ -6,6 +6,8 @@ import { deleteOwnAccount } from '@/lib/accountDeletion'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import type { TidyTask } from './types'
+import { extensionForType } from '@/lib/uploadExtension'
+import { CUSTOMER_TASK_PHOTOS_BUCKET, isOwnTaskPhotoPath } from '@/lib/petTasks'
 
 const DEFAULT_ROOMS = ['Entire home', 'Kitchen', 'Bedroom', 'Bathroom']
 
@@ -62,6 +64,8 @@ export async function saveCustomRoom(name: string): Promise<{ error: string } | 
     .update({ custom_rooms: [...existing, room] })
     .eq('id', session.profileId)
   if (error) return { error: 'That couldn’t be saved. Please try again.' }
+  // So the dashboard's saved rooms include it after navigating away and back.
+  revalidatePath('/dashboard')
   return { room }
 }
 
@@ -74,6 +78,12 @@ export async function saveTasks(
   const userId = session.profileId
 
   const admin = createAdminClient()
+
+  // A pet task's photos are signed for the Tidy Pro later, so a task may only
+  // ever point at this customer's own uploads.
+  tasks = tasks.map(t =>
+    t.pet ? { ...t, pet: { ...t.pet, photos: (t.pet.photos ?? []).filter(p => isOwnTaskPhotoPath(p, userId)) } } : t
+  )
 
   // Persist any custom rooms (non-default) to the user's profile
   const taskRooms = [...new Set(tasks.map(t => t.room))]
@@ -116,4 +126,40 @@ export async function saveTasks(
 
   revalidatePath('/dashboard')
   return data?.id ?? null
+}
+
+const ALLOWED_TASK_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+const MAX_TASK_PHOTO_SIZE_BYTES = 10 * 1024 * 1024
+
+// A photo the customer adds to a pet enclosure / litter box task in Add Task.
+// Stored privately under their own profile folder; the AI check and booking
+// pages read it through the server, never a public link.
+export async function uploadTaskPhotoAction(formData: FormData): Promise<{ path: string } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Please sign in again.' }
+
+  const file = formData.get('photo')
+  if (!(file instanceof File) || file.size === 0) return { error: 'Please choose a photo to upload.' }
+  if (!ALLOWED_TASK_PHOTO_TYPES.includes(file.type)) return { error: 'Please upload a JPG, PNG, or WEBP photo.' }
+  if (file.size > MAX_TASK_PHOTO_SIZE_BYTES) return { error: 'Photo is too large. Please upload something under 10MB.' }
+
+  const path = `${session.profileId}/${crypto.randomUUID()}.${extensionForType(file.type)}`
+  const admin = createAdminClient()
+  const { error } = await admin.storage
+    .from(CUSTOMER_TASK_PHOTOS_BUCKET)
+    .upload(path, file, { contentType: file.type, upsert: false })
+  if (error) {
+    console.error('[Tydio] Task photo upload failed:', error)
+    return { error: 'That photo didn’t upload.' }
+  }
+  return { path }
+}
+
+// Removes a photo the customer took out of Add Task before saving the task.
+// Best-effort: an orphaned photo is still removed with the account.
+export async function removeTaskPhotoAction(path: string): Promise<void> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER' || !isOwnTaskPhotoPath(path, session.profileId)) return
+  const { error } = await createAdminClient().storage.from(CUSTOMER_TASK_PHOTOS_BUCKET).remove([path])
+  if (error) console.error('[Tydio] Removing task photo failed:', error)
 }

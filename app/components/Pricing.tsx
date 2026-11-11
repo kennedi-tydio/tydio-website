@@ -1,7 +1,8 @@
 // Mirrors the live price model in lib/pricingRules.ts. The example is a real
 // quote: Georgia's $215 median 4-hour clean, and the AI estimator's times for
 // these tasks (15 + 10 + 25 minutes), so 50 minutes of tasks is
-// 50 / 240 × $215 = $44.79 before surcharges and the home size multiplier.
+// 50 / 240 × $215 = $44.79 before surcharges. None of these are Entire home
+// or floor sweep/mop tasks, so no home size multiplier applies.
 // Cleaning fees combine the cleaning-level surcharges and extra issues
 // ($5 standard + $10 heavy). Update if pricing changes.
 const exampleTasks = [
@@ -13,7 +14,6 @@ const exampleTasks = [
 const exampleLines = [
   { label: "Base price", value: "$44.79" },
   { label: "Cleaning fees", value: "+$15.00" },
-  { label: "Home size: 1,000–1,999 sqft (+10%)", value: "+$5.98" },
 ];
 
 export default function Pricing() {
@@ -29,7 +29,7 @@ export default function Pricing() {
           </h2>
           <p className="mt-4 text-slate-500 text-lg max-w-xl mx-auto">
             Why pay for a full cleaning when you only need a few things done?
-            Your price is based on the time your tasks take, how messy they are, and the size of your home.
+            Your price is based on the time your tasks take and how messy they are. Whole-home and floor tasks also account for the size of your home.
           </p>
         </div>
 
@@ -38,7 +38,7 @@ export default function Pricing() {
           <div className="rounded-2xl bg-slate-50 border border-slate-100 p-8 flex flex-col gap-5">
             <div>
               <p className="text-sm font-semibold text-slate-400 uppercase tracking-widest">Example booking</p>
-              <p className="text-xs text-slate-400 mt-1">Atlanta, GA · 1,500 sqft home</p>
+              <p className="text-xs text-slate-400 mt-1">Atlanta, GA</p>
             </div>
             <ul className="flex flex-col gap-3">
               {exampleTasks.map((task) => (
@@ -65,7 +65,7 @@ export default function Pricing() {
             </dl>
             <div className="border-t border-slate-200 pt-4 flex items-center justify-between">
               <span className="text-slate-500 text-sm">Total</span>
-              <span className="text-2xl font-black text-sky-500">$65.77</span>
+              <span className="text-2xl font-black text-sky-500">$59.79</span>
             </div>
             <p className="text-xs text-slate-400">
               Instead of paying $250+ for a full clean you didn&apos;t need.

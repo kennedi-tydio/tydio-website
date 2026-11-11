@@ -6,6 +6,9 @@ import Link from 'next/link'
 import type { TidyTask } from '@/app/dashboard/types'
 import TimeSelect from '@/app/components/form/TimeSelect'
 import { useStartBookingWindow } from '@/app/pro/useStartBookingWindow'
+import { bookedTaskName } from '@/lib/laundry'
+import LaundromatNotice from '@/app/components/LaundromatNotice'
+import PetTaskDetails from '@/app/components/PetTaskDetails'
 import {
   acceptBookingRequestAction,
   cancelAcceptedBookingAction,
@@ -129,6 +132,7 @@ function BookingDetails({
   addressLabel,
   addressLine,
   tasks,
+  photoUrls,
   suppliesProvided,
   pets,
   notes,
@@ -138,6 +142,7 @@ function BookingDetails({
   addressLabel: string | null
   addressLine: string | null
   tasks: TidyTask[]
+  photoUrls: Record<string, string>
   suppliesProvided: boolean
   pets: string | null
   notes: string | null
@@ -160,17 +165,18 @@ function BookingDetails({
       <p className="text-sm font-bold text-slate-900 mt-3">Tasks</p>
       {tasks.map((task) => (
         <p key={task.id} className="text-sm text-slate-600">
-          {task.name || task.room}
+          {bookedTaskName(task)}
         </p>
       ))}
       <p className="text-xs text-slate-400">
         {suppliesProvided ? 'Customer will provide their own cleaning supplies' : 'Cleaning supplies will be provided'}
       </p>
+      <PetTaskDetails tasks={tasks} photoUrls={photoUrls} className="mt-3" />
 
       {pets && (
         <>
           <p className="text-sm font-bold text-slate-900 mt-3">Pets</p>
-          <p className="text-sm text-slate-600">{pets}</p>
+          <p className="text-sm text-slate-600 whitespace-pre-line">{pets}</p>
         </>
       )}
 
@@ -201,6 +207,8 @@ type Props = {
   addressLabel: string | null
   addressLine: string | null
   tasks: TidyTask[]
+  // Signed URLs for pet task photos, by storage path.
+  photoUrls: Record<string, string>
   pets: string | null
   notes: string | null
   suppliesProvided: boolean
@@ -228,6 +236,7 @@ export default function ProMessageThreadView({
   addressLabel,
   addressLine,
   tasks,
+  photoUrls,
   pets,
   notes,
   suppliesProvided,
@@ -556,6 +565,7 @@ export default function ProMessageThreadView({
                 addressLabel={addressLabel}
                 addressLine={addressLine}
                 tasks={tasks}
+                photoUrls={photoUrls}
                 suppliesProvided={suppliesProvided}
                 pets={pets}
                 notes={notes}
@@ -605,6 +615,9 @@ export default function ProMessageThreadView({
             Booking Request
           </p>
 
+          {/* Up top so it's seen before Accept. */}
+          <LaundromatNotice tasks={tasks} className="mb-3" />
+
           {scheduledDate && <p className="text-sm font-semibold text-slate-900">{formatDateLabel(scheduledDate)}</p>}
           {scheduledTime && (
             <p className={`text-sm text-slate-500 ${customerLocalTime ? '' : 'mb-3'}`}>{formatTimeRange(scheduledTime, durationMinutes)}</p>
@@ -621,6 +634,7 @@ export default function ProMessageThreadView({
             addressLabel={addressLabel}
             addressLine={addressLine}
             tasks={tasks}
+            photoUrls={photoUrls}
             suppliesProvided={suppliesProvided}
             pets={pets}
             notes={notes}

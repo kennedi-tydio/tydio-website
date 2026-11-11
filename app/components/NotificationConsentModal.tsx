@@ -13,6 +13,7 @@ import {
 } from '@/app/components/pushSubscription'
 import ModalShell from './ModalShell'
 import SmsOptInPrompt from './SmsOptInPrompt'
+import { PUSH_REQUIRED } from '@/lib/pushRequirement'
 import AddToHomeScreenGuide from './AddToHomeScreenGuide'
 import { dismissInstallGuide, useInstallGuideDismissed } from './installGuide'
 
@@ -165,7 +166,7 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
           <p className="text-sm text-slate-500 mb-4">
             {newDevice
               ? 'Push notifications are on for your account, but not on this device yet.'
-              : 'Get notified about booking updates right on your home screen.'}
+              : `Get notified about booking updates right on your home screen.${PUSH_REQUIRED ? ' For now, you need these on to book or receive bookings.' : ''}`}
           </p>
           {error && <p role="alert" className="text-xs text-red-600 mb-3">{error}</p>}
           <div className="flex gap-3">

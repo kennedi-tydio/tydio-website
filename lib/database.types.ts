@@ -32,7 +32,7 @@ export interface Database {
           last_sign_in_at: string | null
           photo_url: string | null
           promo_code: string | null
-          pets: string | null
+          has_no_pets: boolean
           sms_notifications_enabled: boolean
           email_notifications_enabled: boolean
           stripe_customer_id: string | null
@@ -70,7 +70,7 @@ export interface Database {
           last_sign_in_at?: string | null
           photo_url?: string | null
           promo_code?: string | null
-          pets?: string | null
+          has_no_pets?: boolean
           sms_notifications_enabled?: boolean
           email_notifications_enabled?: boolean
           stripe_customer_id?: string | null
@@ -107,6 +107,7 @@ export interface Database {
           stripe_account_id: string | null
           stripe_onboarding_completed: boolean
           travel_radius_miles: number | null
+          services_provided: string[] | null
           average_response_time_minutes: number | null
           is_insured: boolean
           // MVP additions
@@ -177,6 +178,7 @@ export interface Database {
           stripe_account_id?: string | null
           stripe_onboarding_completed?: boolean
           travel_radius_miles?: number | null
+          services_provided?: string[] | null
           average_response_time_minutes?: number | null
           is_insured?: boolean
           terms_accepted?: boolean
@@ -345,6 +347,8 @@ export interface Database {
           unusual_notes: string | null
           stripe_payment_link: string | null
           cleaner_marked_complete_at: string | null
+          ended_at: string | null
+          task_photos_removed_at: string | null
           customer_dispute_deadline: string | null
           payout_release_at: string | null
           payment_release_token: string | null
@@ -404,6 +408,8 @@ export interface Database {
           unusual_notes?: string | null
           stripe_payment_link?: string | null
           cleaner_marked_complete_at?: string | null
+          ended_at?: string | null
+          task_photos_removed_at?: string | null
           customer_dispute_deadline?: string | null
           payout_release_at?: string | null
           payment_release_token?: string | null
@@ -456,6 +462,30 @@ export interface Database {
           proposal_status?: string | null
         }
         Update: Partial<Database['public']['Tables']['booking_messages']['Insert']>
+        Relationships: []
+      }
+      customer_pets: {
+        Row: {
+          id: string
+          profile_id: string
+          name: string | null
+          pet_type: string
+          notes: string | null
+          photo_path: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          name?: string | null
+          pet_type: string
+          notes?: string | null
+          photo_path?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['customer_pets']['Insert']>
         Relationships: []
       }
       push_subscriptions: {
@@ -536,7 +566,8 @@ export interface Database {
         Row: {
           id: string
           user_id: string
-          original_booking_id: string
+          original_booking_id: string | null
+          primary_booking_id: string | null
           stripe_payment_intent_id: string
           amount_cents: number
           status: string
@@ -546,7 +577,8 @@ export interface Database {
         Insert: {
           id?: string
           user_id: string
-          original_booking_id: string
+          original_booking_id?: string | null
+          primary_booking_id?: string | null
           stripe_payment_intent_id: string
           amount_cents: number
           status?: string
@@ -568,8 +600,8 @@ export interface Database {
           any_day_selected: boolean
           scheduled_time: string | null
           selected_tidy_pro_id: string | null
-          pets: string | null
           notes: string | null
+          entry_instructions: string | null
           supplies_provided: boolean
           gift_code: string | null
           selected_payment_method_id: string | null
@@ -587,8 +619,8 @@ export interface Database {
           any_day_selected?: boolean
           scheduled_time?: string | null
           selected_tidy_pro_id?: string | null
-          pets?: string | null
           notes?: string | null
+          entry_instructions?: string | null
           supplies_provided?: boolean
           gift_code?: string | null
           selected_payment_method_id?: string | null
@@ -1004,6 +1036,7 @@ export interface Database {
           longitude: number | null
           is_default: boolean
           square_footage: string | null
+          entry_instructions: string | null
           created_at: string
           updated_at: string
         }
@@ -1020,6 +1053,7 @@ export interface Database {
           longitude?: number | null
           is_default?: boolean
           square_footage?: string | null
+          entry_instructions?: string | null
           created_at?: string
           updated_at?: string
         }

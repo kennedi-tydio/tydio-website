@@ -6,6 +6,11 @@ import { usePathname } from 'next/navigation'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
 import { lateCancelRefund } from '@/lib/pricingRules'
+import { MAX_ENTRY_INSTRUCTIONS_LENGTH } from '@/lib/entryInstructions'
+import { laundryDetailLabel, formatVisitDuration } from '@/lib/laundry'
+import { formatEstimatedMinutes, isPetTask, petDetailLabel } from '@/lib/petTasks'
+import PetTaskDetails from '@/app/components/PetTaskDetails'
+import type { CleanerMatch } from '@/lib/cleanerMatching'
 import {
   updateTaskNoteAction,
   removeTaskFromBookingAction,
@@ -13,6 +18,9 @@ import {
   applyPromoCodeAction,
   confirmBookingAction,
 } from './actions'
+
+// Matches MAX_EXTRA_BOOKING_CLEANERS in lib/bookingRequestGroups, which is server-only.
+const MAX_EXTRA_BOOKING_CLEANERS = 2
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -63,14 +71,22 @@ export interface ReviewPaymentMethod {
 type Props = {
   draftId: string
   tasks: TidyTask[]
+  photoUrls: Record<string, string>
   date: string
   time: string
   durationMinutes: number
   addressName: string
   addressLine: string | null
   cleanerName: string
+  extraCleanerOptions: CleanerMatch[]
+  // One line per pet (or "No pets"), from Profile → Pets.
   pets: string
   notes: string
+  // Prefilled from the address's saved instructions until the customer edits them.
+  entryInstructions: string
+  savedEntryInstructions: string | null
+  // The saved address's label, or null when booking at the current location (nothing to save to).
+  addressLabel: string | null
   suppliesProvided: boolean
   giftCode: string
   servicePrice: number
@@ -91,14 +107,19 @@ function IconRemove() {
 export default function ReviewRequestView({
   draftId,
   tasks,
+  photoUrls,
   date,
   time,
   durationMinutes,
   addressName,
   addressLine,
   cleanerName,
-  pets: initialPets,
+  extraCleanerOptions,
+  pets,
   notes: initialNotes,
+  entryInstructions: initialEntryInstructions,
+  savedEntryInstructions,
+  addressLabel,
   suppliesProvided: initialSupplies,
   giftCode: initialGiftCode,
   servicePrice,
@@ -109,8 +130,12 @@ export default function ReviewRequestView({
 }: Props) {
   const router = useRouter()
   const pathname = usePathname()
-  const [pets, setPets] = useState(initialPets)
   const [notes, setNotes] = useState(initialNotes)
+  const [entryInstructions, setEntryInstructions] = useState(initialEntryInstructions)
+  const [saveEntryInstructions, setSaveEntryInstructions] = useState(false)
+  // Offer to save only when there's an address to save to and the text is new.
+  const canSaveEntryInstructions =
+    !!addressLabel && entryInstructions.trim() !== (savedEntryInstructions ?? '').trim()
   const [suppliesProvided, setSuppliesProvided] = useState(initialSupplies)
   const [giftCode, setGiftCode] = useState(initialGiftCode)
   const [applyingGiftCode, setApplyingGiftCode] = useState(false)
@@ -125,6 +150,14 @@ export default function ReviewRequestView({
   )
   const [confirming, setConfirming] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [extraCleanerIds, setExtraCleanerIds] = useState<string[]>([])
+  const extrasAtLimit = extraCleanerIds.length >= MAX_EXTRA_BOOKING_CLEANERS
+
+  function toggleExtraCleaner(id: string) {
+    setExtraCleanerIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < MAX_EXTRA_BOOKING_CLEANERS ? [...prev, id] : prev
+    )
+  }
 
   const selectedPaymentMethod = paymentMethods.find((pm) => pm.id === selectedPaymentMethodId) ?? null
   const paymentLinkHref = `/dashboard/profile/payment-methods?draftId=${draftId}`
@@ -167,7 +200,12 @@ export default function ReviewRequestView({
     if (!selectedPaymentMethod) return
     setConfirming(true)
     setConfirmError(null)
-    const result = await confirmBookingAction(draftId, Intl.DateTimeFormat().resolvedOptions().timeZone)
+    const result = await confirmBookingAction(
+      draftId,
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+      extraCleanerIds,
+      canSaveEntryInstructions && saveEntryInstructions
+    )
     if ('error' in result) {
       setConfirming(false)
       setConfirmError(result.error)
@@ -191,6 +229,7 @@ export default function ReviewRequestView({
           <div>
             <p className="text-sm font-bold text-slate-900">{formatDateLabel(date)}</p>
             <p className="text-sm text-slate-500">{formatTimeRange(time, durationMinutes)}</p>
+            <p className="text-xs text-slate-400">Estimated visit: {formatVisitDuration(durationMinutes)}</p>
           </div>
           <div className="text-right">
             <p className="text-sm font-bold text-slate-900">{addressName}</p>
@@ -211,13 +250,22 @@ export default function ReviewRequestView({
                   : task.dirtLevel === 'standard' ? 'Standard cleaning'
                   : task.dirtLevel === 'heavy' ? 'Heavy cleaning'
                   : null
-                const meta = [dirtLabel, ...(task.unusual ?? [])].filter(Boolean).join(' · ')
+                const pet = isPetTask(task)
+                const meta = [
+                  dirtLabel,
+                  laundryDetailLabel(task),
+                  petDetailLabel(task),
+                  pet ? formatEstimatedMinutes(task.estimatedMinutes) : null,
+                  ...(task.unusual ?? []),
+                ].filter(Boolean).join(' · ')
                 return (
                 <div key={task.id} className="flex items-start gap-2 mb-2">
                   <div className="flex-1 min-w-0 border-b border-slate-100 pb-1.5">
                     <p className="text-sm text-slate-700 truncate">{task.name}</p>
                     {meta && <p className="text-xs text-slate-400 mt-0.5">{meta}</p>}
-                    <input
+                    {/* A pet task's instructions were part of its photo check and
+                        estimate, so they're shown below rather than edited here. */}
+                    {!pet && <input
                       aria-label="Task note"
                       type="text"
                       placeholder="Add note..."
@@ -227,7 +275,7 @@ export default function ReviewRequestView({
                         void updateTaskNoteAction(draftId, task.id, e.target.value)
                       }}
                       className="w-full text-xs text-slate-400 placeholder-slate-400 focus:outline-none mt-0.5"
-                    />
+                    />}
                   </div>
                   <button
                     type="button"
@@ -243,6 +291,53 @@ export default function ReviewRequestView({
             </div>
           ))}
         </div>
+
+        <PetTaskDetails tasks={tasks} photoUrls={photoUrls} showPrepNotice className="mb-6" />
+
+        {extraCleanerOptions.length > 0 && (
+          <div className="border-t border-slate-100 pt-5 mb-6">
+            <h2 className="text-sm font-bold mb-1" style={{ color: 'var(--color-brand)' }}>
+              Ask other Tidy Pros too <span className="font-normal text-slate-400">(optional)</span>
+            </h2>
+            <p className="text-xs text-slate-500 leading-relaxed mb-3">
+              Send this request to up to {MAX_EXTRA_BOOKING_CLEANERS} more Tidy Pros along with {cleanerName}. You&apos;re only charged once, at
+              this price. The first to accept gets your booking, and the other requests are canceled.
+            </p>
+            <div className="flex flex-col gap-2">
+              {extraCleanerOptions.map((cleaner) => {
+                const isSelected = extraCleanerIds.includes(cleaner.id)
+                return (
+                  <button
+                    key={cleaner.id}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    onClick={() => toggleExtraCleaner(cleaner.id)}
+                    disabled={confirming || (extrasAtLimit && !isSelected)}
+                    className="w-full rounded-2xl border px-3 py-2.5 flex items-center gap-3 text-left transition-colors disabled:opacity-50"
+                    style={{ borderColor: isSelected ? 'var(--color-brand)' : '#f1f5f9', backgroundColor: isSelected ? '#e8f9fa' : 'white' }}
+                  >
+                    <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-200 flex-shrink-0">
+                      {cleaner.photoUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={cleaner.photoUrl} alt="" className="w-full h-full object-cover" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{cleaner.name}</p>
+                      <p className="text-xs text-slate-500">
+                        <span className="text-amber-500">★</span> {cleaner.rating.toFixed(1)} · {cleaner.distanceMiles} miles
+                        {cleaner.isTopTidyPro && (
+                          <span className="font-semibold" style={{ color: 'var(--color-brand)' }}> · Top Tidy Pro</span>
+                        )}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         <label className="flex items-center gap-3 cursor-pointer mb-6">
           <div
@@ -264,17 +359,40 @@ export default function ReviewRequestView({
           </h2>
           <div className="mb-4">
             <p className="text-sm font-bold text-slate-900 mb-1">Pets</p>
-            <input
-              aria-label="Pets in the home"
-              type="text"
-              placeholder="Any pets in the home?"
-              defaultValue={pets}
-              onBlur={(e) => {
-                setPets(e.target.value)
-                void updateDraftDetailsAction(draftId, { pets: e.target.value })
-              }}
-              className="w-full text-sm text-slate-500 placeholder-slate-400 focus:outline-none"
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm text-slate-500 whitespace-pre-line break-words">{pets}</p>
+              <Link href="/dashboard/profile/pets?next=/book/review" className="text-sm font-semibold text-brand flex-shrink-0">
+                Edit
+              </Link>
+            </div>
+          </div>
+          <div className="mb-4">
+            <label htmlFor="entry-instructions" className="block text-sm font-bold text-slate-900 mb-1">
+              Entry Instructions
+            </label>
+            <textarea
+              id="entry-instructions"
+              placeholder="Gate code, where the key is, which door to use…"
+              value={entryInstructions}
+              maxLength={MAX_ENTRY_INSTRUCTIONS_LENGTH}
+              rows={2}
+              onChange={(e) => setEntryInstructions(e.target.value)}
+              onBlur={(e) => void updateDraftDetailsAction(draftId, { entryInstructions: e.target.value })}
+              className="w-full text-sm text-slate-500 placeholder-slate-400 focus:outline-none resize-none"
             />
+            {canSaveEntryInstructions && (
+              <label className="flex items-center gap-2 cursor-pointer mt-1">
+                <input
+                  type="checkbox"
+                  checked={saveEntryInstructions}
+                  onChange={(e) => setSaveEntryInstructions(e.target.checked)}
+                  className="w-4 h-4 accent-brand"
+                />
+                <span className="text-xs text-slate-600">
+                  {entryInstructions.trim() ? `Save for future bookings at ${addressLabel}` : `Remove the saved instructions for ${addressLabel}`}
+                </span>
+              </label>
+            )}
           </div>
           <div>
             <p className="text-sm font-bold text-slate-900 mb-1">Notes</p>
@@ -387,7 +505,9 @@ export default function ReviewRequestView({
             className="w-full py-4 rounded-2xl font-semibold text-base tracking-wide text-white disabled:text-slate-400 transition-colors"
             style={{ backgroundColor: selectedPaymentMethod ? 'var(--color-brand)' : '#e5e9ef' }}
           >
-            {confirming ? 'Sending request…' : 'Confirm Request'}
+            {confirming
+              ? extraCleanerIds.length > 0 ? 'Sending requests…' : 'Sending request…'
+              : extraCleanerIds.length > 0 ? `Confirm and ask ${extraCleanerIds.length + 1} Tidy Pros` : 'Confirm Request'}
           </button>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { backgroundCheckStage } from '@/lib/backgroundCheck'
 import { FEE_REFUND_REASONS, feeStatusLabel, hasPaidFee } from '@/lib/backgroundCheckFee'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { withPushStatus } from '@/lib/pushRequirement'
 import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
 import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleanerAction, pauseCleanerAction, refundBackgroundCheckFeeAction, resendSignedAgreementAction } from '../../actions'
 import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAccounts } from './AccountActions'
@@ -9,6 +10,7 @@ import { UserNote } from './UserNote'
 import { FavoriteStar } from './FavoriteStar'
 import { zipLocation } from '@/lib/zipLocation'
 import { IconLeaf } from '@/app/components/IconLeaf'
+import { IconMoon } from '@/app/components/IconMoon'
 import { onboardingStatusLabel, remainingOnboardingActions } from '@/lib/onboardingProgress'
 import { WEEKDAY_KEYS, formatCompactTime, isAvailableForBooking, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import Link from 'next/link'
@@ -81,7 +83,7 @@ export default async function UsersPage({
 
   let query = admin
     .from('profiles')
-    .select('id, first_name, last_name, email, phone, street_address, city, state, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at')
+    .select('id, first_name, last_name, email, phone, street_address, city, state, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -107,7 +109,28 @@ export default async function UsersPage({
   }
   if (role) query = query.eq('role', role as 'USER' | 'TIDYPRO' | 'ADMIN')
   if (status === 'suspended') query = query.not('suspended_at', 'is', null)
-  else if (status) query = query.eq('booking_access_status', status as 'waitlisted' | 'booking_allowed' | 'paused' | 'closed')
+  else if (status === 'not_approved' || status === 'all_waitlisted') {
+    // Tidy Pros not let into the app yet (the Overview's Tidy Pro Waitlist card):
+    // anyone not approved (or approved then paused), less denied/suspended/banned.
+    // all_waitlisted adds waitlisted customers (the Overview's Total Waitlisted card).
+    const { data: letIn, error: letInError } = await admin
+      .from('tidypro_profiles')
+      .select('id')
+      .in('cleaner_status', ['approved', 'paused'])
+    if (letInError) throw new Error(`Failed to load approved Tidy Pros: ${letInError.message}`)
+    const letInIds = (letIn ?? []).map((p) => p.id)
+    const proConditions = [
+      'role.eq.TIDYPRO',
+      'booking_access_status.neq.denied',
+      'suspended_at.is.null',
+      'banned_at.is.null',
+      ...(letInIds.length ? [`id.not.in.(${letInIds.join(',')})`] : []),
+    ].join(',')
+    query =
+      status === 'all_waitlisted'
+        ? query.or(`and(role.eq.USER,booking_access_status.eq.waitlisted),and(${proConditions})`)
+        : query.or(`and(${proConditions})`)
+  } else if (status) query = query.eq('booking_access_status', status as 'waitlisted' | 'booking_allowed' | 'paused' | 'closed')
   if (verified === 'yes') query = query.not('email_verified_at', 'is', null)
   if (verified === 'no') query = query.is('email_verified_at', null)
   if (state) query = query.eq('state', state)
@@ -137,32 +160,40 @@ export default async function UsersPage({
     query = query.eq('role', 'TIDYPRO').in('id', favoriteIds.length ? favoriteIds : ['00000000-0000-0000-0000-000000000000'])
   }
 
+  if (available === 'away') {
+    const { data: awayPros, error: awayError } = await admin.from('tidypro_profiles').select('id').eq('is_away', true)
+    if (awayError) throw new Error(`Failed to load away Tidy Pros: ${awayError.message}`)
+    const awayIds = (awayPros ?? []).map((p) => p.id)
+    // An empty list would make .in() match nothing in an invalid way, so use an id no profile has.
+    query = query.eq('role', 'TIDYPRO').in('id', awayIds.length ? awayIds : ['00000000-0000-0000-0000-000000000000'])
+  }
+
   if (available === 'yes' || available === 'no') {
     // Worked out the same way customer search decides who's bookable (lib/cleanerMatching).
     const { data: pros, error: prosError } = await admin
       .from('tidypro_profiles')
-      .select('id, active_for_booking, cleaner_status, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude')
+      .select('id, active_for_booking, cleaner_status, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude')
       .eq('active_for_booking', true)
       .eq('cleaner_status', 'approved')
       .eq('is_away', false)
     if (prosError) throw new Error(`Failed to load Tidy Pro availability: ${prosError.message}`)
-    const availableIds = (pros ?? []).filter(isAvailableForBooking).map((p) => p.id)
+    const availableIds = (await withPushStatus(admin, pros ?? [])).filter(isAvailableForBooking).map((p) => p.id)
     query = query.eq('role', 'TIDYPRO')
     if (available === 'yes') query = query.in('id', availableIds.length ? availableIds : ['00000000-0000-0000-0000-000000000000'])
     else if (availableIds.length) query = query.not('id', 'in', `(${availableIds.join(',')})`)
   }
 
-  const { data: users, error: usersError } = await query
+  const { data: users, error: usersError, count: userCount } = await query
   const hasFilters = search || role || status || verified || state || city || organic || acceptance || available || favorite
 
   const cleanerIds = (users ?? []).filter((u) => u.role === 'TIDYPRO').map((u) => u.id)
   const { data: cleanerProfiles } = cleanerIds.length
     ? await admin
         .from('tidypro_profiles')
-        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, phone, street_address, city, state, zip_code, uses_organic_products, time_off')
+        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude, phone, street_address, city, state, zip_code, uses_organic_products, time_off')
         .in('id', cleanerIds)
     : { data: [] }
-  const cleanerById = new Map((cleanerProfiles ?? []).map((c) => [c.id, c]))
+  const cleanerById = new Map((await withPushStatus(admin, cleanerProfiles ?? [])).map((c) => [c.id, c]))
   const acceptanceByProId = await getAcceptanceStats(admin, cleanerIds)
   const { data: favoriteRows } = cleanerIds.length
     ? await admin.from('admin_favorite_tidy_pros').select('pro_id').in('pro_id', cleanerIds)
@@ -225,7 +256,6 @@ export default async function UsersPage({
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Users</h1>
-        <p className="text-sm text-slate-400">{(users ?? []).length} shown</p>
       </div>
 
       {/* Filters */}
@@ -261,6 +291,8 @@ export default async function UsersPage({
           <option value="closed">Closed</option>
           <option value="denied">Denied</option>
           <option value="suspended">Suspended</option>
+          <option value="not_approved">Tidy Pros not let in yet</option>
+          <option value="all_waitlisted">All waitlisted (customers + Tidy Pros)</option>
         </select>
         <select
           aria-label="Filter by verified"
@@ -308,6 +340,7 @@ export default async function UsersPage({
           <option value="">All availability</option>
           <option value="yes">Available for bookings</option>
           <option value="no">Not available for bookings</option>
+          <option value="away">Away</option>
         </select>
         <select
           aria-label="Filter by state"
@@ -356,6 +389,15 @@ export default async function UsersPage({
       )}
 
       <BulkAccountActions />
+
+      {/* The count is every matching user; the table only loads the newest 200. */}
+      <p className="text-sm font-semibold text-slate-700 mb-2">
+        {(userCount ?? (users ?? []).length).toLocaleString()} {(userCount ?? (users ?? []).length) === 1 ? 'user' : 'users'}
+        {hasFilters ? ' matching filters' : ''}
+        {userCount != null && userCount > (users ?? []).length && (
+          <span className="font-normal text-slate-400"> · showing newest {(users ?? []).length}</span>
+        )}
+      </p>
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -445,6 +487,7 @@ export default async function UsersPage({
                         ) : (
                           name
                         )}
+                        {proProfile?.is_away && <IconMoon size={14} title="Away — not taking bookings" />}
                         {proProfile?.uses_organic_products && <IconLeaf size={14} title="Uses organic cleaning products" />}
                       </span>
                     </td>

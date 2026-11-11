@@ -1,3 +1,4 @@
+import { customerPetsSummary } from '@/lib/customerPetsData'
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
@@ -9,6 +10,10 @@ import { grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import ReviewRequestView from './ReviewRequestView'
+import { dropUnmatchedLaundryLinks } from '@/lib/laundry'
+import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
+import { getReplacementOptions } from '@/lib/bookingRequestGroups'
+import { savedEntryInstructionsForLocation } from '@/lib/entryInstructionsData'
 
 export const metadata: Metadata = { title: 'Review Your Request — Tydio' }
 
@@ -21,7 +26,7 @@ export default async function ReviewPage() {
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
     .select(
-      'id, task_list, scheduled_location, scheduled_date, scheduled_time, selected_tidy_pro_id, pets, notes, supplies_provided, gift_code, selected_payment_method_id'
+      'id, task_list, scheduled_location, scheduled_date, scheduled_time, selected_tidy_pro_id, notes, entry_instructions, supplies_provided, gift_code, selected_payment_method_id'
     )
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
@@ -32,7 +37,7 @@ export default async function ReviewPage() {
   if (!draft) redirect('/dashboard')
 
   const allTasks = (draft.task_list as TidyTask[] | null) ?? []
-  let tasks = allTasks.filter((t) => t.completed)
+  let tasks = dropUnmatchedLaundryLinks(allTasks.filter((t) => t.completed))
   if (tasks.length === 0) redirect('/dashboard')
   if (!draft.selected_tidy_pro_id || !draft.scheduled_date || !draft.scheduled_time) redirect('/book/schedule')
 
@@ -42,7 +47,7 @@ export default async function ReviewPage() {
     { data: tidyProIdentity },
     { data: paymentMethods },
   ] = await Promise.all([
-    admin.from('profiles').select('first_name, service_area_id, city, state, pets').eq('id', session.profileId).single(),
+    admin.from('profiles').select('first_name, service_area_id, city, state').eq('id', session.profileId).single(),
     admin
       .from('tidypro_profiles')
       .select('rating, total_accepted_bookings, latitude, longitude')
@@ -66,7 +71,7 @@ export default async function ReviewPage() {
   // Backfill any task that's missing a price estimate instead of failing
   // the whole booking over it.
   const repaired = await ensurePriceableTasks(admin, draft.id, allTasks)
-  tasks = repaired.filter((t) => t.completed)
+  tasks = dropUnmatchedLaundryLinks(repaired.filter((t) => t.completed))
 
   const location = draft.scheduled_location as ScheduledLocation | null
   const squareFootage = await resolveLocationSquareFootage(admin, session.profileId, location)
@@ -77,6 +82,8 @@ export default async function ReviewPage() {
   } catch {
     redirect('/dashboard?priceError=1')
   }
+
+  const savedEntryInstructions = await savedEntryInstructionsForLocation(admin, session.profileId, location)
 
   const addressName = location?.type === 'address' ? `${profile.first_name ?? 'Your'}'s ${location.label}` : 'Current Location'
   const addressLine = location?.type === 'address' ? location.line : null
@@ -102,20 +109,35 @@ export default async function ReviewPage() {
   const totalPrice = grossUpForStripeFee(servicePrice, cardPercentage)
   const processingFee = Math.round((totalPrice - servicePrice) * 100) / 100
 
+  // Others free at the same time who can do everything, offered as optional extras.
+  const extraCleanerOptions = await getReplacementOptions(admin, {
+    tidy_pro_id: draft.selected_tidy_pro_id,
+    scheduled_location: draft.scheduled_location,
+    scheduled_date: draft.scheduled_date,
+    scheduled_time: draft.scheduled_time,
+    estimated_duration_minutes: breakdown.total_task_minutes,
+    task_list: tasks,
+  })
+
   const cleanerName = [tidyProIdentity?.first_name, tidyProIdentity?.last_name].filter(Boolean).join(' ') || 'your Tidy Pro'
 
   return (
     <ReviewRequestView
       draftId={draft.id}
       tasks={tasks}
+      photoUrls={await signedTaskPhotoUrls(admin, tasks)}
       date={draft.scheduled_date}
       time={draft.scheduled_time}
       durationMinutes={breakdown.total_task_minutes}
       addressName={addressName}
       addressLine={addressLine}
       cleanerName={cleanerName}
-      pets={draft.pets ?? profile.pets ?? ''}
+      extraCleanerOptions={extraCleanerOptions}
+      pets={(await customerPetsSummary(admin, session.profileId)) ?? ''}
       notes={draft.notes ?? ''}
+      entryInstructions={draft.entry_instructions ?? savedEntryInstructions ?? ''}
+      savedEntryInstructions={savedEntryInstructions}
+      addressLabel={location?.type === 'address' ? location.label : null}
       suppliesProvided={draft.supplies_provided ?? false}
       giftCode={draft.gift_code ?? ''}
       servicePrice={servicePrice}

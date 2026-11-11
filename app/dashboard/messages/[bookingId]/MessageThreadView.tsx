@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
+import { bookedTaskName } from '@/lib/laundry'
 import { cancelBookingRequestAction, respondToTimeProposalAction, sendMessageAction, startCallAction } from './actions'
 
 export type ChatMessage = {
@@ -145,7 +146,7 @@ function BookingDetails({
       <p className="text-sm font-bold text-slate-900 mt-3">Tasks</p>
       {tasks.map((task) => (
         <p key={task.id} className="text-sm text-slate-600">
-          {task.name || task.room}
+          {bookedTaskName(task)}
         </p>
       ))}
       <p className="text-xs text-slate-400">
@@ -155,7 +156,7 @@ function BookingDetails({
       {pets && (
         <>
           <p className="text-sm font-bold text-slate-900 mt-3">Pets</p>
-          <p className="text-sm text-slate-600">{pets}</p>
+          <p className="text-sm text-slate-600 whitespace-pre-line">{pets}</p>
         </>
       )}
 

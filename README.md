@@ -50,11 +50,18 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/050_marketing_email_opt_in.sql` (marketing email opt-in at signup)
 - [x] Apply `supabase/migrations/051_onboarding_reminders.sql` (3- and 7-day onboarding reminder emails; also schedules the daily job)
 - [x] Apply `supabase/migrations/052_auth_identities.sql` (Google sign-in identities)
-- [ ] Apply `supabase/migrations/053_onboarding_complete_notified.sql` (admin email when a cleaner finishes onboarding; until it's applied the email silently doesn't send)
+- [x] Apply `supabase/migrations/053_onboarding_complete_notified.sql` (admin email when a cleaner finishes onboarding; until it's applied the email silently doesn't send)
 - [x] Apply `supabase/migrations/054_profile_city_state.sql` (city/state on profiles for the /admin/users filters). Signup writes these columns and fails without them. Backfill users who signed up before the deploy: `node --env-file=.env.local scripts/backfill-profile-city-state.mjs` (dry run), then again with `--write`. Re-run it once after deploying to catch signups made on the old code. ZIP → city data is from [GeoNames](https://www.geonames.org) (CC BY 4.0); rebuild with `scripts/build-zip-cities.mjs`
 - [x] Apply `supabase/migrations/056_tidypro_time_off.sql` (Tidy Pro time-off dates). Search, the booking calendar, and checkout read `time_off` and fail without it
 - [x] Apply `supabase/migrations/057_acceptance_rate.sql` (acceptance rate view + low-rate email flag). The Tidy Pro dashboard and /admin pages fail without it
 - [x] Apply `supabase/migrations/058_admin_favorite_tidy_pros.sql` (admin favorites on /admin/users). Starring and the Favorites filter fail without it
+- [x] Apply `supabase/migrations/059_customer_task_photos.sql` (private `customer-task-photos` bucket) and `061_tidypro_services.sql` (`tidypro_profiles.services_provided`)
+- [x] Apply `supabase/migrations/060_task_photo_retention.sql` (`bookings.ended_at` / `task_photos_removed_at`, trigger, and the hourly photo-retention cron job)
+- [x] Apply `supabase/migrations/062_initial_booking_groups.sql` (`booking_request_groups.primary_booking_id`)
+- [x] Apply `supabase/migrations/063_customer_pets.sql` (customer pets + private `customer-pet-photos` bucket). Booking pages, Profile → Pets, and booking checkout read `customer_pets` / `profiles.has_no_pets` and fail without it.
+- [x] Apply `supabase/migrations/065_customer_pet_notes_optional.sql` (pet notes optional). Until it's applied, saving a pet without notes fails
+- [ ] **After deploying the pets code**, apply `supabase/migrations/066_drop_old_pets_text.sql` (drops the old free-text `profiles.pets` and `booking_drafts.pets`). Applying it before the deploy breaks checkout on the old code
+- [x] Apply `supabase/migrations/064_entry_instructions.sql` (`user_addresses` / `booking_drafts.entry_instructions`). Saving an address and loading Manage Addresses fail without it
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel

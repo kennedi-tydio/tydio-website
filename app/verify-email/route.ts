@@ -1,3 +1,4 @@
+import { PETS_ONBOARDING_PATH } from '@/lib/customerPets'
 import { type NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createSession } from '@/lib/auth/session'
@@ -63,6 +64,6 @@ export async function GET(req: NextRequest) {
     email: profile.email,
   })
 
-  const dest = profile.role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard'
+  const dest = profile.role === 'TIDYPRO' ? '/pro/onboarding' : PETS_ONBOARDING_PATH
   return NextResponse.redirect(new URL(dest, req.url))
 }

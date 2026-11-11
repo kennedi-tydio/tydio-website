@@ -1,6 +1,7 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { hasPushSubscription } from '@/lib/pushRequirement'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -14,14 +15,14 @@ export async function notifyIfOnboardingComplete(admin: Admin, proId: string): P
     const { data: tidyPro, error } = await admin
       .from('tidypro_profiles')
       .select(
-        'cleaner_status, active_for_booking, onboarding_completed_notified_at, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude, city, state'
+        'cleaner_status, active_for_booking, onboarding_completed_notified_at, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude, city, state'
       )
       .eq('id', proId)
       .maybeSingle()
     if (error) throw new Error(error.message)
     if (!tidyPro || tidyPro.onboarding_completed_notified_at) return false
     if (tidyPro.cleaner_status !== 'approved' || !tidyPro.active_for_booking) return false
-    if (missingOnboardingSteps(tidyPro).length > 0) return false
+    if (missingOnboardingSteps({ ...tidyPro, has_push: await hasPushSubscription(admin, proId) }).length > 0) return false
 
     // Claimed before sending, so two saves landing together can't both email.
     const { data: marked, error: markError } = await admin

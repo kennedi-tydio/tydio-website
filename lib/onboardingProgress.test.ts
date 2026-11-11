@@ -7,8 +7,10 @@ const completeProfile = {
   availability: { mon: [{ start: '09:00', end: '17:00' }] },
   stripe_onboarding_completed: true,
   travel_radius_miles: 10,
+  services_provided: ['taskBased'],
   latitude: 1,
   longitude: 1,
+  has_push: true,
 }
 
 const emptyProfile = {
@@ -17,8 +19,10 @@ const emptyProfile = {
   availability: {},
   stripe_onboarding_completed: false,
   travel_radius_miles: null,
+  services_provided: null,
   latitude: null,
   longitude: null,
+  has_push: true,
 }
 
 const paidCheck: NonNullable<TidyProProgress['backgroundCheck']> = {
@@ -75,6 +79,7 @@ describe('remainingOnboardingActions', () => {
       'Write bio',
       'Add address',
       'Set travel distance',
+      'Choose the services you provide',
     ])
   })
 

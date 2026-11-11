@@ -15,7 +15,7 @@ export default async function ProfilePage() {
 
   const { data: profile, error: profileError } = await admin
     .from('profiles')
-    .select('id, first_name, last_name, email, phone, zip_code, pets')
+    .select('id, first_name, last_name, email, phone, zip_code')
     .eq('id', session.profileId)
     .single()
 
@@ -29,7 +29,6 @@ export default async function ProfilePage() {
       firstName={profile.first_name ?? ''}
       lastName={profile.last_name ?? ''}
       email={profile.email}
-      pets={profile.pets ?? ''}
       unreadMessageCount={unreadMessageCount}
     />
   )

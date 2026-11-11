@@ -13,6 +13,7 @@ import { notifyNewBookingRequest } from '@/lib/notifications'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import type { TidyTask } from '@/app/dashboard/types'
+import { bookedTaskName } from '@/lib/laundry'
 
 // Sends the booking to up to 3 other cleaners. Nothing is charged: the customer's
 // original payment carries over to whoever accepts, at the price they already paid,
@@ -117,7 +118,7 @@ export async function sendReplacementRequestsAction(
     requests.flatMap((request) =>
       tasks.map((task) => ({
         booking_id: request.id,
-        task_name: task.name || task.room,
+        task_name: bookedTaskName(task),
         task_category: task.room,
         task_icon: task.room.toLowerCase(),
         is_completed: false,

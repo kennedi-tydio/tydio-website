@@ -2,6 +2,7 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { backgroundCheckStage } from '@/lib/backgroundCheck'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { withPushStatus } from '@/lib/pushRequirement'
 import { hasSignedCurrentAgreement } from '@/lib/legal/contractorAgreement'
 
 type Admin = ReturnType<typeof createAdminClient>
@@ -45,8 +46,10 @@ type CleanerRow = {
   availability: unknown
   stripe_onboarding_completed: boolean
   travel_radius_miles: number | null
+  services_provided: string[] | null
   latitude: number | null
   longitude: number | null
+  has_push: boolean
 }
 
 type CheckRow = { status: string; requested_at: string | null; link_sent_at: string | null; submitted_at: string | null; denied_at: string | null }
@@ -131,14 +134,14 @@ export async function sendOnboardingReminders(
   const { data: candidates, error } = await admin
     .from('tidypro_profiles')
     .select(
-      'id, created_at, onboarding_reminder_sent_at, onboarding_final_reminder_sent_at, terms_accepted, cleaner_status, email_notifications_enabled, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, latitude, longitude'
+      'id, created_at, onboarding_reminder_sent_at, onboarding_final_reminder_sent_at, terms_accepted, cleaner_status, email_notifications_enabled, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude'
     )
     .lte('created_at', new Date(now.getTime() - FIRST_REMINDER_DAYS * DAY_MS).toISOString())
     .gt('created_at', new Date(now.getTime() - GIVE_UP_AFTER_DAYS * DAY_MS).toISOString())
     .is('onboarding_final_reminder_sent_at', null)
   if (error) throw new Error(error.message)
 
-  const due = ((candidates ?? []) as CleanerRow[])
+  const due = (await withPushStatus(admin, candidates ?? []) as CleanerRow[])
     .map((c) => ({ cleaner: c, kind: onboardingReminderDue(c, now) }))
     .filter((d): d is { cleaner: CleanerRow; kind: 'first' | 'final' } => d.kind !== null)
   if (due.length === 0) return { first: 0, final: 0, failed: 0 }

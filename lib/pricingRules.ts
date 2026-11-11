@@ -1,6 +1,6 @@
 import type { SquareFootage } from './squareFootage'
 
-export const PRICING_VERSION = 'v5-square-footage'
+export const PRICING_VERSION = 'v9-laundry-hourly-rate'
 
 export const CLEANER_PAYOUT_RATE = 0.80
 export const PLATFORM_FEE_RATE = 0.20
@@ -139,6 +139,14 @@ export interface ValidatedTask {
   has_estimated_duration?: boolean
   cleaning_type_surcharge: number
   additional_issue_surcharge: number
+  // A fixed dollar price (e.g. ironing at $5 an item). When set, the task's
+  // minutes still count toward the booking's length but not its base price,
+  // and this amount is never scaled by home size.
+  flat_price?: number
+  // True only for tasks whose effort grows with the size of the home: Entire
+  // home tasks and floor sweeping/mopping. Defaults to false, so every other
+  // task is priced without the square footage multiplier.
+  scales_with_home_size?: boolean
   unusual_notes?: string
 }
 
@@ -149,6 +157,8 @@ export interface TaskLineItem {
   has_estimated_duration: boolean
   cleaning_type_surcharge: number
   additional_issue_surcharge: number
+  flat_price?: number
+  scales_with_home_size?: boolean
   unusual_notes?: string
 }
 
@@ -162,10 +172,13 @@ export interface PricingBreakdown {
   additional_issue_surcharge: number
   square_footage: SquareFootage | null
   square_footage_multiplier: number
-  // What the multiplier added on top of the three amounts above.
+  // What the multiplier added on top of the three amounts above (it applies
+  // only to tasks that scale with home size).
   square_footage_adjustment: number
-  // (base_price + cleaning_type_surcharge + additional_issue_surcharge) * square_footage_multiplier.
-  // Does NOT include the Top Tidy Pro surcharge — that's per-cleaner and
+  // Fixed-price tasks (see ValidatedTask.flat_price), never scaled.
+  flat_price_total: number
+  // base_price + cleaning_type_surcharge + additional_issue_surcharge
+  // + square_footage_adjustment + flat_price_total. Does NOT include the Top Tidy Pro surcharge — that's per-cleaner and
   // applied by the caller once cleaner search results are known.
   total_customer_charge: number
   cleaner_payout: number
@@ -214,16 +227,30 @@ export function calculatePrice(
     has_estimated_duration: task.has_estimated_duration ?? true,
     cleaning_type_surcharge: task.cleaning_type_surcharge,
     additional_issue_surcharge: task.additional_issue_surcharge,
+    ...(task.flat_price != null ? { flat_price: task.flat_price } : {}),
+    ...(task.scales_with_home_size === true ? { scales_with_home_size: true } : {}),
     unusual_notes: task.unusual_notes,
   }))
+
+  // Every task's minutes make up the booking's length; only tasks without a
+  // fixed price are charged by the minute.
+  const minutePrice = (t: TaskLineItem) =>
+    t.flat_price != null ? 0 : (t.estimated_minutes / BASE_PRICE_DIVISOR_MINUTES) * medianFourHourPrice
+  const scales = (t: TaskLineItem) => t.flat_price == null && t.scales_with_home_size === true
+  const subtotal = (t: TaskLineItem) => minutePrice(t) + t.cleaning_type_surcharge + t.additional_issue_surcharge
 
   const totalTaskMinutes = taskLineItems.reduce((sum, t) => sum + t.estimated_minutes, 0)
   const cleaningTypeSurcharge = taskLineItems.reduce((sum, t) => sum + t.cleaning_type_surcharge, 0)
   const additionalIssueSurcharge = taskLineItems.reduce((sum, t) => sum + t.additional_issue_surcharge, 0)
+  const flatPriceTotal = round2(taskLineItems.reduce((sum, t) => sum + (t.flat_price ?? 0), 0))
+  const basePrice = taskLineItems.reduce((sum, t) => sum + minutePrice(t), 0)
 
-  const basePrice = (totalTaskMinutes / BASE_PRICE_DIVISOR_MINUTES) * medianFourHourPrice
   const multiplier = squareFootageMultiplier(squareFootage)
-  const totalCustomerCharge = round2((basePrice + cleaningTypeSurcharge + additionalIssueSurcharge) * multiplier)
+  const scaledSubtotal = taskLineItems.reduce((sum, t) => sum + (scales(t) ? subtotal(t) : 0), 0)
+  const unscaledSubtotal = taskLineItems.reduce((sum, t) => sum + (scales(t) ? 0 : subtotal(t)), 0)
+  const scaledCharge = round2(scaledSubtotal * multiplier)
+  const squareFootageAdjustment = round2(scaledCharge - scaledSubtotal)
+  const totalCustomerCharge = round2(scaledCharge + unscaledSubtotal + flatPriceTotal)
 
   const cleanerPayout = round2(totalCustomerCharge * CLEANER_PAYOUT_RATE)
   const platformFee = round2(totalCustomerCharge * PLATFORM_FEE_RATE)
@@ -238,7 +265,8 @@ export function calculatePrice(
     additional_issue_surcharge: additionalIssueSurcharge,
     square_footage: squareFootage,
     square_footage_multiplier: multiplier,
-    square_footage_adjustment: round2(totalCustomerCharge - round2(basePrice) - cleaningTypeSurcharge - additionalIssueSurcharge),
+    square_footage_adjustment: squareFootageAdjustment,
+    flat_price_total: flatPriceTotal,
     total_customer_charge: totalCustomerCharge,
     cleaner_payout: cleanerPayout,
     platform_fee: platformFee,

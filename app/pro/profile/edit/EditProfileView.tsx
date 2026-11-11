@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { updateProfileAction, updateProfilePhotoAction } from '../actions'
@@ -73,6 +73,14 @@ export default function EditProfileView({ location, unreadMessageCount, photoUrl
   const [error, setError] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
   const initials = `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase()
+
+  // Coming back with the browser's back button (say from the address page,
+  // after saving on the way there) shows this page as it was first loaded.
+  // Refreshing pulls what's saved; the page keys this view on it, so the form
+  // starts over with the saved bio rather than the old one.
+  useEffect(() => {
+    router.refresh()
+  }, [router])
 
   function withDraftAllergy(list: string[]): string[] {
     const draft = allergyDraft.trim()

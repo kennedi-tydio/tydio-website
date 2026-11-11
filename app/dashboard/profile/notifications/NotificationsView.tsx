@@ -23,9 +23,11 @@ type Props = {
   initialSmsConsent: 'opted_in' | 'declined' | null
   initialPushConsent: 'opted_in' | 'declined' | null
   initialEmailEnabled: boolean
+  // Temporary push requirement (lib/pushRequirement) and this account has no device on yet.
+  pushRequired: boolean
 }
 
-export default function NotificationsView({ initialPhone, initialSmsConsent, initialPushConsent, initialEmailEnabled }: Props) {
+export default function NotificationsView({ initialPhone, initialSmsConsent, initialPushConsent, initialEmailEnabled, pushRequired }: Props) {
   const router = useRouter()
   const [smsConsent, setSmsConsent] = useState(initialSmsConsent)
   const [pushConsent, setPushConsent] = useState(initialPushConsent)
@@ -118,6 +120,22 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
         </Link>
 
         <h1 className="text-3xl font-bold text-slate-900 mb-6">Notifications</h1>
+
+        {pushRequired && !pushOn && (
+          <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 mb-4">
+            <p className="font-semibold mb-0.5">Turn on push notifications</p>
+            <p>
+              {'For now, you need push notifications on to book a cleaning, so we can reach you about your booking.'}{' '}
+              {standalone ? 'Switch on Push notifications below.' : 'Add Tydio to your home screen, open it from there, then switch on Push notifications below.'}
+            </p>
+          </div>
+        )}
+        {pushRequired && pushOn && (
+          <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 mb-4">
+            <p className="font-semibold mb-1">Push notifications are on</p>
+            <Link href="/book" className="font-semibold underline underline-offset-2">Continue booking</Link>
+          </div>
+        )}
 
         {error && <p role="alert" className="text-xs text-red-600 mb-4">{error}</p>}
 

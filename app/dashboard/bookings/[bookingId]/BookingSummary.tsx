@@ -151,7 +151,7 @@ export default function BookingSummary({
             {pets && (
               <div className="mb-3">
                 <p className="text-xs text-slate-900 mb-1">Pets</p>
-                <p className="text-xs text-slate-400">{pets}</p>
+                <p className="text-xs text-slate-400 whitespace-pre-line">{pets}</p>
               </div>
             )}
             {notes && (

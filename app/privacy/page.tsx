@@ -6,7 +6,7 @@ import Footer from '../components/Footer'
 
 export const metadata: Metadata = { title: 'Privacy Policy — Tydio' }
 
-const EFFECTIVE_DATE = 'November 6, 2026'
+const EFFECTIVE_DATE = 'November 10, 2026'
 const CONTACT_EMAIL = 'kennedicoats@tydioapp.com'
 
 const sections = [
@@ -89,8 +89,8 @@ const providers: { name: string; purpose: string; data: string; href: string }[]
   },
   {
     name: 'OpenAI',
-    purpose: 'Validating cleaning tasks and estimating how long they will take',
-    data: 'The task details you enter (task name, room, mess level, additional issues, and task notes). We do not intentionally include your account name, contact details, saved service address, or designated entry instructions in this task-validation request. However, any personal or sensitive information you type into task names, descriptions, or notes can be included in the text sent to OpenAI',
+    purpose: 'Validating cleaning tasks, checking that photos for pet enclosure and litter box tasks are clear and show what needs cleaning, and estimating how long tasks will take',
+    data: 'The task details you enter (task name, room, mess level, additional issues, and task notes) and, for pet enclosure and litter box tasks, the photos you add, the pet type, and the option you choose. Anything visible in those photos is sent too. We do not intentionally include your account name, contact details, saved service address, or designated entry instructions in this task-validation request. However, any personal or sensitive information you type into task names, descriptions, or notes can be included in the text sent to OpenAI',
     href: 'https://openai.com/policies/privacy-policy',
   },
   {
@@ -216,8 +216,9 @@ export default function PrivacyPolicyPage() {
 
             <Sub title="Information you give us: customers">
               <List items={[
-                <><strong>Service addresses:</strong> the street address, city, state, and ZIP code of homes where you book cleanings.</>,
-                <><strong>Booking details:</strong> the cleaning tasks you request (task name, room, mess level, notes, and any unusual conditions), preferred dates and times, pets in the home, whether you provide supplies, notes for your Tidy Pro, and <strong>entry instructions</strong> (such as gate codes or where a key is kept).</>,
+                <><strong>Service addresses:</strong> the street address, city, state, and ZIP code of homes where you book cleanings, and any <strong>entry instructions</strong> you choose to save on a saved address so they fill in on future bookings there.</>,
+                <><strong>Pets:</strong> the pets in your home that you add in your profile (each pet&apos;s type, and optionally its name, notes, and a photo), or that you don&apos;t have any. Customers answer this before booking so their Tidy Pro knows what to expect.</>,
+                <><strong>Booking details:</strong> the cleaning tasks you request (task name, room, mess level, notes, and any unusual conditions), photos you add to pet enclosure and litter box tasks (with the pet type, chosen option, and cleaning instructions), preferred dates and times, whether you provide supplies, notes for your Tidy Pro, and <strong>entry instructions</strong> (such as gate codes or where a key is kept).</>,
                 <><strong>Payment information:</strong> card details are entered directly into Stripe&apos;s secure form and are never stored on our servers. We keep only the card brand, expiration month and year, and Stripe reference IDs.</>,
                 <><strong>Promo codes</strong> you enter.</>,
               ]} />
@@ -281,7 +282,7 @@ export default function PrivacyPolicyPage() {
               <p>Tydio only works if the people on each side of a booking can see some information about each other:</p>
               <List items={[
                 <><strong>What customers see about Tidy Pros:</strong> full name, profile photo, bio, city and state, any allergies or sensitivities the Tidy Pro lists, rating, review count, approximate distance, availability, and verification and insurance badges.</>,
-                <><strong>What Tidy Pros see about customers:</strong> when a booking request is sent to or accepted by a Tidy Pro, they see the customer&apos;s full name, how long they&apos;ve been a member, the service address, the requested tasks and notes, pets, entry instructions, and ratings other Tidy Pros have given the customer. Please share only what your Tidy Pro needs to do the job.</>,
+                <><strong>What Tidy Pros see about customers:</strong> when a booking request is sent to or accepted by a Tidy Pro, they see the customer&apos;s full name, how long they&apos;ve been a member, the service address, the requested tasks and notes (including any photos added to pet enclosure and litter box tasks), the customer&apos;s pets (including any pet photos), entry instructions, and ratings other Tidy Pros have given the customer. Please share only what your Tidy Pro needs to do the job.</>,
                 <><strong>Messages</strong> you send about a booking are visible to the other party on that booking.</>,
               ]} />
             </Sub>
@@ -410,6 +411,21 @@ export default function PrivacyPolicyPage() {
               We keep your personal information for as long as your account is open. You can delete your account at any time
               from the <strong>Profile</strong> tab in the app.
             </p>
+            <Sub title="Task photos">
+              <p>
+                Task photos are deleted automatically 7 days after their booking ends (is completed, cancelled, or declined).
+                This covers photos customers add to pet enclosure and litter box tasks and photos Tidy Pros take of completed
+                tasks. If a no-show or no-access report is made on a booking, its photos are kept until 7 days after that
+                report is settled. Photos customers add to tasks they never book are deleted 7 days after upload. Deleting
+                your account removes them sooner.
+              </p>
+            </Sub>
+            <Sub title="Pet photos">
+              <p>
+                Pet photos in your profile are kept until you change or remove the photo, remove the pet, or delete your
+                account.
+              </p>
+            </Sub>
             <Sub title="Before you can delete">
               <p>
                 You can&apos;t delete your account while a booking is pending or scheduled, while a no-show or no-access
@@ -421,14 +437,14 @@ export default function PrivacyPolicyPage() {
             <Sub title="What is deleted right away">
               <List items={[
                 'Your account and profile, including your name, email, phone, password, photo, and notification and consent settings.',
-                'Your saved addresses, booking drafts, saved card records, and push notification subscriptions. We also delete your customer record at Stripe, which removes your saved cards there.',
+                'Your saved addresses, pets and pet photos, booking drafts, saved card records, and push notification subscriptions. We also delete your customer record at Stripe, which removes your saved cards there.',
                 'For customers: your booking history, including the tasks, notes, entry instructions, messages, call records, task photos, payment records, and reviews tied to those bookings.',
                 'For Tidy Pros: your professional profile, availability, service areas, uploaded profile photo and insurance documents, and your identity verification and background check status records.',
               ]} />
             </Sub>
             <Sub title="What may remain">
               <List items={[
-                <>For Tidy Pros: bookings you completed belong to the customer&apos;s history. They stay there, no longer linked to your account, along with your name as it appeared on the booking, the task photos you uploaded, and any review you left. They are deleted when the customer deletes their account.</>,
+                <>For Tidy Pros: bookings you completed belong to the customer&apos;s history. They stay there, no longer linked to your account, along with your name as it appeared on the booking, the task photos you uploaded (until they are deleted 7 days after the booking ends), and any review you left. They are deleted when the customer deletes their account.</>,
                 'Ratings and reviews a customer left about you no longer link to your account, but stay in that customer’s history until they delete it.',
                 'Records of fraud, safety incidents, chargebacks, or other risk events may be kept, no longer linked to your account, so we can protect the platform.',
                 'If an account is removed for violating our Terms, we keep that account’s email address, phone number, and name to prevent it from signing up again.',
@@ -448,7 +464,16 @@ export default function PrivacyPolicyPage() {
               our team.
             </p>
             <p>
-              Profile photos and task photos currently use publicly accessible, unauthenticated URLs. Anyone who obtains or
+              Photos you add to pet enclosure and litter box tasks are stored privately. They are shown only to you and to
+              the Tidy Pro your booking is sent to, through links that expire after about an hour, and are sent to OpenAI
+              to be checked as described in Section 4.
+            </p>
+            <p>
+              Pet photos you add in your profile are also stored privately. They are shown only to you and to Tidy Pros you
+              have a booking with, through links that expire after about an hour. They are not sent to OpenAI.
+            </p>
+            <p>
+              Profile photos and photos Tidy Pros take of completed tasks currently use publicly accessible, unauthenticated URLs. Anyone who obtains or
               receives an exact link can view and reshare the image without signing in. An obscure link is not an access
               control, and Tydio cannot guarantee that recipients will not copy an image or that removal will delete copies
               held by others. <strong>Do not upload images showing people without permission, children, identity documents,
@@ -499,7 +524,7 @@ export default function PrivacyPolicyPage() {
                 <><strong>Commercial information:</strong> bookings, tasks, purchases, payment and payout status, tips, cancellations, and disputes. Used to operate bookings, payments, support, fraud prevention, and required records. Disclosed as needed to hosting/database, payment, communications, AI task-validation and support providers, and booking counterparties; task-validation sharing is limited as described in Section 4.</>,
                 <><strong>Internet or network activity:</strong> device/browser information, IP addresses, page interactions, session recordings, and notification identifiers. Used for hosting, security, analytics, notifications, and troubleshooting. Disclosed as needed to hosting, analytics, embedded mapping/chat/form providers, and browser push services.</>,
                 <><strong>Geolocation:</strong> addresses, approximate IP-derived location, and precise device coordinates if permission is granted. Used for matching, distances, address search, and analytics as described above. Disclosed as needed to hosting/database, mapping and analytics providers and booking counterparties, subject to the distinctions in Sections 1 and 3.</>,
-                <><strong>Visual and communication information:</strong> profile and task photos, booking messages, reviews, and support conversations. Used for profiles, service documentation, communications, support, and safety. Disclosed as needed to hosting/database and communications/support providers and relevant users. Photo links have the public-access limitation described in Section 8. Free-text task details may be sent to OpenAI as described in Section 4.</>,
+                <><strong>Visual and communication information:</strong> profile, pet, and task photos, booking messages, reviews, and support conversations. Used for profiles, service documentation, communications, support, and safety. Disclosed as needed to hosting/database and communications/support providers and relevant users. Photo links have the public-access limitation described in Section 8. Free-text task details may be sent to OpenAI as described in Section 4.</>,
                 <><strong>Professional information and limited screening records:</strong> provider bios, availability, service areas, insurance documents, identity verification and screening status, and related dates. Used for provider onboarding, matching, verification, and safety. Disclosed as needed to hosting/database and screening providers and, for the profile fields and badges identified in Section 3, customers. Screening and payout providers separately collect the identifiers described in Section 1 directly from providers.</>,
                 <><strong>Sensitive personal information:</strong> account access credentials, precise geolocation when permitted, private booking communications where applicable, health-related allergies or sensitivities voluntarily listed by Tidy Pros, and, for Tidy Pros, the government ID images, Social Security number, and selfie submitted directly to Checkr for identity verification and screening, which Checkr may process using facial comparison. Tydio receives only the verification and screening results, not the ID images, selfie, or facial data. Used for account security, requested services, safety, and displaying the profile information expressly described in Sections 1 and 3. Providers receiving these data depend on the function, as described above. Do not add sensitive information to AI-bound text or photo uploads. Any legally required consent or limitation right remains applicable.</>,
               ]} />

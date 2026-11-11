@@ -2,11 +2,13 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { hasPushSubscription } from '@/lib/pushRequirement'
 import { isAvailableForBooking, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { DEFAULT_BOOKING_TIME_ZONE, todayInZone } from '@/lib/bookingTime'
 import { formatTimeOffRange, normalizeTimeOff, parseTimeOff } from '@/lib/timeOff'
 import CleanerDetailView from '@/app/book/schedule/[cleanerId]/CleanerDetailView'
 import { FavoriteStar } from '../../users/FavoriteStar'
+import { serviceLabels } from '@/lib/tidyProServices'
 
 export const metadata: Metadata = { title: 'Tidy Pro profile — Tydio Admin' }
 
@@ -21,7 +23,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
     admin
       .from('tidypro_profiles')
       .select(
-        'bio, profile_photo_url, city, state, rating, review_count, is_verified, is_insured, average_response_time_minutes, availability, allergies, uses_organic_products, time_off, time_zone, active_for_booking, cleaner_status, is_away, stripe_onboarding_completed, travel_radius_miles, latitude, longitude'
+        'bio, profile_photo_url, city, state, rating, review_count, is_verified, is_insured, average_response_time_minutes, availability, allergies, uses_organic_products, time_off, time_zone, active_for_booking, cleaner_status, is_away, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude'
       )
       .eq('id', proId)
       .maybeSingle(),
@@ -35,7 +37,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
   const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'Tidy Pro'
   const timeZone = tidyPro.time_zone ?? DEFAULT_BOOKING_TIME_ZONE
   const timeOff = normalizeTimeOff(parseTimeOff(tidyPro.time_off), todayInZone(timeZone))
-  const bookable = isAvailableForBooking(tidyPro)
+  const bookable = isAvailableForBooking({ ...tidyPro, has_push: await hasPushSubscription(admin, proId) })
   const backHref = `/admin/users?role=TIDYPRO&search=${encodeURIComponent(profile?.email ?? '')}`
 
   return (
@@ -82,6 +84,13 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
           </p>
           {tidyPro.is_away && <p className="text-sm text-amber-700 mb-1">Away: hidden from search until they turn it off</p>}
           <p className="text-xs text-slate-400 mb-4">Times are in their time zone ({timeZone}).</p>
+
+          <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Services provided</h3>
+          {serviceLabels(tidyPro.services_provided).length > 0 ? (
+            <p className="text-sm text-slate-600 mb-4">{serviceLabels(tidyPro.services_provided).join(', ')}</p>
+          ) : (
+            <p className="text-sm text-slate-400 mb-4">Not chosen yet</p>
+          )}
 
           <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Upcoming time off</h3>
           {timeOff.length > 0 ? (

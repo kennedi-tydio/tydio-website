@@ -11,7 +11,7 @@ export const UNPAID_PAYOUT_MESSAGE =
   'A completed booking is still waiting on its Tidy Pro payout. Try again once it has been paid out, or email kennedicoats@tydioapp.com for help.'
 
 // Folders in these buckets are named by profile id (see the upload actions).
-const PROFILE_BUCKETS = ['profile-photos', 'insurance-documents']
+const PROFILE_BUCKETS = ['profile-photos', 'insurance-documents', 'customer-task-photos', 'customer-pet-photos']
 
 // Deleting the profile row cascades to everything tied to it in the database:
 // addresses, saved cards, drafts, push subscriptions, a Tidy Pro's profile and

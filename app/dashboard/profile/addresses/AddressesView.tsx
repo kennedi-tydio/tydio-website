@@ -2,10 +2,16 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { deleteAddressAction, updateAddressSquareFootageAction, type SavedAddress } from './actions'
+import {
+  deleteAddressAction,
+  updateAddressEntryInstructionsAction,
+  updateAddressSquareFootageAction,
+  type SavedAddress,
+} from './actions'
 import AddressForm from './AddressForm'
 import SquareFootageSelect from '@/app/components/form/SquareFootageSelect'
 import { squareFootageLabel, type SquareFootage } from '@/lib/squareFootage'
+import { MAX_ENTRY_INSTRUCTIONS_LENGTH } from '@/lib/entryInstructions'
 
 function addressLine(a: SavedAddress): string {
   const street = a.unit_number ? `${a.street_address} ${a.unit_number}` : a.street_address
@@ -18,6 +24,25 @@ export default function AddressesView({ initialAddresses }: { initialAddresses: 
   const [sqftError, setSqftError] = useState<string | null>(null)
   const [savingSqft, startSqftTransition] = useTransition()
   const [, startTransition] = useTransition()
+  // The address whose entry instructions are being edited, and the text so far.
+  const [editingEntry, setEditingEntry] = useState<{ id: string; text: string } | null>(null)
+  const [entryError, setEntryError] = useState<string | null>(null)
+  const [savingEntry, startEntryTransition] = useTransition()
+
+  function handleSaveEntry() {
+    if (!editingEntry) return
+    const { id, text } = editingEntry
+    startEntryTransition(async () => {
+      const result = await updateAddressEntryInstructionsAction(id, text)
+      if ('error' in result) {
+        setEntryError(result.error)
+        return
+      }
+      setEntryError(null)
+      setEditingEntry(null)
+      setAddresses((prev) => prev.map((a) => (a.id === id ? result : a)))
+    })
+  }
 
   // Addresses saved before square footage was required get it filled in here.
   function handleSquareFootage(id: string, value: SquareFootage) {
@@ -88,6 +113,68 @@ export default function AddressesView({ initialAddresses }: { initialAddresses: 
                     </svg>
                   </button>
                 </div>
+                {editingEntry?.id === a.id ? (
+                  <div className="mt-3">
+                    <label className="block">
+                      <span className="block text-xs font-semibold text-slate-700 mb-1">Entry instructions</span>
+                      <textarea
+                        value={editingEntry.text}
+                        maxLength={MAX_ENTRY_INSTRUCTIONS_LENGTH}
+                        rows={3}
+                        autoFocus
+                        placeholder="Gate code, where the key is, which door to use…"
+                        onChange={(e) => setEditingEntry({ id: a.id, text: e.target.value })}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-brand resize-none"
+                      />
+                    </label>
+                    <p className="text-xs text-slate-400 mt-1">Your Tidy Pro sees these on bookings at this address.</p>
+                    {entryError && (
+                      <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-2">
+                        {entryError}
+                      </p>
+                    )}
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingEntry(null)
+                          setEntryError(null)
+                        }}
+                        className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-700 font-semibold text-xs"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveEntry}
+                        disabled={savingEntry}
+                        className="flex-1 py-2 rounded-xl bg-brand text-white font-semibold text-xs disabled:opacity-50"
+                      >
+                        {savingEntry ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    {a.entry_instructions && (
+                      <p className="text-xs text-slate-500 whitespace-pre-line break-words">
+                        <span className="font-semibold text-slate-700">Entry: </span>
+                        {a.entry_instructions}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEntryError(null)
+                        setEditingEntry({ id: a.id, text: a.entry_instructions ?? '' })
+                      }}
+                      disabled={!!editingEntry}
+                      className="text-xs font-semibold text-brand mt-1 disabled:opacity-50"
+                    >
+                      {a.entry_instructions ? 'Edit entry instructions' : '+ Add entry instructions'}
+                    </button>
+                  </div>
+                )}
                 {!a.square_footage && (
                   <div className="mt-3 flex flex-col gap-2">
                     <p className="text-xs font-medium text-amber-700">

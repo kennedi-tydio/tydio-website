@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { TidyProService } from './tidyProServices'
 import {
   TOP_TIDY_PRO_MIN_BOOKINGS,
   TOP_TIDY_PRO_MIN_RATING,
@@ -21,8 +22,10 @@ describe('isAvailableForBooking', () => {
     availability: { mon: [{ start: '09:00', end: '12:00' }] },
     stripe_onboarding_completed: true,
     travel_radius_miles: 10,
+    services_provided: ['taskBased'],
     latitude: 33.75,
     longitude: -84.39,
+    has_push: true,
   }
 
   it('is true for an approved, active, onboarded Tidy Pro who is not away', () => {
@@ -108,6 +111,7 @@ describe('findAvailableCleaners with "Any day"', () => {
     bio: 'Hi',
     stripe_onboarding_completed: true,
     travel_radius_miles: 10,
+    services_provided: ['taskBased'],
     ...atlanta,
     availability: { mon: [{ start: '09:00', end: '12:00' }] },
     ...overrides,
@@ -122,6 +126,8 @@ describe('findAvailableCleaners with "Any day"', () => {
     // ~8 miles north of the customer
     cleaner('eight-miles-wide', { latitude: 33.866 }),
     cleaner('eight-miles-narrow', { latitude: 33.866, travel_radius_miles: 5 }),
+    // Same hours and place as "morning", but only pet work.
+    cleaner('pets-only', { services_provided: ['petEnclosures', 'litterBoxes'] }),
   ]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -135,15 +141,23 @@ describe('findAvailableCleaners with "Any day"', () => {
           not: () => chain,
           in: () => chain,
           then: (resolve: (value: { data: unknown[] }) => void) =>
-            resolve({ data: table === 'tidypro_profiles' ? candidates : candidates.map((c) => ({ id: c.id, first_name: c.id, last_name: '' })) }),
+            resolve({ data: table === 'tidypro_profiles' ? candidates : table === 'push_subscriptions' ? candidates.map((c) => ({ profile_id: c.id })) : candidates.map((c) => ({ id: c.id, first_name: c.id, last_name: '' })) }),
         }
         return chain
       },
     }
   }
 
-  const ids = async (time: string | null, durationMinutes = 60) =>
-    (await findAvailableCleaners({ ...atlanta, date: null, time, durationMinutes }, fakeAdmin())).map((c) => c.id).sort()
+  const ids = async (time: string | null, durationMinutes = 60, requiredServices: TidyProService[] = ['taskBased']) =>
+    (await findAvailableCleaners({ ...atlanta, date: null, time, durationMinutes, requiredServices }, fakeAdmin()))
+      .map((c) => c.id)
+      .sort()
+
+  it('only shows cleaners who provide every service the booking needs', async () => {
+    expect(await ids(null, 60, ['litterBoxes'])).toEqual(['pets-only'])
+    expect(await ids(null, 60, ['taskBased', 'litterBoxes'])).toEqual([])
+    expect(await ids(null, 60, ['laundry'])).toEqual([])
+  })
 
   it('with no time, shows every bookable cleaner in range, whatever their hours', async () => {
     expect(await ids(null)).toEqual(['eight-miles-wide', 'evening', 'morning'])

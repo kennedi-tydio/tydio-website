@@ -2,6 +2,7 @@
 
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { IconBack } from '../TaskListView'
+import type { CustomerPetWithPhoto } from '@/lib/customerPetsData'
 
 function IconStar() {
   return (
@@ -15,13 +16,15 @@ export default function CustomerProfileView({
   name,
   photoUrl,
   pets,
+  hasNoPets,
   memberSince,
   rating,
   reviewCount,
 }: {
   name: string
   photoUrl: string | null
-  pets: string | null
+  pets: CustomerPetWithPhoto[]
+  hasNoPets: boolean
   memberSince: string | null
   rating: number
   reviewCount: number
@@ -72,10 +75,31 @@ export default function CustomerProfileView({
           )}
         </div>
 
-        {pets && (
+        {(pets.length > 0 || hasNoPets) && (
           <div className="border-t border-slate-100 pt-4">
             <h2 className="font-semibold text-slate-900 mb-1.5">Pets</h2>
-            <p className="text-sm text-slate-600">{pets}</p>
+            {pets.length === 0 ? (
+              <p className="text-sm text-slate-600">No pets</p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {pets.map((p) => (
+                  <li key={p.id} className="flex items-start gap-3">
+                    {p.photoUrl ? (
+                      // Signed storage URL, so a plain img rather than next/image.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.photoUrl} alt={p.name ? `Photo of ${p.name}` : `Photo of ${p.petType}`} className="w-14 h-14 rounded-xl object-cover flex-shrink-0 bg-slate-100" />
+                    ) : null}
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {p.name || p.petType}
+                        {p.name && <span className="font-normal text-slate-400"> · {p.petType}</span>}
+                      </p>
+                      {p.notes && <p className="text-sm text-slate-600 whitespace-pre-line break-words">{p.notes}</p>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>

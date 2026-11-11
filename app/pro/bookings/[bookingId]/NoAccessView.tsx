@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import EmergencyButton from '@/app/components/EmergencyButton'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import Link from 'next/link'
 import { reportNoAccessAction, startCleaningAction } from '@/app/pro/messages/[bookingId]/actions'
@@ -17,13 +18,15 @@ type Props = {
   bookingId: string
   customerName: string
   entryInstructions: string | null
+  // Prefilled into the Text 911 message on the emergency sheet.
+  addressLine?: string | null
   // When the report unlocks: NO_ACCESS_WAIT_MINUTES past the later of the start and arrival.
   reportableAtMs: number | null
 }
 
 // The cleaner is at the door but can't get in. They wait it out here, trying the entry
 // instructions and messaging the customer, before they can report no access.
-export default function NoAccessView({ bookingId, customerName, entryInstructions, reportableAtMs }: Props) {
+export default function NoAccessView({ bookingId, customerName, entryInstructions, reportableAtMs, addressLine = null }: Props) {
   const router = useRouter()
   const [now, setNow] = useState(() => Date.now())
   const [confirming, setConfirming] = useState(false)
@@ -53,7 +56,10 @@ export default function NoAccessView({ bookingId, customerName, entryInstruction
   return (
     <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
-        <h1 className="text-lg font-bold text-slate-900 mb-2">Can&apos;t get in?</h1>
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <h1 className="text-lg font-bold text-slate-900">Can&apos;t get in?</h1>
+          <EmergencyButton addressLine={addressLine} />
+        </div>
         <p className="text-sm text-slate-600 mb-5">
           Try the entry instructions and message {customerName}. If you still can&apos;t get in after waiting{' '}
           {NO_ACCESS_WAIT_MINUTES} minutes from the start time or your arrival, whichever is later, you can report it and

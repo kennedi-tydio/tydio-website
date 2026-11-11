@@ -38,6 +38,7 @@ function refundOptions(b: { stripe_payment_intent_id: string | null; total_custo
     { value: 'full', label: `${ADMIN_REFUND_LABELS.full} (${money(total)})` },
     { value: 'minus_fee', label: ADMIN_REFUND_LABELS.minus_fee },
     { value: 'half', label: `${ADMIN_REFUND_LABELS.half} (${money(lateCancelRefund(total))})` },
+    { value: 'custom', label: `${ADMIN_REFUND_LABELS.custom}…`, max: total },
     { value: 'none', label: ADMIN_REFUND_LABELS.none },
   ]
 }

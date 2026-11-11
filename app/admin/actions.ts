@@ -1096,8 +1096,10 @@ export async function cancelBookingAction(
   const refund = String(formData.get('refund') ?? '')
   if (!isAdminRefund(refund)) return { error: 'Choose a refund.' }
   const reason = String(formData.get('reason') ?? '').trim().slice(0, 1000) || null
+  const amountText = String(formData.get('amount') ?? '').replace(/[$,\s]/g, '')
+  const customAmount = refund === 'custom' && amountText !== '' ? Number(amountText) : null
 
-  const result = await cancelBookingAsAdmin(createAdminClient(), bookingId, refund, reason)
+  const result = await cancelBookingAsAdmin(createAdminClient(), bookingId, refund, reason, customAmount)
   if ('error' in result) return { error: result.error }
 
   revalidatePath('/admin/bookings')
@@ -1108,7 +1110,8 @@ export async function cancelBookingAction(
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/pro/messages')
   revalidatePath('/pro/bookings')
-  return { message: `Canceled. ${ADMIN_REFUND_LABELS[refund]}. The customer has been emailed.` }
+  const outcome = refund === 'custom' ? `Refunded $${customAmount!.toFixed(2)}` : ADMIN_REFUND_LABELS[refund]
+  return { message: `Canceled. ${outcome}. The customer has been emailed.` }
 }
 
 export async function acceptBackgroundCheckAppealAction(

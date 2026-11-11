@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { estimateTaskDuration } from '@/lib/aiTaskEstimate'
+import { broadTaskMessage } from '@/lib/taskSpecificity'
+import { unsupportedTaskMessage } from '@/lib/unsupportedTasks'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { RATE_LIMITS, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
@@ -22,6 +24,17 @@ export async function POST(req: NextRequest) {
     room?: string
     dirtLevel?: string | null
     unusual?: string[]
+  }
+
+  // Caught in Add Task before this is called; checked here too so it can't be
+  // priced by another route.
+  const unsupported = unsupportedTaskMessage(name ?? '')
+  if (unsupported) return NextResponse.json({ valid: false, reason: unsupported, estimated_minutes: null, tier: null })
+
+  // Same whole-room check the Add Task modal makes, enforced here too.
+  const broad = broadTaskMessage(name ?? '', room)
+  if (broad) {
+    return NextResponse.json({ valid: false, reason: broad, estimated_minutes: null, tier: null })
   }
 
   try {

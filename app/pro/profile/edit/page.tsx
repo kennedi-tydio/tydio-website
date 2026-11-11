@@ -26,17 +26,21 @@ export default async function ProEditProfilePage() {
   if (error) throw new Error(`Failed to load profile: ${error.message}`)
   if (!profile) redirect('/login')
 
-  return (
-    <EditProfileView
-      firstName={profile.first_name ?? ''}
-      lastName={profile.last_name ?? ''}
-      bio={tidyPro?.bio ?? ''}
-      phone={tidyPro?.phone ?? profile.phone ?? ''}
-      location={[tidyPro?.city, tidyPro?.state].filter(Boolean).join(', ')}
-      photoUrl={tidyPro?.profile_photo_url ?? null}
-      allergies={Array.isArray(tidyPro?.allergies) ? (tidyPro.allergies as string[]) : []}
-      usesOrganicProducts={tidyPro?.uses_organic_products ?? false}
-      unreadMessageCount={unreadMessageCount}
-    />
-  )
+  const values = {
+    firstName: profile.first_name ?? '',
+    lastName: profile.last_name ?? '',
+    bio: tidyPro?.bio ?? '',
+    phone: tidyPro?.phone ?? profile.phone ?? '',
+    location: [tidyPro?.city, tidyPro?.state].filter(Boolean).join(', '),
+    photoUrl: tidyPro?.profile_photo_url ?? null,
+    allergies: Array.isArray(tidyPro?.allergies) ? (tidyPro.allergies as string[]) : [],
+    usesOrganicProducts: tidyPro?.uses_organic_products ?? false,
+  }
+
+  // Keyed on the saved values so the form starts over when they change. The
+  // browser's back button brings this page back as it was first loaded (e.g.
+  // after the profile was saved on the way to the address page); the view
+  // refreshes on mount, and the new key swaps in what's actually saved instead
+  // of letting a later Save write the old bio back.
+  return <EditProfileView key={JSON.stringify(values)} {...values} unreadMessageCount={unreadMessageCount} />
 }

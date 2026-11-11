@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { userFacingError } from '@/lib/userFacingError'
+import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 
 function tableForRole(role: 'USER' | 'TIDYPRO' | 'ADMIN'): 'profiles' | 'tidypro_profiles' | null {
   if (role === 'USER') return 'profiles'
@@ -101,6 +102,12 @@ export async function subscribeToPushAction(subscription: {
     { onConflict: 'endpoint' }
   )
   if (error) return { error: userFacingError(error) }
+
+  // Push can be the last onboarding step while it's required (lib/pushRequirement).
+  if (session.role === 'TIDYPRO') {
+    await notifyIfOnboardingComplete(admin, session.profileId)
+    revalidatePath('/pro/dashboard')
+  }
 
   return { success: true }
 }

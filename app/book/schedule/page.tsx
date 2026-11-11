@@ -40,7 +40,7 @@ export default async function SchedulePage() {
 
   const { data: addresses } = await admin
     .from('user_addresses')
-    .select('id, label, street_address, city, state, zip_code, unit_number, latitude, longitude, is_default, square_footage')
+    .select('id, label, street_address, city, state, zip_code, unit_number, latitude, longitude, is_default, square_footage, entry_instructions')
     .eq('user_id', session.profileId)
     .order('is_default', { ascending: false })
 

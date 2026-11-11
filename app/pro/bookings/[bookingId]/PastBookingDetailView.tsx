@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
+import type { TidyTask } from '@/app/dashboard/types'
+import PetTaskDetails from '@/app/components/PetTaskDetails'
 import { markOnTheWayAction } from '@/app/pro/messages/[bookingId]/actions'
 import { useStartBookingWindow } from '@/app/pro/useStartBookingWindow'
 import {
@@ -13,6 +15,7 @@ import {
   groupByCategory,
   type ProBookingTaskRow,
 } from './TaskListView'
+import { formatVisitDuration } from '@/lib/laundry'
 
 type Props = {
   // An accepted booking that hasn't started yet shows the same summary,
@@ -29,6 +32,9 @@ type Props = {
   addressLabel: string | null
   addressArea: string | null
   tasks: ProBookingTaskRow[]
+  // Pet enclosure / litter box details and signed photo URLs.
+  petTasks?: TidyTask[]
+  photoUrls?: Record<string, string>
   suppliesProvided: boolean
   pets: string | null
   notes: string | null
@@ -48,6 +54,8 @@ export default function PastBookingDetailView({
   addressLabel,
   addressArea,
   tasks,
+  petTasks = [],
+  photoUrls = {},
   suppliesProvided,
   pets,
   notes,
@@ -98,7 +106,7 @@ export default function PastBookingDetailView({
         <div className="flex items-stretch gap-4 mb-6">
           <div>
             {scheduledDate && <p className="text-sm font-bold text-slate-900">{formatDateLabel(scheduledDate)}</p>}
-            {scheduledTime && <p className="text-xs text-slate-500 mt-0.5">{formatTimeRange(scheduledTime, durationMinutes)}</p>}
+            {scheduledTime && <p className="text-xs text-slate-500 mt-0.5">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
           </div>
           {addressLabel && (
             <div className="border-l border-slate-200 pl-4 min-w-0">
@@ -126,6 +134,7 @@ export default function PastBookingDetailView({
             </div>
           ))}
         </div>
+        <PetTaskDetails tasks={petTasks} photoUrls={photoUrls} className="mb-4" />
         <p className="text-xs text-slate-600 mb-5">
           {isUpcoming
             ? suppliesProvided
@@ -144,7 +153,7 @@ export default function PastBookingDetailView({
             {pets && (
               <div className="mb-3">
                 <p className="text-sm font-medium text-slate-900">Pets</p>
-                <p className="text-sm text-slate-400">{pets}</p>
+                <p className="text-sm text-slate-400 whitespace-pre-line">{pets}</p>
               </div>
             )}
             {notes && (

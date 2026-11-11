@@ -7,8 +7,10 @@ const complete: Parameters<typeof missingOnboardingSteps>[0] = {
   availability: { mon: [{ start: '09:00', end: '17:00' }] },
   stripe_onboarding_completed: true,
   travel_radius_miles: 10,
+  services_provided: ['taskBased'],
   latitude: 33.77,
   longitude: -84.29,
+  has_push: true,
 }
 
 describe('hasAvailability', () => {
@@ -28,10 +30,14 @@ describe('missingOnboardingSteps', () => {
   it('names each missing step on its own', () => {
     const labelFor = (change: Partial<typeof complete>) => missingOnboardingSteps({ ...complete, ...change }).map((s) => s.label)
     expect(labelFor({ stripe_onboarding_completed: false })).toEqual(['Set up your payout method'])
+    expect(labelFor({ has_push: false })).toEqual(['Turn on push notifications'])
     expect(labelFor({ availability: {} })).toEqual(['Choose your availability'])
     expect(labelFor({ profile_photo_url: null })).toEqual(['Add a profile picture'])
     expect(labelFor({ bio: '   ' })).toEqual(['Write your bio'])
     expect(labelFor({ latitude: null, longitude: null })).toEqual(['Add your address'])
     expect(labelFor({ travel_radius_miles: null })).toEqual(['Set your travel distance'])
+    expect(labelFor({ services_provided: null })).toEqual(['Choose the services you provide'])
+    expect(labelFor({ services_provided: [] })).toEqual(['Choose the services you provide'])
+    expect(labelFor({ services_provided: ['notAService'] })).toEqual(['Choose the services you provide'])
   })
 })

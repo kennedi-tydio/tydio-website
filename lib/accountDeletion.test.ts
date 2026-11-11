@@ -104,6 +104,8 @@ describe('deleteOwnAccount', () => {
     expect(removed).toEqual(expect.arrayContaining([
       { bucket: 'profile-photos', paths: ['p1/p1-file.jpg'] },
       { bucket: 'insurance-documents', paths: ['p1/p1-file.jpg'] },
+      { bucket: 'customer-task-photos', paths: ['p1/p1-file.jpg'] },
+      { bucket: 'customer-pet-photos', paths: ['p1/p1-file.jpg'] },
       { bucket: 'task-photos', paths: ['b1/b1-file.jpg'] },
     ]))
     expect(customersDel).toHaveBeenCalledWith('cus_1')

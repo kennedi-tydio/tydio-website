@@ -7,6 +7,7 @@ import ProgressStepper from './ProgressStepper'
 import ReportTidyProSheet from './ReportTidyProSheet'
 import ReportNoShowButton from './ReportNoShowButton'
 import ReviewForm from './ReviewForm'
+import EmergencyButton from '@/app/components/EmergencyButton'
 import PhotoViewer, { type TaskPhoto } from './PhotoViewer'
 import { CategoryIcon, groupByCategory } from './BookingSummary'
 import { cancelBookingRequestAction } from '@/app/dashboard/messages/[bookingId]/actions'
@@ -33,6 +34,8 @@ type Props = {
   tasks: BookingTaskRow[]
   totalPrice: number
   alreadyReviewed: boolean
+  // Prefilled into the Text 911 message on the emergency sheet.
+  addressLine?: string | null
 }
 
 const HEADLINE: Record<Props['progressStatus'], (firstName: string) => string> = {
@@ -124,6 +127,7 @@ export default function CurrentBookingView({
   cardFeePercentage,
   lateCancelRefund = null,
   noShowReportableAtMs = null,
+  addressLine = null,
 }: Props) {
   const router = useRouter()
   const firstName = cleanerName.split(' ')[0]
@@ -268,6 +272,7 @@ export default function CurrentBookingView({
               <IconBack />
             </button>
             <div className="flex items-center gap-2">
+              <EmergencyButton addressLine={addressLine} />
               {reportButton}
               {closeButton}
             </div>

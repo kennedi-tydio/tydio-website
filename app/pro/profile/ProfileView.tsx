@@ -185,6 +185,7 @@ export default function ProfileView({
 
         <h2 className="text-xl font-bold text-slate-900 mt-6 mb-3">Service Area</h2>
         <MenuLink label="Travel distance" href="/pro/profile/travel-distance" />
+        <MenuLink label="Services provided" href="/pro/profile/services" />
 
         <h2 className="text-xl font-bold text-slate-900 mt-6 mb-3">Settings</h2>
         <MenuLink label="Preferences" href="/pro/profile/notifications" />

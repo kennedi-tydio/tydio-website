@@ -16,6 +16,7 @@ import { clearPendingGoogleSignup, getPendingGoogleSignup } from '@/lib/auth/goo
 import { linkGoogleIdentity } from '@/lib/auth/googleAccount'
 import { createSession } from '@/lib/auth/session'
 import { redirect } from 'next/navigation'
+import { PETS_ONBOARDING_PATH } from '@/lib/customerPets'
 
 export type SignupState = {
   error?: string
@@ -331,5 +332,5 @@ export async function signupAction(
       .catch((err) => console.error('[Tydio] Adding Brevo marketing contact failed:', err))
   }
   await createSession({ profileId: profile.id, role, email })
-  redirect(role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
+  redirect(role === 'TIDYPRO' ? '/pro/onboarding' : PETS_ONBOARDING_PATH)
 }

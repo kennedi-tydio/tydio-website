@@ -22,6 +22,7 @@ const bookable = {
   availability: { mon: [{ start: '09:00', end: '17:00' }] },
   stripe_onboarding_completed: true,
   travel_radius_miles: 10,
+  services_provided: ['taskBased'],
   latitude: 1,
   longitude: 1,
   city: 'Atlanta',
@@ -42,13 +43,17 @@ function fakeAdmin(tidyPro: any, { claimed = true } = {}) {
         },
         eq: () => chain,
         is: () => chain,
+        in: () => chain,
         maybeSingle: () =>
           Promise.resolve(
             table === 'profiles'
               ? { data: { email: 'pro@example.com', first_name: 'Nia', last_name: 'T' }, error: null }
               : { data: tidyPro, error: null }
           ),
-        then: (resolve: any) => resolve({ data: isUpdate && claimed ? [{ id: 'p1' }] : [], error: null }),
+        then: (resolve: any) =>
+          table === 'push_subscriptions'
+            ? resolve({ data: [{ profile_id: 'p1' }], error: null })
+            : resolve({ data: isUpdate && claimed ? [{ id: 'p1' }] : [], error: null }),
       }
       return chain
     },
@@ -87,6 +92,7 @@ describe('notifyIfOnboardingComplete', () => {
     ['no availability', { availability: { mon: [] } }],
     ['no address', { latitude: null }],
     ['no travel distance', { travel_radius_miles: null }],
+    ['no services chosen', { services_provided: null }],
     ['no photo', { profile_photo_url: null }],
   ])('does nothing when %s', async (_label, overrides) => {
     const { admin, updates } = fakeAdmin({ ...bookable, ...overrides })

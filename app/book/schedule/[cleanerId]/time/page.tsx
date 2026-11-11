@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { shiftDateISO } from '@/lib/bookingTime'
-import { buildValidatedTaskPool } from '@/app/dashboard/taskPricing'
+import { visitDurationMinutes } from '@/app/dashboard/taskPricing'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
 import { parseTimeOff } from '@/lib/timeOff'
@@ -62,8 +62,7 @@ export default async function ChooseTimePage({
 
   let durationMinutes = 180
   try {
-    const pool = buildValidatedTaskPool(tasks)
-    durationMinutes = pool.reduce((sum, t) => sum + t.estimated_minutes, 0)
+    durationMinutes = visitDurationMinutes(tasks)
   } catch {
     // fall back to the default typical duration if a task is unpriceable
   }

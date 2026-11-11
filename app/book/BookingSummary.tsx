@@ -1,17 +1,23 @@
 import Link from 'next/link'
 import type { TidyTask } from '@/app/dashboard/types'
+import PetTaskDetails from '@/app/components/PetTaskDetails'
+import { isPetTask } from '@/lib/petTasks'
+import { formatVisitDuration, laundryDetailLabel } from '@/lib/laundry'
 
-type GroupedTask = { name: string; count: number }
+type GroupedTask = { name: string; detail: string | null; count: number }
 
 function groupTasks(tasks: TidyTask[]): GroupedTask[] {
   const grouped: GroupedTask[] = []
-  for (const task of tasks) {
+  // Pet tasks are listed with their own details below.
+  for (const task of tasks.filter((t) => !isPetTask(t))) {
     const name = task.name || task.room
+    // Laundry: service, baskets and machine loads.
+    const detail = laundryDetailLabel(task)
     const last = grouped[grouped.length - 1]
-    if (last && last.name === name) {
+    if (last && last.name === name && last.detail === detail) {
       last.count += 1
     } else {
-      grouped.push({ name, count: 1 })
+      grouped.push({ name, detail, count: 1 })
     }
   }
   return grouped
@@ -20,9 +26,14 @@ function groupTasks(tasks: TidyTask[]): GroupedTask[] {
 export default function BookingSummary({
   tasks,
   firstName,
+  photoUrls,
+  durationMinutes,
 }: {
   tasks: TidyTask[]
   firstName: string
+  photoUrls: Record<string, string>
+  // Estimated visit length (see visitDurationMinutes).
+  durationMinutes: number
 }) {
   const lines = groupTasks(tasks)
 
@@ -39,6 +50,7 @@ export default function BookingSummary({
         <h1 className="text-2xl font-bold text-slate-900 mb-1">Your Booking</h1>
         <p className="text-sm text-slate-400 mb-6">Review your tasks before choosing a Tidy Pro.</p>
 
+        {lines.length > 0 && (
         <div className="rounded-2xl border border-slate-100 bg-white shadow-sm divide-y divide-slate-100 overflow-hidden mb-6">
           {lines.map((item, i) => (
             <div key={i} className="px-4 py-3">
@@ -46,9 +58,18 @@ export default function BookingSummary({
                 {item.name}
                 {item.count > 1 ? ` × ${item.count}` : ''}
               </p>
+              {item.detail && <p className="text-xs text-slate-400 mt-0.5">{item.detail}</p>}
             </div>
           ))}
         </div>
+        )}
+
+        <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 mb-6">
+          <span className="text-sm text-slate-600">Estimated visit</span>
+          <span className="text-sm font-semibold text-slate-900">{formatVisitDuration(durationMinutes)}</span>
+        </div>
+
+        <PetTaskDetails tasks={tasks} photoUrls={photoUrls} showPrepNotice className="mb-6" />
       </div>
 
       <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 px-5 py-4 safe-area-inset-bottom">
