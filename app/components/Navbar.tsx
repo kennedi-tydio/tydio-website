@@ -8,6 +8,7 @@ const links = [
   { label: "How It Works", href: "#how-it-works" },
   { label: "Why Tydio", href: "#why-tydio" },
   { label: "Pricing", href: "#pricing" },
+  { label: "FAQ", href: "#faq" },
 ];
 
 export default function Navbar() {
