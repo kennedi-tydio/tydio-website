@@ -1,0 +1,113 @@
+/* Phone mockups for the FAQ's "add to home screen" demo. Drawn at 300×630
+   and scaled down, so the sizes below are for the full-size phone. */
+
+.frameWrap { width: 240px; height: 504px; flex: none; }
+.phone {
+  width: 300px; height: 630px; background: #111; padding: 10px; position: relative;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, .18);
+  transform: scale(.8); transform-origin: top left;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #0f172a;
+}
+.ios { border-radius: 48px; }
+.android { border-radius: 32px; }
+.screen { width: 100%; height: 100%; overflow: hidden; position: relative; background: #fff; }
+.ios .screen { border-radius: 39px; }
+.android .screen { border-radius: 23px; }
+.view { position: absolute; inset: 0; opacity: 0; visibility: hidden; transition: opacity .35s ease, visibility .35s; }
+.viewOn { opacity: 1; visibility: visible; }
+
+.island { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 88px; height: 26px; background: #000; border-radius: 20px; z-index: 20; }
+.punch { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 11px; height: 11px; background: #000; border-radius: 50%; z-index: 20; }
+.status { height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 6px 26px 0; font-size: 13px; font-weight: 600; position: relative; z-index: 10; }
+.android .status { height: 30px; padding: 4px 18px 0; font-size: 11.5px; font-weight: 500; }
+.statusRight { display: flex; gap: 4px; align-items: center; }
+.battery { display: inline-block; width: 22px; height: 10px; border: 1.5px solid currentColor; border-radius: 3px; position: relative; }
+.battery::after { content: ""; position: absolute; inset: 1px 4px 1px 1px; background: currentColor; border-radius: 1px; }
+
+/* Tydio page behind the sheets */
+.page { position: absolute; inset: 0; background: #f8fafc; }
+.pageTop { padding: 54px 18px 0; }
+.android .pageTop { padding-top: 84px; }
+.logo { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 18px; }
+.logo img { width: 26px; height: 26px; }
+.skel { background: #e2e8f0; border-radius: 10px; margin-top: 14px; }
+.scrim { position: absolute; inset: 0; background: rgba(15, 23, 42, .45); }
+
+.chromeBar { position: absolute; left: 0; right: 0; top: 30px; height: 48px; background: #fff; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid #e2e8f0; z-index: 5; }
+.chromeUrl { flex: 1; background: #f1f3f4; border-radius: 20px; height: 34px; display: flex; align-items: center; padding: 0 14px; font-size: 13px; color: #3c4043; }
+.dots { font-size: 18px; line-height: 1; color: #3c4043; }
+.navbar { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 100px; height: 4px; border-radius: 4px; background: #111; opacity: .8; z-index: 30; }
+.ios .navbar { width: 110px; height: 5px; bottom: 7px; }
+.navbarLight { background: #fff; }
+
+/* Tydio's guide bottom sheet (matches AddToHomeScreenGuide) */
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #fff; border-radius: 24px 24px 0 0; padding: 20px 20px 26px; z-index: 15; box-shadow: 0 -10px 30px rgba(0, 0, 0, .15); }
+.sheetTitle { font-size: 15.5px; margin: 0 0 4px; font-weight: 800; }
+.sheetSub { font-size: 12px; color: #64748b; margin: 0 0 12px; line-height: 1.45; }
+.meta { display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 10px; }
+.meta b { color: #64748b; }
+.meta span { color: #0284c7; text-decoration: underline; }
+.steps { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 7px; }
+.steps li { display: flex; gap: 9px; font-size: 11.5px; color: #334155; line-height: 1.4; }
+.num { flex: none; width: 19px; height: 19px; border-radius: 50%; background: var(--color-brand); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.fine { font-size: 10.5px; color: #94a3b8; margin: 0 0 12px; line-height: 1.4; }
+.cta { display: block; width: 100%; border-radius: 12px; background: var(--color-brand); color: #fff; font-size: 12.5px; font-weight: 700; padding: 10px; margin-bottom: 8px; text-align: center; }
+.skip { display: block; text-align: center; font-size: 12px; color: #64748b; text-decoration: underline; }
+
+/* iOS Add to Home Screen sheet */
+.iosNative { position: absolute; left: 0; right: 0; bottom: 0; top: 52px; background: #f2f2f7; border-radius: 14px 14px 0 0; z-index: 15; }
+.iosNav { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; font-size: 14px; font-weight: 600; }
+.iosNav span:first-child { color: #007aff; font-weight: 400; }
+.iosNav span:last-child { color: #007aff; }
+.group { background: #fff; border-radius: 12px; margin: 8px 14px; }
+.appRow { display: flex; gap: 12px; padding: 12px; align-items: center; }
+.appRow img { width: 58px; height: 58px; border-radius: 13px; border: 1px solid #e5e7eb; }
+.appRowText { flex: 1; }
+.appName { font-size: 14px; padding-bottom: 8px; border-bottom: 1px solid #e5e5ea; }
+.appUrl { font-size: 12px; color: #8e8e93; padding-top: 8px; }
+.toggleRow { display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; font-size: 14px; }
+.switch { width: 44px; height: 26px; border-radius: 13px; background: #34c759; position: relative; }
+.switch::after { content: ""; position: absolute; right: 2px; top: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); }
+.iosNote { font-size: 11.5px; color: #8e8e93; margin: 4px 28px; line-height: 1.4; }
+
+/* Android Chrome install dialog */
+.aDialog { position: absolute; left: 22px; right: 22px; top: 50%; transform: translateY(-50%); background: #f3f6fb; border-radius: 26px; padding: 22px 22px 16px; z-index: 15; }
+.aDialogTitle { margin: 0 0 16px; font-size: 18px; font-weight: 500; color: #1f1f1f; }
+.aApp { display: flex; gap: 14px; align-items: center; margin-bottom: 22px; }
+.aApp img { width: 46px; height: 46px; border-radius: 50%; }
+.aApp .appName { border: 0; padding: 0; font-size: 14.5px; color: #1f1f1f; }
+.aApp .appUrl { padding: 0; color: #5f6368; }
+.aActions { display: flex; justify-content: flex-end; gap: 22px; font-size: 13.5px; font-weight: 600; color: #0b57d0; padding-right: 6px; }
+
+/* Tap highlight on the button the person presses next */
+.tap { position: relative; }
+.tap::after {
+  content: ""; position: absolute; inset: -6px; border-radius: 999px; border: 3px solid var(--color-brand);
+  animation: tap 1.4s ease-out infinite;
+}
+@keyframes tap { 0% { transform: scale(.85); opacity: 1 } 100% { transform: scale(1.25); opacity: 0 } }
+
+/* Home screens */
+.homeIos { background: linear-gradient(160deg, #7dd3fc 0%, #a5b4fc 45%, #f0abfc 100%); color: #fff; }
+.homeAndroid { background: linear-gradient(170deg, #134e4a 0%, #0f766e 45%, #5eead4 100%); color: #fff; }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px 0; padding: 18px 14px 0; justify-items: center; }
+.android .grid { padding-top: 40px; gap: 22px 0; }
+.app { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 64px; }
+.ic { width: 54px; height: 54px; border-radius: 14px; background: rgba(255, 255, 255, .35); }
+.android .ic { border-radius: 50%; width: 50px; height: 50px; }
+.app img.ic { background: #fff; }
+.label { font-size: 10.5px; text-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
+.placeholderLabel { display: block; width: 34px; height: 7px; border-radius: 4px; background: rgba(255, 255, 255, .45); }
+.viewOn .newApp .ic { animation: pop .6s ease-out; box-shadow: 0 0 0 3px rgba(255, 255, 255, .85); }
+@keyframes pop { 0% { transform: scale(.4); opacity: 0 } 70% { transform: scale(1.1) } 100% { transform: scale(1); opacity: 1 } }
+.dock { position: absolute; left: 10px; right: 10px; bottom: 18px; height: 78px; border-radius: 30px; background: rgba(255, 255, 255, .3); display: flex; justify-content: space-around; align-items: center; }
+.dock .ic { background: rgba(255, 255, 255, .45); }
+.aSearch { position: absolute; left: 16px; right: 16px; bottom: 30px; height: 44px; border-radius: 22px; background: rgba(255, 255, 255, .9); }
+.aDock { position: absolute; left: 0; right: 0; bottom: 90px; display: flex; justify-content: space-around; padding: 0 20px; }
+.aDock .ic { background: rgba(255, 255, 255, .4); }
+
+@media (prefers-reduced-motion: reduce) {
+  .view { transition: none; }
+  .tap::after, .viewOn .newApp .ic { animation: none; }
+}
