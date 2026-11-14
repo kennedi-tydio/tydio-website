@@ -2,6 +2,7 @@
 // installGuide.ts (getInstallGuide); update both together.
 
 import FaqLink from "./FaqLink";
+import InstallDemo from "./InstallDemo";
 
 const iphoneSteps = [
   "Open Tydio in Safari.",
@@ -16,28 +17,6 @@ const androidSteps = [
   "Tap Add to Home screen (it may say Install app).",
   "Tap Install, then Add if asked.",
 ];
-
-function Steps({ title, steps, note }: { title: string; steps: string[]; note?: string }) {
-  return (
-    <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
-      <h4 className="font-semibold text-slate-900 mb-3">{title}</h4>
-      <ol className="flex flex-col gap-2.5">
-        {steps.map((step, i) => (
-          <li key={i} className="flex gap-3 text-sm text-slate-600">
-            <span
-              aria-hidden="true"
-              className="flex-none w-6 h-6 rounded-full bg-brand text-xs font-bold text-white flex items-center justify-center"
-            >
-              {i + 1}
-            </span>
-            <span className="pt-0.5">{step}</span>
-          </li>
-        ))}
-      </ol>
-      {note && <p className="text-xs text-slate-400 mt-3">{note}</p>}
-    </div>
-  );
-}
 
 function Question({ id, question, children }: { id: string; question: string; children: React.ReactNode }) {
   return (
@@ -77,18 +56,16 @@ export default function FAQ() {
               Adding Tydio to your home screen lets you open it in one tap like any other app, and get push
               notifications about your bookings.
             </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Steps
-                title="iPhone or iPad"
-                steps={iphoneSteps}
-                note="Push notifications need iOS 16.4 or later. You can update in Settings → General → Software Update."
-              />
-              <Steps
-                title="Android"
-                steps={androidSteps}
-                note="Using Samsung Internet? Tap the menu button (☰) at the bottom right, then Add page to → Home screen → Add."
-              />
-            </div>
+            <InstallDemo
+              ios={{
+                steps: iphoneSteps,
+                note: "Push notifications need iOS 16.4 or later. You can update in Settings → General → Software Update.",
+              }}
+              android={{
+                steps: androidSteps,
+                note: "Using Samsung Internet? Tap the menu button (☰) at the bottom right, then Add page to → Home screen → Add.",
+              }}
+            />
             <p className="text-sm">
               Then open Tydio from your home screen. You may need to log in once more the first time.
             </p>
