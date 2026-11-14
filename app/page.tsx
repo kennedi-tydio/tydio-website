@@ -4,6 +4,7 @@ import Hero from "./components/Hero";
 import HowItWorks from "./components/HowItWorks";
 import WhyTydio from "./components/WhyTydio";
 import Pricing from "./components/Pricing";
+import FAQ from "./components/FAQ";
 import ReadyToBookCta from "./components/ReadyToBookCta";
 import Footer from "./components/Footer";
 import ChatbaseScript from "./components/ChatbaseScript";
@@ -21,6 +22,7 @@ export default async function Home() {
         <HowItWorks />
         <WhyTydio />
         <Pricing />
+        <FAQ />
         <ReadyToBookCta role={session?.role ?? null} />
       </main>
       <Footer />
