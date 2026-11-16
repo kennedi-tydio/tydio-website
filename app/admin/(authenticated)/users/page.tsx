@@ -3,6 +3,8 @@ import { backgroundCheckStage } from '@/lib/backgroundCheck'
 import { FEE_REFUND_REASONS, feeStatusLabel, hasPaidFee } from '@/lib/backgroundCheckFee'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 import { withPushStatus } from '@/lib/pushRequirement'
+import { amendmentStatuses } from '@/lib/legal/agreementAmendments'
+import AmendmentStatusList from '../AmendmentStatusList'
 import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
 import { grantAccessAction, denyAccessAction, revokeAccessAction, approveCleanerAction, pauseCleanerAction, refundBackgroundCheckFeeAction, resendSignedAgreementAction } from '../../actions'
 import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAccounts } from './AccountActions'
@@ -229,6 +231,7 @@ export default async function UsersPage({
         .in('pro_id', cleanerIds)
     : { data: [] }
   const signatureByProId = new Map((signatures ?? []).map((s) => [s.pro_id, s]))
+  const amendmentsByProId = await amendmentStatuses(admin, cleanerIds)
 
   // Banned from this page and still inside the appeal process (see lib/banAccount).
   const userIds = (users ?? []).map((u) => u.id)
@@ -509,6 +512,7 @@ export default async function UsersPage({
                       {user.role === 'TIDYPRO' && (() => {
                         const signature = signatureByProId.get(user.id)
                         if (!signature) return <p className="text-xs text-slate-400 mt-1 whitespace-nowrap">Agreement not signed</p>
+                        const amendments = <AmendmentStatusList statuses={amendmentsByProId.get(user.id)} className="text-xs mt-0.5" />
                         return (
                           <div className="mt-1 text-xs whitespace-nowrap">
                             <a href={`/admin/agreements/${signature.id}`} target="_blank" rel="noopener noreferrer" className="text-slate-500 underline">
@@ -519,6 +523,7 @@ export default async function UsersPage({
                                 <button type="submit" className="text-amber-600 underline">Email failed, resend</button>
                               </form>
                             )}
+                            {amendments}
                           </div>
                         )
                       })()}

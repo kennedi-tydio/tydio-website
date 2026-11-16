@@ -16,6 +16,8 @@ export type SignatureDetails = {
   ipAddress: string | null
   userAgent: string | null
   consentText: string
+  // Replaces the closing paragraph on the certificate page (see drawCertificate).
+  certificateNote?: string
 }
 
 // Where the agreement's own signature blocks are, in PDF points from the bottom-left
@@ -32,6 +34,10 @@ export type SignatureLayout = {
   providerDate: FieldSpot
   tydioDate: FieldSpot
 }
+
+// A document whose provider block is already printed (an amendment naming the
+// provider) only needs the signature and date lines.
+export type PartialSignatureLayout = Pick<SignatureLayout, 'providerSignature' | 'providerDate'> & Partial<SignatureLayout>
 
 const INK = rgb(0.1, 0.14, 0.2)
 const MUTED = rgb(0.4, 0.45, 0.52)
@@ -105,7 +111,7 @@ export function formatSignedAt(date: Date, timeZone: string | null): { utc: stri
 export async function buildSignedAgreement(
   original: Uint8Array,
   details: SignatureDetails,
-  layout?: SignatureLayout
+  layout?: PartialSignatureLayout
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(original)
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
@@ -147,12 +153,12 @@ function fillSignatureBlocks(
   pages: PDFPage[],
   fonts: { regular: PDFFont; signatureFont: PDFFont },
   details: SignatureDetails,
-  layout: SignatureLayout
+  layout: PartialSignatureLayout
 ) {
   const date = signedDate(details.signedAt, details.timeZone)
-  const put = (spot: FieldSpot, text: string, font = fonts.regular, size = 10) => {
-    const page = pages[spot.page]
-    if (!page) return
+  const put = (spot: FieldSpot | undefined, text: string, font = fonts.regular, size = 10) => {
+    const page = spot && pages[spot.page]
+    if (!spot || !page) return
     page.drawText(encodable(font, text), { x: spot.x, y: spot.y, size, font, color: INK, maxWidth: page.getSize().width - spot.x - 36 })
   }
   put(layout.providerLegalName, details.signedName)
@@ -230,6 +236,7 @@ function drawCertificate(
 
   y -= 16
   const note =
+    details.certificateNote ??
     'The signer reviewed the agreement above and signed it electronically in the Tydio app by typing their name, ' +
     'checking the acceptance box, and selecting “Agree and Continue.” Tydio LLC’s signature and date were applied ' +
     'by its authorized representative’s standing execution of this agreement version. The SHA-256 value ' +
