@@ -7,6 +7,9 @@ import { DEFAULT_BOOKING_TIME_ZONE, todayInZone } from '@/lib/bookingTime'
 import { formatTimeOffRange, normalizeTimeOff, parseTimeOff } from '@/lib/timeOff'
 import CleanerDetailView from '@/app/book/schedule/[cleanerId]/CleanerDetailView'
 import { FavoriteStar } from '../../users/FavoriteStar'
+import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
+import { amendmentStatuses } from '@/lib/legal/agreementAmendments'
+import AmendmentStatusList from '../../AmendmentStatusList'
 
 export const metadata: Metadata = { title: 'Tidy Pro profile — Tydio Admin' }
 
@@ -17,7 +20,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
   const { proId } = await params
   const admin = createAdminClient()
 
-  const [{ data: tidyPro, error }, { data: profile }, { data: favoriteRow }] = await Promise.all([
+  const [{ data: tidyPro, error }, { data: profile }, { data: favoriteRow }, { data: agreement }, amendmentsById] = await Promise.all([
     admin
       .from('tidypro_profiles')
       .select(
@@ -27,6 +30,8 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
       .maybeSingle(),
     admin.from('profiles').select('first_name, last_name, email').eq('id', proId).maybeSingle(),
     admin.from('admin_favorite_tidy_pros').select('pro_id').eq('pro_id', proId).maybeSingle(),
+    admin.from('agreement_signatures').select('id, signed_at').eq('pro_id', proId).eq('agreement_version', ICA_VERSION).maybeSingle(),
+    amendmentStatuses(admin, [proId]),
   ])
 
   if (error) throw new Error(`Failed to load Tidy Pro: ${error.message}`)
@@ -82,6 +87,18 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
           </p>
           {tidyPro.is_away && <p className="text-sm text-amber-700 mb-1">Away: hidden from search until they turn it off</p>}
           <p className="text-xs text-slate-400 mb-4">Times are in their time zone ({timeZone}).</p>
+
+          <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Contractor agreement</h3>
+          <div className="mb-4">
+            {agreement ? (
+              <a href={`/admin/agreements/${agreement.id}`} target="_blank" rel="noopener noreferrer" className="text-sm text-slate-600 underline">
+                Signed {new Date(agreement.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })}
+              </a>
+            ) : (
+              <p className="text-sm text-slate-400">Not signed</p>
+            )}
+            <AmendmentStatusList statuses={amendmentsById.get(proId)} className="text-sm mt-1" />
+          </div>
 
           <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Upcoming time off</h3>
           {timeOff.length > 0 ? (
