@@ -3,6 +3,7 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/bannedUsers'
 import { deleteOwnAccount } from '@/lib/accountDeletion'
 import { suspendAccounts, unsuspendAccounts } from '@/lib/accountSuspension'
+import { cancelBookingsForAccounts, type AccountCancellationResult } from '@/lib/accountBookingCancellation'
 import { emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { APPEAL_MAX_LENGTH, BAN_APPEAL_DAYS, BanAppealError, appealCutoff, appealDeadline, formatDeadline } from '@/lib/appealWindow'
 
@@ -59,12 +60,13 @@ type BanExtras = { fee_amount_cents?: number | null; stripe_payment_intent_id?: 
 // Writes the banned_users row (listed under Background Checks → Banned), which blocks
 // signing in or up with the same email or phone. Then marks the profile banned, which
 // ends their sessions, and suspends it, which pauses a Tidy Pro and blocks booking.
+// Their upcoming bookings and requests are canceled with a full refund to the customer.
 async function recordBan(
   admin: Admin,
   profileId: string,
   note: string | null,
   fields: { appeal_token?: string; appeal_denied_at?: string } & BanExtras
-): Promise<{ id: string; banned_at: string; email: string; first_name: string | null }> {
+): Promise<{ id: string; banned_at: string; email: string; first_name: string | null; cancellations: AccountCancellationResult }> {
   const [{ data: profile }, { data: tidyPro }] = await Promise.all([
     admin.from('profiles').select('email, first_name, last_name, phone').eq('id', profileId).maybeSingle(),
     admin.from('tidypro_profiles').select('phone').eq('id', profileId).maybeSingle(),
@@ -94,8 +96,9 @@ async function recordBan(
   const { error: markError } = await admin.from('profiles').update({ banned_at: ban.banned_at }).eq('id', profileId)
   if (markError) throw new Error(markError.message)
   await suspendAccounts(admin, [profileId])
+  const cancellations = await cancelBookingsForAccounts(admin, [profileId], 'ban')
 
-  return { ...ban, email: profile.email, first_name: profile.first_name }
+  return { ...ban, email: profile.email, first_name: profile.first_name, cancellations }
 }
 
 // Undoes recordBan for an account that still exists: sessions work again and the
@@ -109,7 +112,8 @@ export async function liftBan(admin: Admin, profileId: string): Promise<void> {
 // A ban from /admin/users. Nothing is deleted yet: they're emailed a link to appeal,
 // and the account is deleted BAN_APPEAL_DAYS after the ban unless an appeal has been
 // accepted by then, or sooner if an appeal is denied. Refused if already banned.
-export async function banAccount(admin: Admin, profileId: string, note: string | null): Promise<void> {
+// Returns what happened to their bookings.
+export async function banAccount(admin: Admin, profileId: string, note: string | null): Promise<AccountCancellationResult> {
   const appealToken = randomBytes(32).toString('hex')
   const ban = await recordBan(admin, profileId, note, { appeal_token: appealToken })
 
@@ -117,7 +121,7 @@ export async function banAccount(admin: Admin, profileId: string, note: string |
   await notify(ban, 'Your Tydio account has been banned', `
     <p style="${P}">
       Your Tydio account has been banned, and you've been signed out. You won't be able to sign in or
-      create a new account.
+      create a new account. Any upcoming bookings have been canceled.
     </p>
     ${note ? `<p style="margin:0 0 16px;padding:12px 16px;background:#fef2f2;border-radius:10px;color:#ef4444;font-size:14px;line-height:1.5;">${escapeHtml(note)}</p>` : ''}
     <p style="${P}">
@@ -129,6 +133,7 @@ export async function banAccount(admin: Admin, profileId: string, note: string |
       Appeal this ban
     </a>
   `)
+  return ban.cancellations
 }
 
 // A ban with no appeal, for when the person has already had their chance to appeal

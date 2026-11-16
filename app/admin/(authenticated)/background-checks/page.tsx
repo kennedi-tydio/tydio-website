@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { backgroundCheckStage, type BackgroundCheckStage } from '@/lib/backgroundCheck'
 import { feeStatusLabel, formatFeeCents } from '@/lib/backgroundCheckFee'
+import { appealDeadline, formatDeadline } from '@/lib/appealWindow'
 import { removeBanAction } from '../../actions'
 import { DecisionForm, FollowUpForm, MarkSentForm } from './ScreeningForms'
 
@@ -11,6 +12,7 @@ const STAGE_TABS: { label: string; value: BackgroundCheckStage }[] = [
   { label: 'Sent · decide', value: 'link_sent' },
   { label: 'Processing', value: 'pending' },
   { label: 'Approved', value: 'passed' },
+  { label: 'Denied', value: 'failed' },
   { label: 'Not paid', value: 'not_started' },
 ]
 
@@ -28,6 +30,24 @@ const TH = 'px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wi
 
 function formatDate(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString() : '—'
+}
+
+// Denied cleaners have the shared appeal window to get an appeal accepted before
+// they're banned and their account is deleted.
+function DeniedStatus({ completedAt }: { completedAt: string | null }) {
+  const deadline = completedAt ? appealDeadline(completedAt) : null
+  return (
+    <div className="flex flex-col gap-1 text-xs text-slate-400">
+      {deadline && (
+        <span>
+          {deadline.getTime() > Date.now() ? 'Appeal window closes' : 'Appeal window closed'} {formatDeadline(deadline)}
+        </span>
+      )}
+      <a href="/admin/appeals" className="underline self-start">
+        View appeals
+      </a>
+    </div>
+  )
 }
 
 export default async function AdminBackgroundChecksPage({
@@ -210,7 +230,8 @@ export default async function AdminBackgroundChecksPage({
                           {(stage === 'not_started' || stage === 'link_sent') && (
                             <FollowUpForm proId={row.pro_id} defaultKind={stage === 'not_started' ? 'not_paid' : 'not_started'} />
                           )}
-                          {(stage === 'passed' || stage === 'failed') && <span className="text-xs text-slate-400">Decided</span>}
+                          {stage === 'passed' && <span className="text-xs text-slate-400">Decided</span>}
+                          {stage === 'failed' && <DeniedStatus completedAt={row.completed_at} />}
                         </div>
                       </td>
                     </tr>

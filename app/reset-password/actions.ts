@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { hashPassword } from '@/lib/auth/password'
 import { createSession } from '@/lib/auth/session'
 import { BANNED_MESSAGE, isBanned } from '@/lib/bannedUsers'
+import { customerLanding } from '@/lib/waitlistLanding'
 
 export type ResetState = { error?: string }
 
@@ -50,5 +51,5 @@ export async function resetPasswordAction(
 
   await createSession({ profileId: profile.id, role: profile.role as 'USER' | 'TIDYPRO' | 'ADMIN', email: profile.email })
 
-  redirect(profile.role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
+  redirect(await customerLanding(admin, profile.id, profile.role, profile.role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard'))
 }

@@ -1,4 +1,4 @@
-import { PUSH_REQUIRED } from '@/lib/pushRequirement'
+import { NOTIFICATIONS_REQUIRED, NOTIFICATION_STEP_LABEL, meetsNotificationRequirement } from '@/lib/pushRequirement'
 import { hasChosenServices } from '@/lib/tidyProServices'
 
 // What a cleaner has to finish themself before customers can book them, on top of
@@ -15,6 +15,8 @@ type OnboardingFields = {
   longitude: number | null
   // Whether any device has a push subscription (see withPushStatus in lib/pushRequirement).
   has_push: boolean
+  // Texts opted in with a phone number; only counts while NOTIFICATION_REQUIREMENT allows it.
+  has_sms?: boolean
 }
 
 export function hasAvailability(availability: unknown): boolean {
@@ -33,6 +35,12 @@ export function missingOnboardingSteps(cleaner: OnboardingFields): { label: stri
   if (cleaner.latitude == null || cleaner.longitude == null) steps.push({ label: 'Add your address', href: '/pro/profile/address' })
   if (cleaner.travel_radius_miles == null) steps.push({ label: 'Set your travel distance', href: '/pro/profile/travel-distance' })
   if (!hasChosenServices(cleaner.services_provided)) steps.push({ label: 'Choose the services you provide', href: '/pro/profile/services' })
-  if (PUSH_REQUIRED && !cleaner.has_push) steps.push({ label: 'Turn on push notifications', href: '/pro/profile/notifications?required=1' })
+  if (NOTIFICATIONS_REQUIRED && !meetsNotificationRequirement(cleaner)) steps.push({ label: NOTIFICATION_STEP_LABEL, href: '/pro/profile/notifications?required=1' })
   return steps
+}
+
+// missingOnboardingSteps talks to the cleaner ("Write your bio"); admin lists read
+// better without the "your".
+export function adminStepLabel(label: string): string {
+  return label.replace(/\byour\b /i, '')
 }

@@ -6,6 +6,9 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import type { CleanerMatch } from '@/lib/cleanerMatching'
 import { cancelBookingRequestAction } from '@/app/dashboard/messages/[bookingId]/actions'
 import { sendReplacementRequestsAction } from './actions'
+import CancelReasonSheet from '@/app/components/CancelReasonSheet'
+import { CUSTOMER_CANCEL_REASONS, type Cancellation } from '@/lib/cancellationReasons'
+import { VerifiedCheck } from '@/app/components/VerifiedCheck'
 
 const MAX_CHOICES = 3
 
@@ -46,19 +49,14 @@ export default function ReplacementPickerView({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [cancelling, setCancelling] = useState(false)
+  const [askingReason, setAskingReason] = useState(false)
   const atLimit = selected.length >= MAX_CHOICES
 
-  async function handleCancelBooking() {
-    setCancelling(true)
-    setError(null)
-    const result = await cancelBookingRequestAction(bookingId)
-    if ('error' in result) {
-      setCancelling(false)
-      setError(result.error)
-      return
-    }
+  async function handleCancelBooking(cancellation: Cancellation): Promise<string | null> {
+    const result = await cancelBookingRequestAction(bookingId, cancellation)
+    if ('error' in result) return result.error
     router.push(`/dashboard/messages/${bookingId}`)
+    return null
   }
 
   function toggle(id: string) {
@@ -124,7 +122,10 @@ export default function ReplacementPickerView({
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-900 truncate">{cleaner.name}</p>
+                    <p className="text-sm font-semibold text-slate-900 flex items-center gap-1 min-w-0">
+                      <span className="truncate">{cleaner.name}</span>
+                      {cleaner.isVerified && <VerifiedCheck size={14} />}
+                    </p>
                     <div className="flex items-center gap-1 mt-0.5">
                       <IconStar />
                       <span className="text-xs text-slate-600">{cleaner.rating.toFixed(1)}</span>
@@ -157,7 +158,7 @@ export default function ReplacementPickerView({
           <button
             type="button"
             onClick={handleSend}
-            disabled={selected.length === 0 || sending || cancelling}
+            disabled={selected.length === 0 || sending}
             className="w-full py-3.5 rounded-2xl font-semibold text-sm text-white disabled:text-slate-400"
             style={{ backgroundColor: selected.length > 0 ? 'var(--color-brand)' : '#e5e9ef' }}
           >
@@ -166,12 +167,15 @@ export default function ReplacementPickerView({
         )}
         <button
           type="button"
-          onClick={handleCancelBooking}
-          disabled={sending || cancelling}
+          onClick={() => setAskingReason(true)}
+          disabled={sending}
           className="w-full py-3 rounded-2xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
         >
-          {cancelling ? 'Cancelling…' : 'Cancel booking and get a refund'}
+          Cancel booking and get a refund
         </button>
+        {askingReason && (
+          <CancelReasonSheet reasons={CUSTOMER_CANCEL_REASONS} onConfirm={handleCancelBooking} onClose={() => setAskingReason(false)} />
+        )}
         <p className="text-xs text-slate-400 text-center">The Stripe processing fee is nonrefundable.</p>
       </div>
     </main>

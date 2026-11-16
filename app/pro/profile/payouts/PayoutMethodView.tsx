@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { startPayoutSetupAction, getPayoutDashboardLinkAction } from './actions'
 import type { PayoutMethodSummary } from '@/lib/stripe/connect'
+import { useRefreshOnReturn } from '@/app/components/useRefreshOnReturn'
 
 function IconBack() {
   return (
@@ -96,6 +97,9 @@ export default function PayoutMethodView({
   unreadMessageCount: number
 }) {
   const router = useRouter()
+  // Payout methods are added on Stripe's hosted pages; coming back from there
+  // (often with the browser's back button) must show what was just added.
+  useRefreshOnReturn()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -137,7 +141,7 @@ export default function PayoutMethodView({
           <IconBack />
         </button>
 
-        <h1 className="text-3xl font-bold text-slate-900 mb-5">Payout Method</h1>
+        <h1 className="text-3xl font-bold text-slate-900 mb-5">Payout Methods</h1>
 
         <StripeNotice />
 
@@ -158,7 +162,16 @@ export default function PayoutMethodView({
           </div>
         )}
 
-        {hasPayoutMethod && payoutMethods.length > 0 ? (
+        {!hasPayoutMethod && payoutMethods.length > 0 && (
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3.5 mb-4">
+            <p className="text-sm font-semibold text-slate-800 mb-0.5">Payout setup not finished</p>
+            <p className="text-sm text-slate-500 leading-relaxed">
+              Stripe is still verifying your details, or needs a few more before payouts can start.
+            </p>
+          </div>
+        )}
+
+        {payoutMethods.length > 0 ? (
           <div className="rounded-2xl border border-slate-100 shadow-sm divide-y divide-slate-100 overflow-hidden">
             {payoutMethods.map((pm) => (
               <div key={pm.id} className="flex items-center gap-3 px-4 py-3.5">
@@ -207,7 +220,13 @@ export default function PayoutMethodView({
             className="w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide disabled:opacity-60 transition-opacity"
             style={{ backgroundColor: 'var(--color-brand)' }}
           >
-            {submitting ? 'Please wait…' : hasPayoutMethod ? 'Add another payout method' : 'Add payout method'}
+            {submitting
+              ? 'Please wait…'
+              : hasPayoutMethod
+                ? 'Add another payout method'
+                : payoutMethods.length > 0
+                  ? 'Finish payout setup'
+                  : 'Add payout method'}
           </button>
           <p className="text-center text-xs font-semibold text-slate-900 mt-4">Powered by Stripe</p>
         </div>

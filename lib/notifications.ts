@@ -72,7 +72,7 @@ export function notifyBookingCancelledConfirmation(): NotificationPayload {
 export function notifyLateCancelConfirmation(refund: number): NotificationPayload {
   return {
     title: 'Booking canceled',
-    body: `Your booking has been canceled. Because it was less than 12 hours away, $${refund.toFixed(2)} (50%) has been refunded. Your tasks are back on your list.`,
+    body: `Your booking has been canceled. Because it was less than 2 hours away, $${refund.toFixed(2)} (50%) has been refunded. Your tasks are back on your list.`,
     url: siteUrl('/dashboard'),
   }
 }
@@ -121,7 +121,7 @@ export function notifyCustomerNoAccess(): NotificationPayload {
 export function notifyNoShowReportedConfirmation(): NotificationPayload {
   return {
     title: 'No-show reported',
-    body: "Sorry your Tidy Pro didn't arrive. Your booking has been canceled, and our team will review it and email you about your refund. Your tasks are back on your list.",
+    body: "Sorry your Tidy Pro didn't arrive. Your booking has been canceled and refunded, except for the card processing fee. Your tasks are back on your list.",
     url: siteUrl('/dashboard'),
   }
 }
@@ -169,7 +169,7 @@ export function notifyAdminCancelledRequest(bookingId: string): NotificationPayl
 export function notifyCustomerCancelledLate(customerFirstName: string, pay: number, bookingId: string): NotificationPayload {
   return {
     title: 'Booking cancelled',
-    body: `${customerFirstName} cancelled less than 12 hours before the booking, so you'll still be paid $${pay.toFixed(2)}.`,
+    body: `${customerFirstName} cancelled less than 2 hours before the booking, so you'll still be paid $${pay.toFixed(2)} (50% of your pay).`,
     url: siteUrl(`/pro/messages/${bookingId}`),
   }
 }
@@ -283,10 +283,199 @@ export function notifyInsuranceExpired(): NotificationPayload {
   }
 }
 
+// Sent to a customer whose search found nobody, when a new Tidy Pro can take it.
+// `when` is " on Fri, Nov 20 at 9:00 AM", " at 9:00 AM", or "" (searchTimePhrase).
+export function notifyCleanerAvailable(cleanerFirstName: string, profileUrl: string, when: string): NotificationPayload {
+  return {
+    title: 'A Tidy Pro is now available near you',
+    body: `Good news! ${cleanerFirstName} just joined Tydio and can take your booking${when}. Take a look at their profile.`,
+    url: profileUrl,
+  }
+}
+
 export function notifyInsuranceDenied(reason: string): NotificationPayload {
   return {
     title: 'Insurance document needs attention',
     body: `Your proof of insurance wasn't approved: ${reason}`,
     url: siteUrl('/pro/profile/insurance'),
+  }
+}
+
+function shortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+// A recurring booking's next visit was booked and sent to the Tidy Pro (see lib/recurringBookings).
+export function notifyRecurringVisitRequested(cleanerName: string, dateISO: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Your next recurring cleaning is requested',
+    body: `We sent your recurring booking for ${shortDate(dateISO)} to ${cleanerName} and charged your card. You'll hear when they accept.`,
+    url: siteUrl(`/dashboard/messages/${bookingId}`),
+  }
+}
+
+export function notifyRecurringVisitFailed(dateISO: string, reason: string): NotificationPayload {
+  return {
+    title: "We couldn't book your recurring cleaning",
+    body: `Your recurring booking for ${shortDate(dateISO)} wasn't booked: ${reason} You weren't charged for it.`,
+    url: siteUrl('/dashboard/bookings'),
+  }
+}
+
+// ── Visits of an accepted recurring series (lib/recurringPayments) ──
+
+// To the Tidy Pro: a visit of a series they accepted is on their schedule.
+export function notifyRecurringVisitScheduled(customerFirstName: string, dateISO: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Recurring visit added',
+    body: `${customerFirstName}'s recurring cleaning on ${shortDate(dateISO)} is on your schedule. Can't make it? You can cancel it from the booking.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyRecurringVisitBooked(cleanerName: string, dateISO: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Your next recurring cleaning is booked',
+    body: `${cleanerName} will be there on ${shortDate(dateISO)}. We'll charge your card 3 days before.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyRecurringVisitCharged(amount: number, dateISO: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Payment received',
+    body: `We charged $${amount.toFixed(2)} for your recurring cleaning on ${shortDate(dateISO)}.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyRecurringPaymentFailed(dateISO: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Your booking needs attention',
+    body: `We couldn't charge your card for your recurring cleaning on ${shortDate(dateISO)}. Pay in the app at least 24 hours before it starts to keep it.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyRecurringVisitSuspended(dateISO: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Your booking is on hold',
+    body: `We still couldn't charge your card for ${shortDate(dateISO)}, so that cleaning is on hold. Pay and choose a new date in the app, or it will be canceled.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyRecurringVisitOnHold(customerFirstName: string, dateISO: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Recurring visit on hold',
+    body: `${customerFirstName}'s payment for ${shortDate(dateISO)} didn't go through, so the visit is on hold. Don't go unless it's paid. We'll let you know.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyRecurringVisitPaidConfirmation(amount: number, dateISO: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Payment received',
+    body: `Thanks! We charged $${amount.toFixed(2)}. Your cleaning on ${shortDate(dateISO)} is confirmed.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+// To the Tidy Pro, once a visit whose payment failed is paid (dateISO is its date now).
+export function notifyRecurringVisitBackOn(customerFirstName: string, dateISO: string, moved: boolean, bookingId: string): NotificationPayload {
+  return {
+    title: moved ? 'Recurring visit moved' : 'Recurring visit is back on',
+    body: moved
+      ? `${customerFirstName} paid and moved their recurring cleaning to ${shortDate(dateISO)}.`
+      : `${customerFirstName} paid for their recurring cleaning on ${shortDate(dateISO)}.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyRecurringVisitCancelledUnpaid(role: 'USER' | 'TIDYPRO', dateISO: string): NotificationPayload {
+  return role === 'USER'
+    ? {
+        title: 'Your cleaning was canceled',
+        body: `Your recurring cleaning on ${shortDate(dateISO)} was canceled because it wasn't paid. You weren't charged. Your next visits are still on.`,
+        url: siteUrl('/dashboard/bookings'),
+      }
+    : {
+        title: 'Recurring visit canceled',
+        body: `The recurring visit on ${shortDate(dateISO)} was canceled because the customer didn't pay.`,
+        url: siteUrl('/pro/bookings'),
+      }
+}
+
+// The Tidy Pro canceled one visit of their series before it was paid, or is off that day.
+export function notifyRecurringVisitCancelledByTidyPro(cleanerFirstName: string, dateISO: string): NotificationPayload {
+  return {
+    title: 'Your Tidy Pro canceled',
+    body: `${cleanerFirstName} canceled your recurring cleaning on ${shortDate(dateISO)}. You weren't charged for it, and your other visits are still on. Need that day? Book it from Home.`,
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyRecurringSeriesDroppedByTidyPro(cleanerFirstName: string, seriesId: string): NotificationPayload {
+  return {
+    title: 'Your recurring cleaning needs a new Tidy Pro',
+    body: `${cleanerFirstName} can no longer do your recurring cleaning. Choose a new Tidy Pro to keep it going, or cancel it from Bookings.`,
+    url: siteUrl(`/dashboard/bookings/recurring/${seriesId}/tidy-pro`),
+  }
+}
+
+// ── Upcharges and admin edits (lib/bookingUpcharges, lib/adminBookingEdits) ──
+
+export function notifyUpchargeRequested(amount: number, bookingId: string): NotificationPayload {
+  return {
+    title: 'Your booking needs attention',
+    body: `The Tydio team added $${amount.toFixed(2)} to your booking. It's on hold until you pay this in the app.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyBookingSuspendedForUpcharge(bookingId: string): NotificationPayload {
+  return {
+    title: 'Booking on hold',
+    body: "One of your bookings is on hold while the customer pays an extra charge. Please don't start or continue it until we let you know it's back on.",
+    url: siteUrl(`/pro/bookings/${bookingId}`),
+  }
+}
+
+export function notifyUpchargePaid(extraPay: number, bookingId: string): NotificationPayload {
+  return {
+    title: 'Booking back on',
+    body: `The customer paid the extra charge, so your booking is back on.${extraPay > 0 ? ` You'll earn $${extraPay.toFixed(2)} more when it's complete.` : ''}`,
+    url: siteUrl(`/pro/bookings/${bookingId}`),
+  }
+}
+
+export function notifyUpchargePaidConfirmation(charged: number, bookingId: string): NotificationPayload {
+  return {
+    title: 'Payment received',
+    body: `Thanks! We charged your card $${charged.toFixed(2)}, and your booking is back on.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+export function notifyUpchargeWithdrawn(forRole: 'USER' | 'TIDYPRO', bookingId: string): NotificationPayload {
+  return forRole === 'USER'
+    ? {
+        title: 'Extra charge removed',
+        body: "The Tydio team removed the extra charge from your booking. You don't need to pay anything, and your booking is back on.",
+        url: siteUrl(`/dashboard/bookings/${bookingId}`),
+      }
+    : {
+        title: 'Booking back on',
+        body: "The hold on your booking has been lifted, so it's back on.",
+        url: siteUrl(`/pro/bookings/${bookingId}`),
+      }
+}
+
+export function notifyBookingEditedByAdmin(forRole: 'USER' | 'TIDYPRO', changes: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Your booking was updated',
+    body: `The Tydio team updated your booking: ${changes}.`,
+    url: siteUrl(forRole === 'USER' ? `/dashboard/bookings/${bookingId}` : `/pro/bookings/${bookingId}`),
   }
 }

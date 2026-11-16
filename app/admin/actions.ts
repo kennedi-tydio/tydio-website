@@ -1,12 +1,13 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { REPORT_SEVERITIES, type ReportSeverity } from '@/lib/reportCategories'
 import { revalidatePath } from 'next/cache'
 import { setAdminCookie, clearAdminCookie, isAdminAuthed, isAdminSecret } from '@/lib/auth/admin'
 import { RATE_LIMITED_MESSAGE, RATE_LIMITS, clientIp, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
-import { sendEmail, emailShell, escapeHtml } from '@/lib/email'
+import { sendEmail, emailShell, escapeHtml, TYDIO_ADMIN_EMAIL } from '@/lib/email'
 import { researchAreaMarketPrice, researchStateMedianPrice } from '@/lib/marketPricing'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPush, sendPushForPayload } from '@/lib/push'
@@ -26,12 +27,15 @@ import { recordFeeRefund } from '@/lib/stripe/backgroundCheckFee'
 import { FOLLOW_UP_KINDS, type FollowUpKind } from '@/lib/backgroundCheckFollowUp'
 import { emailSignedAgreement } from '@/lib/legal/agreementSigning'
 import { suspendAccounts, unsuspendAccounts } from '@/lib/accountSuspension'
+import { cancelBookingsForAccounts, describeAccountCancellations, type AccountCancellationResult } from '@/lib/accountBookingCancellation'
 import { OPEN_BOOKINGS_MESSAGE, UNPAID_PAYOUT_MESSAGE, deleteOwnAccount } from '@/lib/accountDeletion'
 import { acceptBackgroundCheckAppeal, denyBackgroundCheckAppeal } from '@/lib/backgroundCheckAppeals'
 import { ALREADY_BANNED_MESSAGE, BAN_APPEAL_DAYS, BanAppealError, acceptAppeal, banAccount, denyAppeal, liftBan } from '@/lib/banAccount'
 import { pauseCleaner } from '@/lib/cleanerStatus'
 import { isRefundLevel, resolveBookingIncident } from '@/lib/bookingIncidents'
 import { ADMIN_REFUND_LABELS, cancelBookingAsAdmin, isAdminRefund } from '@/lib/bookingRequestGroups'
+import { editBookingAsAdmin, parseAdminBookingEdit } from '@/lib/adminBookingEdits'
+import { parseUpchargeInput, requestUpcharge, withdrawUpcharge } from '@/lib/bookingUpcharges'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -525,11 +529,45 @@ export async function revokeAccessAction(
   if (!(await isAdminAuthed())) return
 
   const admin = createAdminClient()
-  await admin.from('profiles').update({
+  const { data: profile } = await admin.from('profiles').update({
     booking_access_status: 'waitlisted',
     booking_access_granted_at: null,
     waitlisted: true,
-  }).eq('id', profileId)
+  }).eq('id', profileId).eq('booking_access_status', 'booking_allowed').neq('role', 'ADMIN')
+    .select('role, email, first_name').maybeSingle()
+
+  if (profile) {
+    // A Tidy Pro back on the waitlist mustn't keep getting jobs. Approving them
+    // again (after Grant Access) puts them back in search.
+    if (profile.role === 'TIDYPRO') await pauseCleaner(admin, profileId)
+
+    // A failed email shouldn't undo the change; they'll see the waitlist screen on their next visit.
+    try {
+      await sendEmail({
+        to: [{ email: profile.email, name: profile.first_name ?? undefined }],
+        subject: "You're on the Tydio waitlist",
+        htmlContent: emailShell(`
+          <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">
+            Hi ${escapeHtml(profile.first_name ?? 'there')},
+          </h2>
+          <p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;">
+            We let you off the Tydio waitlist too early, sorry about that. You're back on the waitlist for now,
+            so you won't be able to ${profile.role === 'TIDYPRO' ? 'take jobs' : 'book Tidy Pros'} yet.
+            We'll email you as soon as you can.
+          </p>
+          <p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;">
+            Questions? Contact support at
+            <a href="mailto:${TYDIO_ADMIN_EMAIL}" style="color:#38C7CA;">${TYDIO_ADMIN_EMAIL}</a>.
+          </p>
+          <p style="margin:0;color:#94a3b8;font-size:13px;">
+            You were notified because you signed up for Tydio.
+          </p>
+        `),
+      })
+    } catch (err) {
+      console.error('[Tydio] Back on waitlist email failed:', err)
+    }
+  }
 
   revalidatePath('/admin/users')
   revalidatePath('/admin')
@@ -579,8 +617,9 @@ export async function manageAccountsAction(
   let result: AccountActionState
   try {
     if (intent === 'suspend') {
-      const count = await suspendAccounts(admin, ids)
-      result = { message: `Suspended ${plural(count, 'account')}.${adminNote}` }
+      const count = await suspendAccounts(admin, ids, { notify: true })
+      const cancellations = await cancelBookingsForAccounts(admin, ids, 'suspend')
+      result = { message: `Suspended ${plural(count, 'account')} and emailed ${count === 1 ? 'them' : 'each one'}.${describeAccountCancellations(cancellations)}${adminNote}` }
     } else if (intent === 'unsuspend') {
       const count = await unsuspendAccounts(admin, ids)
       const proNote = targets.some(p => p.role === 'TIDYPRO') ? ' Tidy Pros stay paused until you approve them.' : ''
@@ -597,6 +636,7 @@ export async function manageAccountsAction(
 
   revalidatePath('/admin/users')
   revalidatePath('/admin/background-checks')
+  revalidatePath('/admin/reports')
   revalidatePath('/admin')
   return result
 }
@@ -654,9 +694,14 @@ async function banAccounts(
 ): Promise<AccountActionState> {
   let banned = 0
   const failed: string[] = []
+  const cancellations: AccountCancellationResult = { cancelled: 0, released: 0, inProgress: 0, failed: 0 }
   for (const profile of targets) {
     try {
-      await banAccount(admin, profile.id, note)
+      const result = await banAccount(admin, profile.id, note)
+      cancellations.cancelled += result.cancelled
+      cancellations.released += result.released
+      cancellations.inProgress += result.inProgress
+      cancellations.failed += result.failed
       banned++
     } catch (err) {
       failed.push(`${displayName(profile)} (${err instanceof Error ? err.message : 'ban failed'})`)
@@ -668,7 +713,7 @@ async function banAccounts(
     return { error: failed[0].endsWith(`(${ALREADY_BANNED_MESSAGE})`) ? ALREADY_BANNED_MESSAGE : `Couldn't ban ${failed[0]}.` }
   }
 
-  const message = `Banned ${plural(banned, 'account')}. They've been signed out and emailed a link to appeal; each account is deleted ${BAN_APPEAL_DAYS} days after its ban unless an appeal is accepted first.${adminNote}`
+  const message = `Banned ${plural(banned, 'account')}. They've been signed out and emailed a link to appeal; each account is deleted ${BAN_APPEAL_DAYS} days after its ban unless an appeal is accepted first.${describeAccountCancellations(cancellations)}${adminNote}`
   if (failed.length > 0) return { error: `${message} Couldn't ban ${failed.length}: ${failed.join(', ')}.` }
   return { message }
 }
@@ -733,6 +778,22 @@ export async function setFavoriteTidyProAction(proId: string, favorite: boolean)
 
   revalidatePath('/admin/users')
   revalidatePath(`/admin/tidy-pros/${proId}`)
+  return {}
+}
+
+// The admin's call on whether a Tidy Pro is verified (tidypro_profiles.is_verified),
+// which shows customers the badge on their profile and in search.
+export async function setTidyProVerifiedAction(proId: string, verified: boolean): Promise<{ error?: string }> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const admin = createAdminClient()
+  const { data, error } = await admin.from('tidypro_profiles').update({ is_verified: verified }).eq('id', proId).select('id')
+  if (error) return { error: `Couldn't update verification: ${error.message}` }
+  if (!data || data.length === 0) return { error: 'This Tidy Pro hasn’t set up their profile yet.' }
+
+  revalidatePath('/admin/tidy-pros')
+  revalidatePath(`/admin/tidy-pros/${proId}`)
+  revalidatePath(`/book/schedule/${proId}`)
   return {}
 }
 
@@ -1114,6 +1175,65 @@ export async function cancelBookingAction(
   return { message: `Canceled. ${outcome}. The customer has been emailed.` }
 }
 
+// ─── Booking edits and upcharges ─────────────────────────────────────────────
+
+export type BookingAdminState = { error?: string; message?: string }
+
+function revalidateBookingPages(bookingId: string) {
+  revalidatePath('/admin/bookings')
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidatePath(`/dashboard/messages/${bookingId}`)
+  revalidatePath('/dashboard/bookings')
+  revalidatePath('/dashboard')
+  revalidatePath(`/pro/bookings/${bookingId}`)
+  revalidatePath(`/pro/messages/${bookingId}`)
+  revalidatePath('/pro/bookings')
+  revalidatePath('/pro/dashboard')
+}
+
+export async function editBookingAction(bookingId: string, _prev: BookingAdminState, formData: FormData): Promise<BookingAdminState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const edit = parseAdminBookingEdit({
+    date: String(formData.get('date') ?? ''),
+    time: String(formData.get('time') ?? ''),
+    durationMinutes: String(formData.get('duration') ?? ''),
+    notes: String(formData.get('notes') ?? ''),
+    entryInstructions: String(formData.get('entry_instructions') ?? ''),
+  })
+  if ('error' in edit) return edit
+
+  const result = await editBookingAsAdmin(createAdminClient(), bookingId, edit)
+  if ('error' in result) return result
+  if (result.changes.length === 0) return { message: 'Nothing changed.' }
+
+  revalidateBookingPages(bookingId)
+  return { message: `Saved: ${result.changes.join(', ')}. The customer and Tidy Pro have been notified.` }
+}
+
+export async function requestUpchargeAction(bookingId: string, _prev: BookingAdminState, formData: FormData): Promise<BookingAdminState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const input = parseUpchargeInput(String(formData.get('amount') ?? ''), String(formData.get('cleaner_pay') ?? ''), String(formData.get('reason') ?? ''))
+  if ('error' in input) return input
+
+  const result = await requestUpcharge(createAdminClient(), bookingId, input)
+  if ('error' in result) return result
+
+  revalidateBookingPages(bookingId)
+  return { message: `Upcharge of $${input.amount.toFixed(2)} sent. The booking is suspended until the customer pays, and the Tidy Pro has been told.` }
+}
+
+export async function withdrawUpchargeAction(upchargeId: string, bookingId: string, _prev: BookingAdminState, _formData: FormData): Promise<BookingAdminState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const result = await withdrawUpcharge(createAdminClient(), upchargeId)
+  if ('error' in result) return result
+
+  revalidateBookingPages(bookingId)
+  return { message: 'Upcharge removed. The booking is back on, and the customer and Tidy Pro have been told.' }
+}
+
 export async function acceptBackgroundCheckAppealAction(
   profileId: string,
   _prev: AccountActionState,
@@ -1190,4 +1310,84 @@ export async function sendAdminPushAction(_prev: AdminPushState, formData: FormD
       `Sent to ${people} ${people === 1 ? 'person' : 'people'} (${plural(devices, 'device')}).` +
       (missed > 0 ? ` ${missed} could not be reached; their devices may have unsubscribed.` : ''),
   }
+}
+
+// Shared by the Resolved checkbox and notes on /admin/cancellations and /admin/reports.
+function parseReviewForm(formData: FormData): { resolved: boolean; note: string } | { error: string } {
+  const note = String(formData.get('note') ?? '').trim()
+  if (note.length > USER_NOTE_MAX_LENGTH) return { error: `Keep notes under ${USER_NOTE_MAX_LENGTH} characters.` }
+  return { resolved: formData.get('resolved') === 'on', note }
+}
+
+// Marks a canceled booking resolved (or reopens it) and saves the admin's note. Keeps
+// the original resolved time when it's saved again while still resolved.
+export async function saveCancellationReviewAction(
+  bookingId: string,
+  _prev: AccountActionState,
+  formData: FormData
+): Promise<AccountActionState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+  const input = parseReviewForm(formData)
+  if ('error' in input) return input
+
+  const admin = createAdminClient()
+  const { data: booking } = await admin
+    .from('bookings')
+    .select('id, status, cancellation_resolved_at')
+    .eq('id', bookingId)
+    .maybeSingle()
+  if (!booking || booking.status !== 'cancelled') return { error: 'Cancellation not found.' }
+
+  const { error } = await admin
+    .from('bookings')
+    .update({
+      cancellation_resolved_at: input.resolved ? booking.cancellation_resolved_at ?? new Date().toISOString() : null,
+      cancellation_admin_note: input.note || null,
+    })
+    .eq('id', bookingId)
+  if (error) return { error: `Couldn't save: ${error.message}` }
+
+  revalidatePath('/admin/cancellations')
+  revalidatePath('/admin/no-pros')
+  return { message: 'Saved' }
+}
+
+// Same for a report someone filed about a booking (a risk_events row).
+export async function saveReportReviewAction(
+  reportId: string,
+  _prev: AccountActionState,
+  formData: FormData
+): Promise<AccountActionState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+  const input = parseReviewForm(formData)
+  if ('error' in input) return input
+
+  const admin = createAdminClient()
+  const { data: report } = await admin.from('risk_events').select('id, resolved_at').eq('id', reportId).maybeSingle()
+  if (!report) return { error: 'Report not found.' }
+
+  const { error } = await admin
+    .from('risk_events')
+    .update({
+      resolved_at: input.resolved ? report.resolved_at ?? new Date().toISOString() : null,
+      resolution_notes: input.note || null,
+    })
+    .eq('id', reportId)
+  if (error) return { error: `Couldn't save: ${error.message}` }
+
+  revalidatePath('/admin/reports')
+  return { message: 'Saved' }
+}
+
+// The admin's call on how serious a report is: low, mid or high. Reports are saved with
+// the level their reason implies; "Something else" starts low until someone reads it.
+export async function setReportSeverityAction(reportId: string, formData: FormData): Promise<void> {
+  if (!(await isAdminAuthed())) return
+  const severity = formData.get('severity')
+  if (!REPORT_SEVERITIES.includes(severity as ReportSeverity)) return
+
+  const admin = createAdminClient()
+  const { error } = await admin.from('risk_events').update({ severity: severity as ReportSeverity }).eq('id', reportId)
+  if (error) throw new Error(`Couldn't change the report's level: ${error.message}`)
+  revalidatePath('/admin/reports')
 }

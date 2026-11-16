@@ -10,28 +10,30 @@ import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import { notifyNewReview, notifyNoShowReported, notifyNoShowReportedConfirmation } from '@/lib/notifications'
 import { sendCleanerReportEscalation } from '@/lib/bookingIncidentEmail'
-import { findCleanerReportCategory } from '@/lib/cleanerReportCategories'
-import { canReportNoShow } from '@/lib/bookingTime'
-import { notifyIncidentCleaner, reportBookingIncident } from '@/lib/bookingIncidents'
+import { TIDY_PRO_REPORT_CATEGORIES, parseReportInput, reportDescription, reportSeverity } from '@/lib/reportCategories'
+import { NO_SHOW_REPORT_AFTER_MINUTES, canReportNoShow } from '@/lib/bookingTime'
+import { notifyIncidentCleaner, reportBookingIncident, resolveBookingIncident } from '@/lib/bookingIncidents'
 import { restoreBookingTasks } from '@/lib/bookingRequestGroups'
 import { notifyCustomer } from '@/lib/customerNotifications'
 import type { TidyTask } from '@/app/dashboard/types'
 import { userFacingError } from '@/lib/userFacingError'
+import { payUpcharge } from '@/lib/bookingUpcharges'
+import { payForVisit } from '@/lib/recurringPayments'
 
 const MAX_TIP_PERCENT = 100
 
 export async function reportTidyProAction(
   bookingId: string,
   categoryId: string,
-  reason: string
+  reasonId: string | null,
+  details: string
 ): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
 
-  const category = findCleanerReportCategory(categoryId)
-  if (!category) return { error: 'Please choose what the issue is about.' }
-  const trimmed = reason.trim()
-  if (!trimmed) return { error: 'Please describe the issue.' }
+  const input = parseReportInput(TIDY_PRO_REPORT_CATEGORIES, categoryId, reasonId, details)
+  if ('error' in input) return input
+  const { choice } = input
 
   const admin = createAdminClient()
 
@@ -48,23 +50,24 @@ export async function reportTidyProAction(
     event_type: 'customer_complaint',
     booking_id: bookingId,
     user_id: booking.tidy_pro_id,
-    severity: 'medium',
-    description: trimmed,
-    metadata: { category: category.id },
+    severity: reportSeverity(choice),
+    description: reportDescription(choice, input.details),
+    metadata: { category: choice.category.id, reason: choice.reason?.id ?? null, note: input.details || null },
     created_by: session.profileId,
   })
 
   if (error) return { error: userFacingError(error) }
 
   // The report is saved either way; a failed email shouldn't tell the customer it wasn't.
-  await sendCleanerReportEscalation(admin, bookingId, category, trimmed).catch((err) => console.error('Cleaner report escalation email failed', bookingId, err))
+  await sendCleanerReportEscalation(admin, bookingId, choice, input.details).catch((err) => console.error('Cleaner report escalation email failed', bookingId, err))
 
   return { success: true }
 }
 
-// The cleaner still hasn't arrived NO_SHOW_REPORT_AFTER_MINUTES after the start. The
-// booking is canceled and the cleaner flagged, with no money moved; the admin settles the
-// refund and decides whether to pause them (see lib/bookingIncidents).
+// The cleaner still hasn't arrived NO_SHOW_REPORT_AFTER_MINUTES after the start, and hasn't
+// marked themselves arrived. The booking is canceled and refunded straight away, less the
+// processing fee, and the cleaner flagged; the admin decides whether to pause them (see
+// lib/bookingIncidents).
 export async function reportNoShowAction(bookingId: string): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
@@ -82,11 +85,15 @@ export async function reportNoShowAction(bookingId: string): Promise<{ success: 
     return { error: 'This booking can no longer be reported as a no-show.' }
   }
   if (!canReportNoShow(booking.scheduled_date, booking.scheduled_time, new Date(), booking.time_zone)) {
-    return { error: 'You can report a no-show 30 minutes after your booking’s start time.' }
+    return { error: `You can report a no-show ${NO_SHOW_REPORT_AFTER_MINUTES} minutes after your booking’s start time.` }
   }
 
   const result = await reportBookingIncident(admin, booking, 'cleaner_no_show', session.profileId)
   if ('error' in result) return result
+
+  // Settled on the spot. If the refund fails, the incident stays open for the admin to settle.
+  const settled = await resolveBookingIncident(admin, bookingId, 'minus_fee', null, false, new Date(), { automatic: true })
+  if ('error' in settled) console.error(`No-show refund for ${bookingId}:`, settled.error)
 
   await restoreBookingTasks(admin, booking.user_id, (booking.task_list as TidyTask[] | null) ?? [])
   await notifyCustomer(admin, booking.user_id, notifyNoShowReportedConfirmation())
@@ -226,4 +233,60 @@ export async function submitReviewAction(
   revalidatePath('/dashboard')
 
   return tipWarning ? { success: true, tipWarning } : { success: true }
+}
+
+// The customer paying an upcharge the Tydio team added (see lib/bookingUpcharges).
+// paymentFailed means the card itself was declined, so they're asked to pick another.
+export async function payUpchargeAction(
+  bookingId: string,
+  upchargeId: string,
+  paymentMethodId: string,
+  expectedCents: number,
+  attemptId: string
+): Promise<{ success: true } | { error: string; paymentFailed?: true }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+  if (!Number.isInteger(expectedCents) || expectedCents <= 0 || !/^[\w-]{8,64}$/.test(attemptId)) return { error: 'Please refresh the page and try again.' }
+
+  const result = await payUpcharge(createAdminClient(), { customerId: session.profileId, upchargeId, paymentMethodId, expectedCents, attemptId })
+  if ('error' in result) return result
+
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidatePath('/dashboard/bookings')
+  revalidatePath('/dashboard')
+  revalidatePath(`/pro/bookings/${bookingId}`)
+  revalidatePath(`/pro/messages/${bookingId}`)
+  revalidatePath('/pro/dashboard')
+  return { success: true }
+}
+
+// The customer paying for a recurring visit whose automatic charge failed (see
+// lib/recurringPayments). A visit on hold also needs the new date and time they chose,
+// checked again against the Tidy Pro's schedule before anything is charged.
+export async function payRecurringVisitAction(
+  bookingId: string,
+  paymentMethodId: string,
+  expectedCents: number,
+  attemptId: string,
+  newSlot: { date: string; time: string } | null
+): Promise<{ success: true } | { error: string; paymentFailed?: true }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+  if (!Number.isInteger(expectedCents) || expectedCents <= 0 || !/^[\w-]{8,64}$/.test(attemptId)) return { error: 'Please refresh the page and try again.' }
+
+  const result = await payForVisit(createAdminClient(), {
+    bookingId,
+    paymentMethodId,
+    attemptId,
+    customer: { id: session.profileId, expectedCents, newSlot },
+  })
+  if ('error' in result) return result
+
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidatePath('/dashboard/bookings')
+  revalidatePath('/dashboard')
+  revalidatePath(`/pro/bookings/${bookingId}`)
+  revalidatePath(`/pro/messages/${bookingId}`)
+  revalidatePath('/pro/dashboard')
+  return { success: true }
 }

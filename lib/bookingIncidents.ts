@@ -1,34 +1,41 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { detailSection, formatInZone, loadBookingIncident, sendAdminEscalation } from '@/lib/bookingIncidentEmail'
-import { lateCancelCleanerPay, lateCancelRefund } from '@/lib/pricingRules'
+import { halfRefund, halfRefundCleanerPay, netOfStripeFee } from '@/lib/pricingRules'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import type { NotificationPayload } from '@/lib/notifications'
-import { refundBookingInFull, refundLateCancellation } from '@/lib/bookingRequestGroups'
+import { refundBookingTotal } from '@/lib/bookingRequestGroups'
 import { completeBookingPayout } from '@/lib/bookings'
 import { pauseCleaner } from '@/lib/cleanerStatus'
 import { userFacingError } from '@/lib/userFacingError'
+import { dropPendingUpcharges } from '@/lib/bookingUpcharges'
+import { NO_ACCESS_WAIT_MINUTES } from '@/lib/bookingTime'
 
 type Admin = ReturnType<typeof createAdminClient>
 
 // A booking that couldn't go ahead: the cleaner arrived but couldn't get in, or never
 // showed up. Reporting one cancels the booking and tells the admin, without moving any
 // money. The admin settles it from /admin/incidents with a full, half, or no refund, and
-// the cleaner's pay follows the same split as a late cancellation.
+// the cleaner's pay follows the same split as a late cancellation. A no-show the customer
+// reports is settled on the spot instead, refunded less the processing fee, with the
+// cleaner's flag left open for the admin to decide whether to pause them.
 
 // Each is also the booking's cancelled_reason (NO_ACCESS_REASON, CLEANER_NO_SHOW_REASON).
 export type IncidentType = 'no_access' | 'cleaner_no_show'
 export type RefundLevel = 'full' | 'half' | 'none'
+// What a settled incident can record: the admin's choices, plus a no-show's automatic refund.
+export type SettledRefundLevel = RefundLevel | 'minus_fee'
 
 export const INCIDENT_LABELS: Record<IncidentType, string> = {
   no_access: 'Customer unavailable — no access',
   cleaner_no_show: 'Cleaner no-show',
 }
 
-export const REFUND_LEVEL_LABELS: Record<RefundLevel, string> = {
+export const REFUND_LEVEL_LABELS: Record<SettledRefundLevel, string> = {
   full: 'Full refund (100%)',
   half: 'Half refund (50%)',
+  minus_fee: 'Refund less processing fee (automatic no-show)',
   none: 'No refund',
 }
 
@@ -36,17 +43,19 @@ export function isRefundLevel(value: string): value is RefundLevel {
   return value === 'full' || value === 'half' || value === 'none'
 }
 
-export function incidentRefundAmount(level: RefundLevel, totalCharge: number): number {
+export function incidentRefundAmount(level: SettledRefundLevel, totalCharge: number): number {
   if (level === 'full') return totalCharge
-  if (level === 'half') return lateCancelRefund(totalCharge)
+  // An estimate at a US card's rate; the real amount is what Stripe refunds.
+  if (level === 'minus_fee') return netOfStripeFee(totalCharge)
+  if (level === 'half') return halfRefund(totalCharge)
   return 0
 }
 
 // Whatever Tydio keeps is shared with the cleaner as usual: nothing kept, nothing paid;
 // half kept, half their pay; all kept, all of it.
-export function incidentCleanerPay(level: RefundLevel, cleanerPay: number): number {
-  if (level === 'full') return 0
-  if (level === 'half') return lateCancelCleanerPay(cleanerPay)
+export function incidentCleanerPay(level: SettledRefundLevel, cleanerPay: number): number {
+  if (level === 'full' || level === 'minus_fee') return 0
+  if (level === 'half') return halfRefundCleanerPay(cleanerPay)
   return cleanerPay
 }
 
@@ -67,13 +76,13 @@ const ADMIN_EMAIL: Record<IncidentType, { subject: string; heading: string; intr
     subject: 'URGENT: CUSTOMER UNAVAILABLE — NO ACCESS',
     heading: 'Customer unavailable — no access',
     intro: (cleaner, customer) =>
-      `<strong>${escapeHtml(cleaner)}</strong> arrived but couldn't get into <strong>${escapeHtml(customer)}</strong>'s home, and waited the required 15 minutes. The booking has been canceled and no money has moved. Decide the refund and payout in the admin.`,
+      `<strong>${escapeHtml(cleaner)}</strong> arrived but couldn't get into <strong>${escapeHtml(customer)}</strong>'s home, and waited the required ${NO_ACCESS_WAIT_MINUTES} minutes. The booking has been canceled and no money has moved. Decide the refund and payout in the admin.`,
   },
   cleaner_no_show: {
     subject: 'URGENT: CLEANER NO-SHOW',
     heading: 'Cleaner no-show',
     intro: (cleaner, customer) =>
-      `<strong>${escapeHtml(customer)}</strong> reported that their cleaner, <strong>${escapeHtml(cleaner)}</strong>, never arrived. The booking has been canceled, the cleaner has been flagged, and no money has moved. Decide the refund and payout in the admin, and whether to pause the cleaner.`,
+      `<strong>${escapeHtml(customer)}</strong> reported that their cleaner, <strong>${escapeHtml(cleaner)}</strong>, never arrived. The booking has been canceled, the customer is refunded automatically less the processing fee, and the cleaner has been flagged. Decide whether to pause the cleaner. (If the automatic refund fails, the incident stays open to settle in the admin.)`,
   },
 }
 
@@ -103,6 +112,9 @@ export async function reportBookingIncident(
     .select('id')
   if (error) return { error: userFacingError(error) }
   if (!claimed?.length) return { error: 'This booking can no longer be reported.' }
+
+  // An unpaid upcharge is dropped. A paid one is part of the total the admin settles.
+  await dropPendingUpcharges(admin, booking.id)
 
   // For a no-show, this is the flag on the cleaner's account the admin reviews.
   const { error: riskError } = await admin.from('risk_events').insert({
@@ -147,7 +159,7 @@ export async function reportBookingIncident(
 
 const RESOLUTION_REASON: Record<IncidentType, { customer: string; cleaner: string }> = {
   no_access: {
-    customer: "Your Tidy Pro arrived for your booking but couldn't get into your home, and waited 15 minutes before reporting it.",
+    customer: `Your Tidy Pro arrived for your booking but couldn't get into your home, and waited ${NO_ACCESS_WAIT_MINUTES} minutes before reporting it.`,
     cleaner: "You reported that you couldn't get into the customer's home for this booking.",
   },
   cleaner_no_show: {
@@ -173,7 +185,8 @@ export async function sendIncidentResolutionEmails(
   type: IncidentType,
   refund: number,
   cleanerPay: number,
-  note: string | null
+  note: string | null,
+  automatic = false
 ): Promise<void> {
   const [{ data: customer }, { data: cleaner }] = await Promise.all([
     admin.from('profiles').select('email, first_name').eq('id', booking.user_id).maybeSingle(),
@@ -187,7 +200,7 @@ export async function sendIncidentResolutionEmails(
       to: [{ email: customer.email, name: customer.first_name ?? undefined }],
       subject: refund > 0 ? `Your refund of ${money(refund)}` : 'An update on your booking',
       htmlContent: resolutionEmail('An update on your booking', [
-        `${reason.customer} We've reviewed your booking${when}.`,
+        automatic ? `${reason.customer} Your booking${when} has been canceled.` : `${reason.customer} We've reviewed your booking${when}.`,
         refund > 0
           ? `You'll be refunded ${money(refund)} to your original payment method. It may take 5 to 10 business days to appear on your statement.`
           : 'After reviewing it, no refund will be issued for this booking.',
@@ -200,7 +213,7 @@ export async function sendIncidentResolutionEmails(
       to: [{ email: cleaner.email, name: cleaner.first_name ?? undefined }],
       subject: cleanerPay > 0 ? `You'll be paid ${money(cleanerPay)}` : 'An update on your booking',
       htmlContent: resolutionEmail('An update on your booking', [
-        `${reason.cleaner} We've reviewed the booking${when}.`,
+        automatic ? `${reason.cleaner} The booking${when} has been canceled.` : `${reason.cleaner} We've reviewed the booking${when}.`,
         cleanerPay > 0
           ? `You'll be paid ${money(cleanerPay)} for this booking, sent to your payout account.`
           : "You won't be paid for this booking.",
@@ -216,10 +229,12 @@ export async function sendIncidentResolutionEmails(
 export async function resolveBookingIncident(
   admin: Admin,
   bookingId: string,
-  level: RefundLevel,
+  level: SettledRefundLevel,
   note: string | null,
   pause: boolean,
-  now: Date = new Date()
+  now: Date = new Date(),
+  // A no-show's automatic refund: the cleaner's flag stays open for the admin to review.
+  options: { automatic?: boolean } = {}
 ): Promise<{ success: true; refund: number; cleanerPay: number; warning?: string } | { error: string }> {
   const { data: booking } = await admin
     .from('bookings')
@@ -231,7 +246,7 @@ export async function resolveBookingIncident(
   if (booking.incident_resolved_at) return { error: 'This incident has already been settled.' }
 
   const cleanerPay = incidentCleanerPay(level, booking.cleaner_pay ?? 0)
-  const refund = booking.stripe_payment_intent_id ? incidentRefundAmount(level, booking.total_customer_charge ?? 0) : 0
+  let refund = booking.stripe_payment_intent_id ? incidentRefundAmount(level, booking.total_customer_charge ?? 0) : 0
 
   const { data: claimed, error: claimError } = await admin
     .from('bookings')
@@ -244,10 +259,11 @@ export async function resolveBookingIncident(
 
   if (level !== 'none' && booking.stripe_payment_intent_id) {
     try {
-      const refundId = level === 'full'
-        ? await refundBookingInFull(booking.stripe_payment_intent_id)
-        : await refundLateCancellation(booking.stripe_payment_intent_id)
+      // On the booking's whole total, including any upcharges the customer paid.
+      const { refundId, refunded } = await refundBookingTotal(admin, booking, level)
       await admin.from('bookings').update({ stripe_refund_id: refundId }).eq('id', bookingId)
+      // Less the fee Stripe actually took, which the estimate can't know.
+      if (level === 'minus_fee' && refunded != null) refund = refunded
     } catch (err) {
       await admin
         .from('bookings')
@@ -269,14 +285,14 @@ export async function resolveBookingIncident(
     if ('error' in payout) warnings.push(`The payout transfer failed and will be retried: ${payout.error}.`)
   }
 
-  await admin
+  if (!options.automatic) await admin
     .from('risk_events')
     .update({ resolved_at: now.toISOString(), resolution_notes: [REFUND_LEVEL_LABELS[level], note].filter(Boolean).join(' — ') })
     .eq('booking_id', bookingId)
     .in('event_type', ['customer_no_access', 'cleaner_no_show'])
     .is('resolved_at', null)
 
-  await sendIncidentResolutionEmails(admin, booking, booking.incident_type, refund, cleanerPay, note)
+  await sendIncidentResolutionEmails(admin, booking, booking.incident_type, refund, cleanerPay, note, options.automatic)
 
   return { success: true, refund, cleanerPay, ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
 }

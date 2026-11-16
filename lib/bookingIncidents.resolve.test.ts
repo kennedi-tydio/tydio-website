@@ -4,13 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/stripe', () => ({ stripe: {} }))
 vi.mock('@/lib/email', () => ({ TYDIO_ADMIN_EMAIL: 'admin@example.com', sendEmail: vi.fn(async () => {}), emailShell: (b: string) => b, escapeHtml: (s: string) => s }))
 vi.mock('@/lib/bookingRequestGroups', () => ({
-  refundBookingInFull: vi.fn(async () => 're_full'),
-  refundLateCancellation: vi.fn(async () => 're_half'),
+  refundBookingTotal: vi.fn(async (_admin: unknown, _booking: unknown, policy: string) => ({ refundId: policy === 'full' ? 're_full' : 're_half', refunded: 0 })),
 }))
 vi.mock('@/lib/bookings', () => ({ completeBookingPayout: vi.fn(async () => ({ success: true })) }))
 vi.mock('@/lib/cleanerStatus', () => ({ pauseCleaner: vi.fn(async () => {}) }))
 
-import { refundBookingInFull, refundLateCancellation } from '@/lib/bookingRequestGroups'
+import { refundBookingTotal } from '@/lib/bookingRequestGroups'
 import { completeBookingPayout } from '@/lib/bookings'
 import { pauseCleaner } from '@/lib/cleanerStatus'
 import { sendEmail } from '@/lib/email'
@@ -68,7 +67,7 @@ describe('resolveBookingIncident', () => {
     const result = await resolveBookingIncident(admin, 'b1', 'half', 'Sorry about this', false)
 
     expect(result).toEqual({ success: true, refund: 50, cleanerPay: 40 })
-    expect(refundLateCancellation).toHaveBeenCalledWith('pi_1')
+    expect(refundBookingTotal).toHaveBeenCalledWith(admin, expect.objectContaining({ stripe_payment_intent_id: 'pi_1' }), 'half')
     expect(updates.find((u) => u.values.incident_refund_level)?.values).toMatchObject({ incident_refund_level: 'half', cleaner_pay: 40, incident_note: 'Sorry about this' })
     expect(updates.some((u) => u.values.stripe_refund_id === 're_half')).toBe(true)
     expect(completeBookingPayout).toHaveBeenCalledWith(admin, 'b1')
@@ -80,9 +79,22 @@ describe('resolveBookingIncident', () => {
     const result = await resolveBookingIncident(admin, 'b1', 'full', null, true)
 
     expect(result).toMatchObject({ refund: 100, cleanerPay: 0 })
-    expect(refundBookingInFull).toHaveBeenCalledWith('pi_1')
+    expect(refundBookingTotal).toHaveBeenCalledWith(admin, expect.objectContaining({ stripe_payment_intent_id: 'pi_1' }), 'full')
     expect(completeBookingPayout).not.toHaveBeenCalled()
     expect(pauseCleaner).toHaveBeenCalledWith(admin, 'p1', expect.stringContaining('no-show'), expect.any(Date))
+  })
+
+  it('settles a reported no-show automatically: refund less the fee, no pay, flag left open', async () => {
+    vi.mocked(refundBookingTotal).mockResolvedValueOnce({ refundId: 're_net', refunded: 96.8 })
+    const { admin, updates } = fakeAdmin()
+    const result = await resolveBookingIncident(admin, 'b1', 'minus_fee', null, false, new Date(), { automatic: true })
+
+    expect(result).toEqual({ success: true, refund: 96.8, cleanerPay: 0 })
+    expect(refundBookingTotal).toHaveBeenCalledWith(admin, expect.objectContaining({ stripe_payment_intent_id: 'pi_1' }), 'minus_fee')
+    expect(completeBookingPayout).not.toHaveBeenCalled()
+    expect(pauseCleaner).not.toHaveBeenCalled()
+    // The admin still decides whether to pause them.
+    expect(updates.some((u) => u.table === 'risk_events')).toBe(false)
   })
 
   it('moves no money back to the customer when there is no refund', async () => {
@@ -90,13 +102,12 @@ describe('resolveBookingIncident', () => {
     const result = await resolveBookingIncident(admin, 'b1', 'none', null, false)
 
     expect(result).toMatchObject({ refund: 0, cleanerPay: 80 })
-    expect(refundBookingInFull).not.toHaveBeenCalled()
-    expect(refundLateCancellation).not.toHaveBeenCalled()
+    expect(refundBookingTotal).not.toHaveBeenCalled()
     expect(completeBookingPayout).toHaveBeenCalled()
   })
 
   it('unclaims the incident when the refund fails, so it can be tried again', async () => {
-    vi.mocked(refundBookingInFull).mockRejectedValueOnce(new Error('card_declined'))
+    vi.mocked(refundBookingTotal).mockRejectedValueOnce(new Error('card_declined'))
     const { admin, updates } = fakeAdmin()
     const result = await resolveBookingIncident(admin, 'b1', 'full', null, false)
 
@@ -108,12 +119,12 @@ describe('resolveBookingIncident', () => {
   it('refuses an incident that is already settled', async () => {
     const { admin } = fakeAdmin({ ...BOOKING, incident_resolved_at: '2026-12-01T15:00:00Z' })
     expect(await resolveBookingIncident(admin, 'b1', 'full', null, false)).toEqual({ error: 'This incident has already been settled.' })
-    expect(refundBookingInFull).not.toHaveBeenCalled()
+    expect(refundBookingTotal).not.toHaveBeenCalled()
   })
 
   it('refuses when another admin settles it first', async () => {
     const { admin } = fakeAdmin(BOOKING, { claimWins: false })
     expect(await resolveBookingIncident(admin, 'b1', 'half', null, false)).toEqual({ error: 'This incident has already been settled.' })
-    expect(refundLateCancellation).not.toHaveBeenCalled()
+    expect(refundBookingTotal).not.toHaveBeenCalled()
   })
 })

@@ -1,33 +1,19 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import Stripe from 'stripe'
 import { getSession } from '@/lib/auth/session'
 import { customerNeedsPush } from '@/lib/pushRequirement'
 import { PETS_REQUIRED_MESSAGE } from '@/lib/customerPets'
-import { customerNeedsPets, customerPetsSummary } from '@/lib/customerPetsData'
+import { customerNeedsPets } from '@/lib/customerPetsData'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
-import { stripe } from '@/lib/stripe'
-import { getOrCreateStripeCustomerId } from '@/lib/stripe/customer'
-import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
-import { computeIsTopTidyPro, hasBookingConflict, haversineDistanceMiles } from '@/lib/cleanerMatching'
-import { overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
-import { cleanerPayoutForServicePrice, grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
+import { bookingBlockedByAccess, bookingBlockedBySuspension } from '@/lib/accountSuspension'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import { DEFAULT_BOOKING_TIME_ZONE, hasAcceptanceWindowClosed, isValidTimeZone } from '@/lib/bookingTime'
-import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
-import { canSendSms, sendSmsForPayload } from '@/lib/sms'
-import { sendPushForPayload } from '@/lib/push'
-import { notifyNewBookingRequest } from '@/lib/notifications'
-import { userFacingError } from '@/lib/userFacingError'
-import { bookedTaskName, dropUnmatchedLaundryLinks } from '@/lib/laundry'
-import { SERVICES_NOT_OFFERED_MESSAGE, providesServices, requiredServicesForTasks } from '@/lib/tidyProServices'
-import { getReplacementOptions, validateExtraCleanerSelection } from '@/lib/bookingRequestGroups'
-import type { CleanerMatch } from '@/lib/cleanerMatching'
 import { MAX_ENTRY_INSTRUCTIONS_LENGTH } from '@/lib/entryInstructions'
 import { draftEntryInstructions } from '@/lib/entryInstructionsData'
+import { placeBooking } from '@/lib/placeBooking'
+import { isRecurrenceFrequency, startRecurringSeries } from '@/lib/recurringBookings'
 
 async function loadOwnedDraftTasks(
   admin: ReturnType<typeof createAdminClient>,
@@ -158,7 +144,7 @@ export async function confirmBookingAction(
   extraCleanerIds: string[] = [],
   // Also save this booking's entry instructions on the address, for next time.
   saveEntryInstructionsToAddress = false
-): Promise<{ bookingId: string } | { error: string }> {
+): Promise<{ bookingId: string } | { error: string; paymentFailed?: true }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
 
@@ -166,6 +152,8 @@ export async function confirmBookingAction(
 
   const suspended = await bookingBlockedBySuspension(admin, session.profileId)
   if (suspended) return { error: suspended }
+  const noAccess = await bookingBlockedByAccess(admin, session.profileId)
+  if (noAccess) return { error: noAccess }
   if (await customerNeedsPush(admin, session.profileId)) {
     return { error: 'Turn on push notifications in Profile → Notifications before booking, so we can reach you about it.' }
   }
@@ -174,7 +162,7 @@ export async function confirmBookingAction(
   const { data: draft } = await admin
     .from('booking_drafts')
     .select(
-      'id, task_list, scheduled_location, scheduled_date, scheduled_time, selected_tidy_pro_id, notes, entry_instructions, supplies_provided, selected_payment_method_id'
+      'id, task_list, scheduled_location, scheduled_date, scheduled_time, selected_tidy_pro_id, notes, entry_instructions, supplies_provided, selected_payment_method_id, recurrence_frequency'
     )
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)
@@ -190,216 +178,48 @@ export async function confirmBookingAction(
     return { error: 'Please choose a time at least an hour from now.' }
   }
 
-  const allTasks = (draft.task_list as TidyTask[] | null) ?? []
-  const tasks = dropUnmatchedLaundryLinks(allTasks.filter((t) => t.completed))
-  if (tasks.length === 0) return { error: 'No tasks selected.' }
-
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('service_area_id, city, state, first_name')
-    .eq('id', session.profileId)
-    .single()
-
-  const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null, profile ?? undefined)
-  if (!statePricing.configured) return { error: 'Pricing is not available for your area.' }
-
-  // The Tidy Pro sees the pets as they were when the booking was requested.
-  const petsText = await customerPetsSummary(admin, session.profileId)
-
-  const squareFootage = await resolveLocationSquareFootage(
-    admin,
-    session.profileId,
-    draft.scheduled_location as ScheduledLocation | null
-  )
-
-  let breakdown
-  try {
-    breakdown = priceTaskListForState(tasks, statePricing.state, statePricing.medianFourHourPrice, squareFootage)
-  } catch {
-    return { error: 'Could not price one of your tasks.' }
-  }
-
-  const [{ data: tidyProStats }, { data: tidyProIdentity }] = await Promise.all([
-    admin
-      .from('tidypro_profiles')
-      .select('rating, total_accepted_bookings, latitude, longitude, profile_photo_url, phone, sms_consent, is_away, time_off, services_provided')
-      .eq('id', draft.selected_tidy_pro_id)
-      .maybeSingle(),
-    admin.from('profiles').select('first_name, last_name').eq('id', draft.selected_tidy_pro_id).maybeSingle(),
-  ])
-
-  // They may have gone away after this customer picked them. Checked before the charge.
-  if (tidyProStats?.is_away) {
-    return { error: 'This Tidy Pro is away right now. Please go back and choose another Tidy Pro.' }
-  }
-
-  // Or stopped offering something this booking needs.
-  if (tidyProStats && !providesServices(tidyProStats.services_provided, requiredServicesForTasks(tasks))) {
-    return { error: SERVICES_NOT_OFFERED_MESSAGE }
-  }
-
-  // Or marked this time off.
-  if (
-    tidyProStats &&
-    overlapsTimeOff(parseTimeOff(tidyProStats.time_off), draft.scheduled_date, draft.scheduled_time, breakdown.total_task_minutes)
-  ) {
-    return { error: 'This Tidy Pro isn’t available at this time anymore. Please go back and choose another time or Tidy Pro.' }
-  }
-
-  // Someone else may have booked this slot since it was picked.
-  if (await hasBookingConflict(admin, draft.selected_tidy_pro_id, draft.scheduled_date, draft.scheduled_time, breakdown.total_task_minutes)) {
-    return { error: 'This Tidy Pro was just booked at this time. Please go back and choose another time or Tidy Pro.' }
-  }
-
-  // The others must still be free and able to do everything, checked the same way they
-  // were offered. Before the charge, so nobody pays for a request that can't be sent.
-  let extraCleaners: CleanerMatch[] = []
-  if (extraCleanerIds.length > 0) {
-    const options = await getReplacementOptions(admin, {
-      tidy_pro_id: draft.selected_tidy_pro_id,
-      scheduled_location: draft.scheduled_location,
-      scheduled_date: draft.scheduled_date,
-      scheduled_time: draft.scheduled_time,
-      estimated_duration_minutes: breakdown.total_task_minutes,
-      task_list: tasks,
-    })
-    const selectionError = validateExtraCleanerSelection(extraCleanerIds, draft.selected_tidy_pro_id, options.map((o) => o.id))
-    if (selectionError) return { error: selectionError }
-    extraCleaners = extraCleanerIds.map((id) => options.find((o) => o.id === id)!)
-  }
-
+  const bookingTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_BOOKING_TIME_ZONE
   const location = draft.scheduled_location as ScheduledLocation | null
   const entryInstructions = await draftEntryInstructions(admin, session.profileId, draft.entry_instructions, location)
-  const isTopTidyPro = tidyProStats ? computeIsTopTidyPro(tidyProStats.rating, tidyProStats.total_accepted_bookings) : false
-  const distanceMiles =
-    location?.latitude != null && location?.longitude != null && tidyProStats?.latitude != null && tidyProStats?.longitude != null
-      ? haversineDistanceMiles(
-          { latitude: location.latitude, longitude: location.longitude },
-          { latitude: tidyProStats.latitude, longitude: tidyProStats.longitude }
-        )
-      : null
+  const taskList = (draft.task_list as TidyTask[] | null) ?? []
 
-  const servicePrice = servicePriceForCleaner(breakdown.total_customer_charge, { isTopTidyPro, distanceMiles })
+  const placed = await placeBooking(admin, {
+    customerId: session.profileId,
+    tidyProId: draft.selected_tidy_pro_id,
+    date: draft.scheduled_date,
+    time: draft.scheduled_time,
+    timeZone: bookingTimeZone,
+    location,
+    taskList,
+    notes: draft.notes,
+    entryInstructions,
+    suppliesProvided: draft.supplies_provided,
+    paymentMethodId: draft.selected_payment_method_id,
+    extraCleanerIds,
+    stripeMetadata: { draft_id: draftId },
+  })
+  if ('error' in placed) return placed
 
-  const cleanerName = [tidyProIdentity?.first_name, tidyProIdentity?.last_name].filter(Boolean).join(' ') || 'your Tidy Pro'
-
-  const { data: savedPaymentMethod } = await admin
-    .from('payment_methods')
-    .select('stripe_payment_method_id')
-    .eq('id', draft.selected_payment_method_id)
-    .eq('user_id', session.profileId)
-    .maybeSingle()
-
-  if (!savedPaymentMethod?.stripe_payment_method_id) return { error: 'Payment method not found.' }
-
-  // Stripe's fee for this card, added up front. If the card can't be read, stop rather
-  // than guess and charge the wrong amount.
-  let totalPrice: number
-  try {
-    totalPrice = grossUpForStripeFee(servicePrice, await stripePercentageForPaymentMethod(savedPaymentMethod.stripe_payment_method_id))
-  } catch {
-    return { error: 'We could not verify your card. Please try again.' }
-  }
-
-  const stripeCustomerId = await getOrCreateStripeCustomerId(session.profileId)
-
-  // Charged before the booking row exists — a declined card should never
-  // leave behind a booking nobody paid for.
-  let paymentIntent: Stripe.PaymentIntent
-  try {
-    paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(totalPrice * 100),
-      currency: 'usd',
-      customer: stripeCustomerId,
-      payment_method: savedPaymentMethod.stripe_payment_method_id,
-      off_session: true,
-      confirm: true,
-      metadata: { profile_id: session.profileId, draft_id: draftId },
-    })
-  } catch (err) {
-    const message = err instanceof Stripe.errors.StripeError ? err.message : 'Payment failed. Please try a different card.'
-    return { error: message }
-  }
-
-  // Several cleaners share the one payment through a group, created first so each
-  // request can point at it.
-  let groupId: string | null = null
-  if (extraCleaners.length > 0) {
-    const { data: group, error: groupError } = await admin
-      .from('booking_request_groups')
-      .insert({
-        user_id: session.profileId,
-        stripe_payment_intent_id: paymentIntent.id,
-        amount_cents: Math.round(totalPrice * 100),
-      })
-      .select('id')
-      .single()
-    if (groupError || !group) {
-      await stripe.refunds.create({ payment_intent: paymentIntent.id }).catch(() => {})
-      return { error: userFacingError(groupError, 'Failed to create booking.') }
-    }
-    groupId = group.id
-  }
-
-  const cleaners = [
-    { id: draft.selected_tidy_pro_id, name: cleanerName, photoUrl: tidyProStats?.profile_photo_url ?? null },
-    ...extraCleaners.map((c) => ({ id: c.id, name: c.name, photoUrl: c.photoUrl })),
-  ]
-
-  const { data: requests, error } = await admin
-    .from('bookings')
-    .insert(cleaners.map((cleaner) => ({
-      user_id: session.profileId,
-      tidy_pro_id: cleaner.id,
-      tidy_pro_name: cleaner.name,
-      tidy_pro_photo_url: cleaner.photoUrl,
-      scheduled_date: draft.scheduled_date,
-      scheduled_time: draft.scheduled_time,
-      // The customer's time is the source of truth for when this booking happens.
-      time_zone: isValidTimeZone(timeZone) ? timeZone : DEFAULT_BOOKING_TIME_ZONE,
-      scheduled_location: draft.scheduled_location,
-      estimated_duration_minutes: breakdown.total_task_minutes,
-      task_list: tasks as never,
-      pricing_version: breakdown.pricing_version,
-      pricing_breakdown: breakdown as never,
-      customer_subtotal: breakdown.total_customer_charge,
-      total_customer_charge: totalPrice,
-      cleaner_pay: cleanerPayoutForServicePrice(servicePrice),
-      tip: 0,
-      will_provide_supplies: draft.supplies_provided,
-      pets: petsText,
+  // The first visit is booked; the series books each next one (see lib/recurringBookings).
+  if (isRecurrenceFrequency(draft.recurrence_frequency)) {
+    await startRecurringSeries(admin, {
+      customerId: session.profileId,
+      tidyProId: draft.selected_tidy_pro_id,
+      tidyProName: placed.tidyProName,
+      frequency: draft.recurrence_frequency,
+      firstDate: draft.scheduled_date,
+      time: draft.scheduled_time,
+      timeZone: bookingTimeZone,
+      location,
+      taskList,
       notes: draft.notes,
-      entry_instructions: entryInstructions,
-      decision_status: 'pending',
-      status: 'pending',
-      tidy_pro_unread: true,
-      stripe_payment_intent_id: paymentIntent.id,
-      request_group_id: groupId,
-    })))
-    .select('id, tidy_pro_id')
-
-  const booking = requests?.find((r) => r.tidy_pro_id === draft.selected_tidy_pro_id)
-  if (error || !requests || !booking) {
-    // The charge succeeded but the booking couldn't be created — refund
-    // rather than leave the customer charged for nothing.
-    await stripe.refunds.create({ payment_intent: paymentIntent.id }).catch(() => {})
-    if (groupId) await admin.from('booking_request_groups').delete().eq('id', groupId)
-    return { error: userFacingError(error, 'Failed to create booking.') }
+      entryInstructions,
+      suppliesProvided: draft.supplies_provided,
+      paymentMethodId: draft.selected_payment_method_id,
+      firstBookingId: placed.bookingId,
+    }).catch((err) => console.error('[Tydio] Starting recurring booking failed:', err))
+    revalidatePath('/dashboard/bookings')
   }
-
-  if (groupId) await admin.from('booking_request_groups').update({ primary_booking_id: booking.id }).eq('id', groupId)
-
-  await admin.from('booking_tasks').insert(
-    requests.flatMap((request) =>
-      tasks.map((task) => ({
-        booking_id: request.id,
-        task_name: bookedTaskName(task),
-        task_category: task.room,
-        task_icon: task.room.toLowerCase(),
-        is_completed: false,
-      }))
-    ) as never
-  )
 
   await admin.from('booking_drafts').delete().eq('id', draftId)
 
@@ -412,22 +232,7 @@ export async function confirmBookingAction(
     revalidatePath('/dashboard/profile/addresses')
   }
 
-  await Promise.all(
-    requests.map(async (request) => {
-      if (!request.tidy_pro_id) return
-      const payload = notifyNewBookingRequest(profile?.first_name ?? 'A customer', request.id)
-      const contact =
-        request.tidy_pro_id === draft.selected_tidy_pro_id
-          ? tidyProStats
-          : (await admin.from('tidypro_profiles').select('phone, sms_consent').eq('id', request.tidy_pro_id).maybeSingle()).data
-      if (canSendSms(contact?.sms_consent ?? null, contact?.phone ?? null)) {
-        await sendSmsForPayload(contact!.phone!, payload).catch(() => {})
-      }
-      await sendPushForPayload(request.tidy_pro_id, payload).catch(() => {})
-    })
-  )
-
   revalidatePath('/dashboard')
   revalidatePath('/dashboard/messages')
-  return { bookingId: booking.id }
+  return { bookingId: placed.bookingId }
 }

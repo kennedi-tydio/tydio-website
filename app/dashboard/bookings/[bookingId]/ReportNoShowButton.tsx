@@ -5,7 +5,8 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import { reportNoShowAction } from './actions'
 
 // Appears once the Tidy Pro is NO_SHOW_REPORT_AFTER_MINUTES past the start without having
-// arrived. Reporting cancels the booking; the team settles the refund (see lib/bookingIncidents).
+// arrived. Reporting cancels the booking and refunds it, less the processing fee (see
+// reportNoShowAction). Only shown before they've arrived.
 export default function ReportNoShowButton({
   bookingId,
   cleanerFirstName,
@@ -47,7 +48,7 @@ export default function ReportNoShowButton({
       {confirming ? (
         <>
           <p className="text-xs text-slate-600 mb-3">
-            Your booking will be canceled. Our team will review it and email you about your refund.
+            Your booking will be canceled and refunded, except for the card processing fee.
           </p>
           <div className="flex gap-2">
             <button

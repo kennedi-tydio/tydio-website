@@ -5,7 +5,7 @@ import Footer from '../components/Footer'
 
 export const metadata: Metadata = { title: 'Terms and Conditions — Tydio' }
 
-const LAST_UPDATED = 'November 4, 2026'
+const LAST_UPDATED = 'November 16, 2026'
 const CONTACT_EMAIL = 'kennedicoats@tydioapp.com'
 const CONTACT_PHONE = '(850) 345-2532'
 const CONTACT_PHONE_HREF = 'tel:+18503452532'
@@ -424,14 +424,14 @@ export default function TermsPage() {
               </p>
               <List items={[
                 'you cancel a booking while it is still waiting for a Tidy Pro to accept it;',
-                'you cancel an accepted booking more than 12 hours before its scheduled start time, and before your Tidy Pro has arrived;',
+                'you cancel an accepted booking more than 2 hours before its scheduled start time, and before your Tidy Pro has arrived;',
                 'no Tidy Pro accepts your booking request by one hour before the scheduled start time, in which case we cancel it automatically; or',
                 'a Tidy Pro declines your booking and you choose not to request a replacement.',
               ]} />
               <p>
-                <strong>Late cancellations.</strong> If you cancel an accepted booking less than 12 hours before its
-                scheduled start time, you will be refunded 50% of the amount you paid. The rest is kept to compensate your
-                Tidy Pro, who reserved that time for you, and Tydio.
+                <strong>Late cancellations.</strong> If you cancel an accepted booking less than 2 hours before its
+                scheduled start time, you will be refunded 50% of the amount you paid. The rest is split between your Tidy
+                Pro, who reserved that time for you and receives 80% of it, and Tydio, which receives 20%.
               </p>
               <p>
                 <strong>If your Tidy Pro cancels.</strong> If your Tidy Pro cancels an accepted booking at least one hour
@@ -442,16 +442,28 @@ export default function TermsPage() {
                 refunded the full amount, including the processing fee.
               </p>
               <p>
+                <strong>Recurring bookings.</strong> When a Tidy Pro accepts the first visit of a recurring booking, they
+                accept each later visit too. You authorize us to charge the card on your recurring booking for each later
+                visit 3 days before it starts, at the price shown in the app, plus the processing fee for that card. If the
+                charge fails, we will notify you and may try again once a day; you may also pay in the app with another
+                card. If a visit is still unpaid 24 hours before it starts, it is put on hold, and to keep it you must pay
+                and choose a new date. A visit still unpaid at its scheduled start time is canceled without charge. Canceling
+                a visit before it has been charged costs nothing. If your Tidy Pro cancels a visit before it has been
+                charged, or is unavailable that day, that visit is canceled without charge and your other visits continue.
+                Once a visit has been charged, the rules above apply to it like any other booking.
+              </p>
+              <p>
                 <strong>If your Tidy Pro can&rsquo;t get in.</strong> If your Tidy Pro arrives but is not given access to
-                your home, they will wait 15 minutes after the scheduled start time or their arrival, whichever is later,
+                your home, they will wait 10 minutes after the scheduled start time or their arrival, whichever is later,
                 and may then report the booking as &ldquo;Customer unavailable&mdash;no access&rdquo;. The booking is then
                 canceled. We review each report and may refund the full amount, 50% of it, or nothing, and will email you
                 the outcome.
               </p>
               <p>
-                <strong>If your Tidy Pro doesn&rsquo;t show up.</strong> If your Tidy Pro has not arrived 30 minutes after
-                the scheduled start time, you may report a no-show in the app, and the booking is canceled. We review each
-                report, will email you the amount of your refund, and may suspend the Tidy Pro&rsquo;s account.
+                <strong>If your Tidy Pro doesn&rsquo;t show up.</strong> If your Tidy Pro has not arrived 20 minutes after
+                the scheduled start time, and has not marked themselves as arrived, you may report a no-show in the app.
+                The booking is canceled and you are refunded the amount you paid less the Stripe processing fee. We review
+                each report and may suspend the Tidy Pro&rsquo;s account.
               </p>
               <p>
                 Once your Tidy Pro has arrived, the booking can no longer be canceled. If there is a problem with a booking

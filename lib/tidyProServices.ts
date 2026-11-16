@@ -8,7 +8,8 @@ import { isPetTask, type PetTaskDetails } from './petTasks'
 
 export type TidyProService =
   | 'taskBased'
-  | 'generalCleaning'
+  | 'standardCleaning'
+  | 'deepCleaning'
   | 'laundry'
   | 'laundromat'
   | 'petEnclosures'
@@ -29,9 +30,15 @@ export const TIDY_PRO_SERVICES: TidyProServiceOption[] = [
     description: 'Individual Tidy Tasks, like wiping counters, scrubbing a toilet, or vacuuming a rug.',
   },
   {
-    key: 'generalCleaning',
-    label: 'General cleaning',
-    description: 'A general clean of the home.',
+    key: 'standardCleaning',
+    label: 'Standard cleaning',
+    description: 'A routine clean of the home: dusting, vacuuming, mopping, and wiping down kitchens and bathrooms.',
+    comingSoon: true,
+  },
+  {
+    key: 'deepCleaning',
+    label: 'Deep cleaning',
+    description: 'A top-to-bottom clean of the home, including built-up grime and hard-to-reach spots.',
     comingSoon: true,
   },
   {
@@ -62,10 +69,18 @@ export function isTidyProService(value: unknown): value is TidyProService {
   return typeof value === 'string' && KEYS.has(value)
 }
 
+// Retired keys and the services that replaced them. "General cleaning" was
+// split into standard and deep cleaning (migration 070 rewrites stored rows).
+const LEGACY_SERVICES: Record<string, TidyProService[]> = {
+  generalCleaning: ['standardCleaning', 'deepCleaning'],
+}
+
 // Known services only, each once, in the order they're listed above.
 export function normalizeServices(values: unknown): TidyProService[] {
   if (!Array.isArray(values)) return []
-  const chosen = new Set(values.filter(isTidyProService))
+  const chosen = new Set(
+    values.flatMap((v) => (typeof v === 'string' && LEGACY_SERVICES[v]) || [v]).filter(isTidyProService),
+  )
   return TIDY_PRO_SERVICES.map((s) => s.key).filter((k) => chosen.has(k))
 }
 

@@ -6,7 +6,7 @@ import type { Tier } from '@/lib/pricingRules'
 import ModalShell from '@/app/components/ModalShell'
 import { saveCustomRoom } from './actions'
 import { ENTIRE_HOME_ALLOWED_MESSAGE, ENTIRE_HOME_ROOM, entireHomeTier } from '@/lib/entireHome'
-import { broadTaskMessage } from '@/lib/taskSpecificity'
+import { broadTaskMessage, combinedTaskMessage, vagueFloorMessage } from '@/lib/taskSpecificity'
 import {
   LAUNDRY_SERVICES,
   LAUNDRY_SERVICE_HINT,
@@ -63,7 +63,12 @@ function isSweepTask(name: string) {
   return /sweep/i.test(name)
 }
 
-const HIDE_MOP_WARNING_KEY = 'tydio:hideMopWarning'
+// Shown on the first step for a sweep-only or mop-only task, every time:
+// the other one is its own task.
+const FLOOR_NOTES = {
+  sweep: 'Sweeping floors does not include mopping floors. If you’d like the floor mopped too, add “Mop floor” as a separate task.',
+  mop: 'Mopping floors does not include sweeping floors. If you’d like the floor swept first, add “Sweep floor” as a separate task.',
+} as const
 const HIDE_ENTIRE_HOME_TOAST_KEY = 'tydio:hideEntireHomeToast'
 
 function readFlag(key: string): boolean {
@@ -82,7 +87,7 @@ function writeFlag(key: string) {
   }
 }
 
-type Step = 'create' | 'mopWarning' | 'dishwasher' | 'laundry' | 'pet' | 'dirt' | 'unusual'
+type Step = 'create' | 'dishwasher' | 'laundry' | 'pet' | 'dirt' | 'unusual'
 
 type Props = {
   savedRooms: string[]
@@ -135,7 +140,6 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
   const [switchedNotice, setSwitchedNotice] = useState<string | null>(null)
   // Unchecked means the Tidy Pro takes the laundry to a laundromat.
   const [hasWasherDryer, setHasWasherDryer] = useState(false)
-  const [dontShowMopWarning, setDontShowMopWarning] = useState(false)
   const [showEntireHomeToast, setShowEntireHomeToast] = useState(false)
   const [roomError, setRoomError] = useState<string | null>(null)
   // Pet enclosure / litter box: options and photos, kept across Back.
@@ -171,6 +175,8 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
     laundryQuantityValid && !laundromatPartialCycle && (startOnlyService == null || startLoadOnly === true)
   // A combined "sweep and mop" task already includes sweeping.
   const isMop = isMopTask(name) && !isSweepTask(name)
+  const isSweep = isSweepTask(name) && !isMopTask(name)
+  const floorNote = isSweep ? FLOOR_NOTES.sweep : isMop ? FLOOR_NOTES.mop : null
   const isEntireHome = selectedRoom === ENTIRE_HOME_ROOM
 
   useEffect(() => {
@@ -260,6 +266,12 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
       setRoomError(unsupported)
       return
     }
+    // "Floor cleaning" doesn't say sweep or mop, in any room or Entire home.
+    const vagueFloor = vagueFloorMessage(name, selectedRoom)
+    if (vagueFloor) {
+      setRoomError(vagueFloor)
+      return
+    }
     if (isEntireHome && !entireHomeTier(name)) {
       setRoomError(ENTIRE_HOME_ALLOWED_MESSAGE + ' Name the task, or pick a room instead.')
       return
@@ -271,14 +283,13 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
       setRoomError(broad)
       return
     }
+    // "Sweep and mop floor" is two tasks. Entire home accepts sweep and mop together.
+    const combined = isEntireHome ? null : combinedTaskMessage(name)
+    if (combined) {
+      setRoomError(combined)
+      return
+    }
     setRoomError(null)
-    const hideMopWarning = readFlag(HIDE_MOP_WARNING_KEY)
-    if (isMop && !hideMopWarning) setStep('mopWarning')
-    else setStep(nextStepAfterCreate())
-  }
-
-  function handleMopWarningOkay() {
-    if (dontShowMopWarning) writeFlag(HIDE_MOP_WARNING_KEY)
     setStep(nextStepAfterCreate())
   }
 
@@ -505,6 +516,14 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
         <>
           {taskInputs()}
 
+          {/* Sweep or mop floor: the other one is a separate task. Shown right
+              under the task name as they type, before they pick a room. */}
+          {floorNote && (
+            <p role="status" className="-mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mb-5 leading-relaxed">
+              {floorNote}
+            </p>
+          )}
+
           <p className="text-sm font-semibold text-slate-900 mb-3">
             Where<span className="text-brand">*</span>
           </p>
@@ -581,37 +600,6 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
               Next
             </button>
           </div>
-        </>
-      )}
-
-      {/* Mop floor — heads-off note that sweeping is a separate task */}
-      {step === 'mopWarning' && (
-        <>
-          <p className="text-sm font-semibold text-slate-900 mb-2">Heads up</p>
-          <p className="text-sm text-slate-600 leading-relaxed mb-5">
-            Mopping floors does not include sweeping floors. If you&apos;d like the floor swept first, add &quot;Sweep floor&quot; as a separate task.
-          </p>
-
-          <label className="flex items-center gap-3 cursor-pointer mb-6" onClick={() => setDontShowMopWarning((v) => !v)}>
-            <div
-              className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${dontShowMopWarning ? 'border-brand bg-brand' : 'border-slate-300'}`}
-            >
-              {dontShowMopWarning && (
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M2 5.5l2.5 2.5 4.5-5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              )}
-            </div>
-            <span className="text-sm text-slate-700">Don&apos;t show me this message again</span>
-          </label>
-
-          <button
-            onClick={handleMopWarningOkay}
-            className="w-full py-3 rounded-xl text-sm font-semibold text-white"
-            style={{ backgroundColor: '#1a2332' }}
-          >
-            Okay
-          </button>
         </>
       )}
 

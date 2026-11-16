@@ -3,7 +3,7 @@ import { requiredServicesForTasks } from '@/lib/tidyProServices'
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { findAvailableCleaners, type CleanerMatch } from '@/lib/cleanerMatching'
 import { hasAcceptanceWindowClosed } from '@/lib/bookingTime'
-import { lateCancelRefund, stripePercentageForCardCountry, stripeProcessingFee } from '@/lib/pricingRules'
+import { halfRefund, lateCancelRefund, stripePercentageForCardCountry, stripeProcessingFee } from '@/lib/pricingRules'
 import { withdrawPendingProposals } from '@/lib/bookingTimeProposals'
 import {
   notifyAdminCancelledBooking,
@@ -22,6 +22,7 @@ import { sendPushForPayload } from '@/lib/push'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
 import { userFacingError } from '@/lib/userFacingError'
+import { addToBookingTotals, dropPendingUpcharges, getPaidUpcharges, markUpchargesRefunded } from '@/lib/bookingUpcharges'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -43,8 +44,8 @@ type Admin = ReturnType<typeof createAdminClient>
 // is the request to their first choice. If they all decline, the group hands the
 // payment back to that request, which then works like any declined booking: the
 // customer can choose replacements or cancel. Any later and the customer is refunded in full. A customer canceling an
-// accepted booking within 12 hours of the start gets half back, and the cleaner is paid
-// part of the rest.
+// accepted booking within 2 hours of the start gets 50% back, and the cleaner is paid
+// 80% of the rest.
 
 export const MAX_REPLACEMENT_CLEANERS = 3
 // When first booking, the customer's chosen Tidy Pro plus up to this many more, all
@@ -65,7 +66,7 @@ export const ADMIN_CANCELLED_REASON = 'admin_cancelled'
 export function cleanerCancelledNote(reason: string | null): string | null {
   if (reason === REQUEST_FILLED_REASON) return 'Another Tidy Pro accepted this booking first'
   if (reason === NO_RESPONSE_REASON) return 'This request expired because it was not accepted at least an hour before the booking'
-  if (reason === LATE_CANCEL_REASON) return 'The customer canceled less than 12 hours before the booking, so you’ll still be paid part of it'
+  if (reason === LATE_CANCEL_REASON) return 'The customer canceled less than 2 hours before the booking, so you’ll still be paid 50% of your pay for it'
   if (reason === NO_ACCESS_REASON) return 'You reported that you couldn’t get in. Our team will review it and email you about your pay'
   if (reason === CLEANER_NO_SHOW_REASON) return 'The customer reported that you didn’t arrive. Our team will review it and email you'
   if (reason === ADMIN_CANCELLED_REASON) return 'The Tydio team canceled this booking'
@@ -234,12 +235,23 @@ export async function refundBookingInFull(paymentIntentId: string): Promise<stri
   return refund.id
 }
 
-// For a customer canceling late: half of what they paid comes back.
+// For a customer canceling late: 50% of what they paid comes back.
 export async function refundLateCancellation(paymentIntentId: string): Promise<string> {
   const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
   const refund = await stripe.refunds.create(
     { payment_intent: paymentIntentId, amount: Math.round(lateCancelRefund(intent.amount_received / 100) * 100) },
     { idempotencyKey: `refund-booking-late-${paymentIntentId}` }
+  )
+  return refund.id
+}
+
+// The admin's half refund (an admin cancellation or a settled incident): half of what
+// they paid comes back.
+export async function refundHalf(paymentIntentId: string): Promise<string> {
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
+  const refund = await stripe.refunds.create(
+    { payment_intent: paymentIntentId, amount: Math.round(halfRefund(intent.amount_received / 100) * 100) },
+    { idempotencyKey: `refund-booking-half-${paymentIntentId}` }
   )
   return refund.id
 }
@@ -417,6 +429,84 @@ export async function refundCustomAmount(paymentIntentId: string, amount: number
   return refund.id
 }
 
+export type BookingRefundPolicy = 'full' | 'minus_fee' | 'half' | 'late_cancel' | 'none' | { custom: number }
+
+const POLICY_REFUNDS: Record<'full' | 'minus_fee' | 'half' | 'late_cancel', (paymentIntentId: string) => Promise<string>> = {
+  full: refundBookingInFull,
+  minus_fee: refundBookingPayment,
+  half: refundHalf,
+  late_cancel: refundLateCancellation,
+}
+
+// Refunds a booking on its whole total: its own charge plus any upcharges the customer
+// paid, which are part of the booking (see lib/bookingUpcharges). Full, minus the fee,
+// half and late-cancel are shares of each charge, so they add up to the same share of the total. A
+// custom amount comes off the booking's charge first, then each upcharge in turn.
+// Each refund is keyed to its payment, so a retry after a failure never refunds twice.
+// Returns the booking charge's refund id, the upcharges' refund ids, and the total
+// refunded (null if it couldn't be looked up).
+export async function refundBookingTotal(
+  admin: Admin,
+  booking: { id: string; stripe_payment_intent_id: string | null },
+  policy: BookingRefundPolicy
+): Promise<{ refundId: string | null; refunded: number | null }> {
+  if (policy === 'none') return { refundId: null, refunded: 0 }
+
+  const upcharges = await getPaidUpcharges(admin, booking.id)
+  const charges = [
+    ...(booking.stripe_payment_intent_id ? [{ paymentIntentId: booking.stripe_payment_intent_id, upchargeId: null as string | null }] : []),
+    ...upcharges.map((u) => ({ paymentIntentId: u.paymentIntentId, upchargeId: u.id as string | null })),
+  ]
+
+  const refundIds: (string | null)[] = []
+  if (typeof policy === 'object') {
+    let remainingCents = Math.round(policy.custom * 100)
+    for (const charge of charges) {
+      if (remainingCents <= 0) {
+        refundIds.push(null)
+        continue
+      }
+      const intent = await stripe.paymentIntents.retrieve(charge.paymentIntentId, { expand: ['latest_charge'] })
+      const latest = typeof intent.latest_charge === 'object' ? intent.latest_charge : null
+      const refundableCents = intent.amount_received - (latest?.amount_refunded ?? 0)
+      const cents = Math.min(remainingCents, refundableCents)
+      refundIds.push(cents > 0 ? await refundCustomAmount(charge.paymentIntentId, cents / 100) : null)
+      remainingCents -= Math.max(0, cents)
+    }
+  } else {
+    for (const charge of charges) refundIds.push(await POLICY_REFUNDS[policy](charge.paymentIntentId))
+  }
+
+  await markUpchargesRefunded(
+    admin,
+    charges.flatMap((c, i) => (c.upchargeId ? [{ upchargeId: c.upchargeId, refundId: refundIds[i] }] : []))
+  )
+
+  const amounts = await Promise.all(refundIds.map((id) => refundedAmount(id)))
+  const refunded = amounts.some((a) => a == null) ? null : Math.round(amounts.reduce<number>((sum, a) => sum + (a ?? 0) * 100, 0)) / 100
+  return { refundId: booking.stripe_payment_intent_id ? refundIds[0] : null, refunded }
+}
+
+// A cleaner backing out early: the booking goes back to the customer to choose someone
+// else, paid from its original charge. Any upcharge was for this cleaner's visit, so it
+// comes back in full and leaves the booking's totals.
+export async function refundUpchargesForReplacement(admin: Admin, bookingId: string): Promise<void> {
+  const upcharges = await getPaidUpcharges(admin, bookingId)
+  if (upcharges.length === 0) return
+  const refundIds: { upchargeId: string; refundId: string | null }[] = []
+  for (const u of upcharges) refundIds.push({ upchargeId: u.id, refundId: await refundBookingInFull(u.paymentIntentId) })
+  await markUpchargesRefunded(admin, refundIds)
+
+  const { data: booking } = await admin.from('bookings').select('id, total_customer_charge, customer_subtotal, cleaner_pay').eq('id', bookingId).maybeSingle()
+  if (booking) {
+    await addToBookingTotals(admin, booking, {
+      charge: -upcharges.reduce((sum, u) => sum + u.charge, 0),
+      amount: -upcharges.reduce((sum, u) => sum + u.amount, 0),
+      cleanerPay: -upcharges.reduce((sum, u) => sum + u.cleanerPay, 0),
+    })
+  }
+}
+
 export function isAdminRefund(value: string): value is AdminRefund {
   return Object.hasOwn(ADMIN_REFUND_LABELS, value)
 }
@@ -424,7 +514,7 @@ export function isAdminRefund(value: string): value is AdminRefund {
 const ADMIN_REFUNDS: Record<Exclude<AdminRefund, 'custom'>, (paymentIntentId: string) => Promise<string | null>> = {
   full: refundBookingInFull,
   minus_fee: refundBookingPayment,
-  half: refundLateCancellation,
+  half: refundHalf,
   none: async () => null,
 }
 
@@ -508,8 +598,10 @@ export async function cancelBookingAsAdmin(
   const issueRefund = async (paymentIntentId: string) =>
     (issuedRefundId =
       refund === 'custom' ? await refundCustomAmount(paymentIntentId, customAmount!) : await ADMIN_REFUNDS[refund](paymentIntentId))
+  // The total refunded, when the booking path already knows it (it can span upcharges).
+  let refundedTotal: number | null | undefined
   const tellCustomer = async (customerId: string) => {
-    const refunded = await refundedAmount(issuedRefundId)
+    const refunded = refundedTotal !== undefined ? refundedTotal : await refundedAmount(issuedRefundId)
     await notifyCustomer(admin, customerId, notifyAdminCancelledBooking(refund, refunded), { email: false })
     await emailAdminCancellation(admin, customerId, booking.scheduled_date, refund, refunded, reason)
   }
@@ -539,10 +631,13 @@ export async function cancelBookingAsAdmin(
     declinedAndHeld || booking.status === 'pending' || (booking.status === 'scheduled' && !booking.cleaner_marked_complete_at)
   if (!cancellable) return { error: 'This booking can no longer be canceled.' }
 
+  // On the booking's whole total, including any upcharges the customer paid.
   let refundId: string | null = booking.stripe_refund_id
   if (booking.stripe_payment_intent_id && !refundId) {
     try {
-      refundId = await issueRefund(booking.stripe_payment_intent_id)
+      const result = await refundBookingTotal(admin, booking, refund === 'custom' ? { custom: customAmount! } : refund)
+      refundId = result.refundId
+      refundedTotal = result.refunded
     } catch (err) {
       return { error: userFacingError(err, 'Failed to refund this booking.') }
     }
@@ -559,6 +654,7 @@ export async function cancelBookingAsAdmin(
   if (!updated?.length) return { error: 'This booking just changed. Please refresh the page and try again.' }
 
   await withdrawPendingProposals(admin, bookingId)
+  await dropPendingUpcharges(admin, bookingId)
   await restoreBookingTasks(admin, booking.user_id, (booking.task_list as TidyTask[] | null) ?? [])
   await tellCustomer(booking.user_id)
   // The cleaner who declined has already moved on, so they don't need to hear about it.

@@ -114,6 +114,37 @@ export default async function AdminIncidentPage({ params }: { params: Promise<{ 
             ['Booking ID', booking.id],
             ['Start', start],
             ['Cleaner arrived', booking.arrived_at ? inZone(booking.arrived_at, tz) : 'Never marked arrived'],
+            ...(booking.incident_type === 'no_access'
+              ? ([
+                  [
+                    'Location photo',
+                    booking.no_access_photo_url ? (
+                      <a key="photo" href={booking.no_access_photo_url} target="_blank" rel="noopener noreferrer" className="block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={booking.no_access_photo_url} alt="Location photo taken by the cleaner" className="w-full max-w-xs rounded-lg border border-slate-100" />
+                      </a>
+                    ) : (
+                      'None (reported before photos were required)'
+                    ),
+                  ],
+                  [
+                    'Where photo was taken',
+                    booking.no_access_photo_latitude != null && booking.no_access_photo_longitude != null ? (
+                      <a
+                        key="photo-location"
+                        href={`https://www.google.com/maps?q=${booking.no_access_photo_latitude},${booking.no_access_photo_longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        {booking.no_access_photo_latitude.toFixed(5)}, {booking.no_access_photo_longitude.toFixed(5)} (map)
+                      </a>
+                    ) : booking.no_access_photo_url ? (
+                      'Not recorded by the phone'
+                    ) : null,
+                  ],
+                ] as [string, React.ReactNode][])
+              : []),
             ['Service address', serviceAddressText(booking.scheduled_location as ScheduledLocation | null)],
             ['Entry instructions', booking.entry_instructions],
             ['Tasks', (tasks ?? []).map((t) => `${t.task_name} (${t.task_category})`).join('\n') || booking.task_description],

@@ -63,7 +63,7 @@ export default async function DashboardPage({
   // making it, before they ever click "Hire Tidy Pro."
   const { data: upcomingBookingRows } = await admin
     .from('bookings')
-    .select('id, tidy_pro_name, tidy_pro_photo_url, scheduled_date, scheduled_time, estimated_duration_minutes, progress_status, time_zone')
+    .select('id, tidy_pro_name, tidy_pro_photo_url, scheduled_date, scheduled_time, estimated_duration_minutes, progress_status, time_zone, suspended_for_upcharge_at, payment_failed_at, suspended_for_payment_at, payment_due_at')
     .eq('user_id', session.profileId)
     .eq('status', 'scheduled')
     // A day back, then narrowed below by the booking's own zone.
@@ -87,16 +87,18 @@ export default async function DashboardPage({
   const upcomingBookings: UpcomingBooking[] = (upcomingBookingRows ?? [])
     .filter((b) => !doneButUnpaidIds.has(b.id))
     .filter((b) => b.scheduled_date != null && b.scheduled_date >= todayInZone(b.time_zone))
-    .map((b) => ({
+    .map((b): UpcomingBooking => ({
       id: b.id,
       cleanerName: b.tidy_pro_name ?? 'your Tidy Pro',
       cleanerPhotoUrl: b.tidy_pro_photo_url,
       scheduledDate: b.scheduled_date,
       scheduledTime: b.scheduled_time,
       durationMinutes: b.estimated_duration_minutes ?? 30,
-      kind: b.progress_status ? 'tracking' : 'upcoming',
+      kind: b.suspended_for_upcharge_at || (b.payment_due_at && (b.payment_failed_at || b.suspended_for_payment_at)) ? 'needs_attention' : b.progress_status ? 'tracking' : 'upcoming',
       progressStatus: (b.progress_status as 'on_the_way' | 'arrived' | 'cleaning' | null) ?? null,
     }))
+    // An upcharge to pay comes before anything else.
+    .sort((a, b) => Number(b.kind === 'needs_attention') - Number(a.kind === 'needs_attention'))
 
   // A completed-but-unreviewed booking keeps prompting for a review for 24
   // hours after completion, or until the customer books another cleaning —
@@ -150,7 +152,7 @@ export default async function DashboardPage({
   if (draft?.id && (draft.scheduled_date || draft.scheduled_time)) {
     admin
       .from('booking_drafts')
-      .update({ scheduled_date: null, scheduled_time: null, any_day_selected: false })
+      .update({ scheduled_date: null, scheduled_end_date: null, scheduled_time: null, scheduled_end_time: null, any_day_selected: false })
       .eq('id', draft.id)
       .then(({ error }) => {
         if (error) console.error('Failed to clear stale booking schedule', error)

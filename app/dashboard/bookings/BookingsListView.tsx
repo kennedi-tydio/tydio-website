@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { shiftDateISO } from '@/lib/bookingTime'
+import RecurringBookingCard, { type RecurringRow } from './RecurringBookingCard'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
 
@@ -81,6 +82,10 @@ export type BookingRow = {
   durationMinutes: number
   bucket: 'today' | 'upcoming' | 'past'
   today: string
+  // A visit of a recurring booking.
+  recurring: boolean
+  // Suspended until the customer pays an upcharge.
+  needsAttention: boolean
 }
 
 type Tab = 'today' | 'upcoming' | 'past'
@@ -108,8 +113,12 @@ function BookingRowCard({ booking }: { booking: BookingRow }) {
         {endLabel && <p className="text-xs text-slate-400">{endLabel}</p>}
       </div>
       <div className="flex-1 min-w-0">
+        {booking.needsAttention && (
+          <p className="inline-block text-[11px] font-semibold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5 mb-1">Needs attention</p>
+        )}
         <p className="text-sm font-bold text-slate-900 truncate">{booking.cleanerName}</p>
         {booking.address && <p className="text-xs text-slate-400 truncate">{booking.address}</p>}
+        {booking.recurring && <p className="text-[11px] font-semibold mt-0.5" style={{ color: 'var(--color-brand)' }}>Recurring</p>}
       </div>
       <span className="flex-shrink-0 mt-0.5">
         <IconChevronRight />
@@ -120,9 +129,12 @@ function BookingRowCard({ booking }: { booking: BookingRow }) {
 
 export default function BookingsListView({
   bookings,
+  recurring,
   unreadMessageCount,
 }: {
   bookings: BookingRow[]
+  // Active recurring bookings, shown under Upcoming.
+  recurring: RecurringRow[]
   unreadMessageCount: number
 }) {
   const [tab, setTab] = useState<Tab>('today')
@@ -169,7 +181,18 @@ export default function BookingsListView({
           </button>
         </div>
 
-        {visible.length === 0 ? (
+        {tab === 'upcoming' && recurring.length > 0 && (
+          <section aria-labelledby="recurring-heading" className="mb-5">
+            <h2 id="recurring-heading" className="text-sm font-bold text-slate-900 mb-2">Recurring bookings</h2>
+            <div className="flex flex-col gap-3">
+              {recurring.map((series) => (
+                <RecurringBookingCard key={series.id} series={series} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {visible.length === 0 && tab === 'upcoming' && recurring.length > 0 ? null : visible.length === 0 ? (
           <div className="rounded-2xl border border-slate-100 bg-white shadow-sm py-10 px-6 text-center">
             <p className="text-sm text-slate-400">You have no bookings at the moment</p>
           </div>

@@ -26,7 +26,7 @@ export default async function SchedulePage() {
 
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
-    .select('id, task_list, scheduled_location, scheduled_date, scheduled_time, any_day_selected')
+    .select('id, task_list, scheduled_location, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time, any_day_selected, recurrence_frequency')
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -52,7 +52,10 @@ export default async function SchedulePage() {
       initialSchedule={{
         location: (draft.scheduled_location as ScheduledLocation | null) ?? null,
         date: draft.scheduled_date,
+        endDate: draft.scheduled_end_date,
         time: draft.scheduled_time,
+        endTime: draft.scheduled_end_time,
+        recurrence: draft.recurrence_frequency,
       }}
     />
   )

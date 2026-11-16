@@ -89,11 +89,18 @@ export default function AvailabilityView({
     setOffStart('')
     setOffEnd('')
     setOffAllDay(true)
+    const notices: string[] = []
+    if (result.cancelledVisits > 0) {
+      notices.push(
+        `${result.cancelledVisits === 1 ? 'A recurring visit' : `${result.cancelledVisits} recurring visits`} on ${result.cancelledVisits === 1 ? 'that date was' : 'those dates were'} canceled, and the customer was told.`
+      )
+    }
     if (result.conflicts > 0) {
-      setTimeOffNotice(
+      notices.push(
         `You already have ${result.conflicts === 1 ? 'a booking or request' : `${result.conflicts} bookings or requests`} on ${result.conflicts === 1 ? 'that date' : 'those dates'}. Time off only stops new bookings, so check your Messages and Bookings.`
       )
     }
+    if (notices.length > 0) setTimeOffNotice(notices.join(' '))
   }
 
   async function handleRemoveTimeOff(range: TimeOffRange) {

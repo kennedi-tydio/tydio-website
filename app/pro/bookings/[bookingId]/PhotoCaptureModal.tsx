@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { submitTaskPhotoAction } from './actions'
+import { submitTaskPhotoAction, type TaskPhotoKind } from './actions'
 import ModalShell from '@/app/components/ModalShell'
 
 function IconX() {
@@ -39,12 +39,17 @@ type Props = {
   bookingId: string
   taskId: string
   taskName: string
+  // 'before': optional, taken before starting the task. 'after': required,
+  // marks the task complete.
+  kind?: TaskPhotoKind
+  // View only: no retake or submit.
+  readOnly?: boolean
   existingPhotoUrl: string | null
   onClose: () => void
   onSubmitted: (photoUrl: string) => void
 }
 
-export default function PhotoCaptureModal({ bookingId, taskId, taskName, existingPhotoUrl, onClose, onSubmitted }: Props) {
+export default function PhotoCaptureModal({ bookingId, taskId, taskName, kind = 'after', readOnly = false, existingPhotoUrl, onClose, onSubmitted }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(existingPhotoUrl)
   const [submitting, setSubmitting] = useState(false)
@@ -76,7 +81,7 @@ export default function PhotoCaptureModal({ bookingId, taskId, taskName, existin
     setError(null)
     const formData = new FormData()
     formData.set('photo', file)
-    const result = await submitTaskPhotoAction(bookingId, taskId, formData)
+    const result = await submitTaskPhotoAction(bookingId, taskId, formData, kind)
     setSubmitting(false)
     if ('error' in result) {
       setError(result.error)
@@ -85,7 +90,14 @@ export default function PhotoCaptureModal({ bookingId, taskId, taskName, existin
     onSubmitted(result.photoUrl)
   }
 
-  const title = existingPhotoUrl && !file ? 'Review Photo' : 'Photo Confirmation'
+  const title =
+    kind === 'before'
+      ? existingPhotoUrl && !file
+        ? 'Before Photo'
+        : 'Take a Before Photo'
+      : existingPhotoUrl && !file
+        ? 'After Photo'
+        : 'Photo Confirmation'
 
   return (
     <ModalShell className="fixed inset-0 flex items-end sm:items-center justify-center z-50 px-4 pb-4 sm:pb-0" panelClassName="w-full max-w-sm bg-white rounded-2xl p-5" onClose={onClose} labelledBy="photo-capture-title" closeOnBackdrop={false}>
@@ -95,14 +107,18 @@ export default function PhotoCaptureModal({ bookingId, taskId, taskName, existin
           <IconX />
         </button>
       </div>
-      <p className="text-xs text-slate-400 mb-4">Submit a photo to mark &quot;{taskName}&quot; as complete</p>
+      <p className="text-xs text-slate-400 mb-4">
+        {kind === 'before'
+          ? <>Show how &quot;{taskName}&quot; looks before you start</>
+          : <>Submit an after photo to mark &quot;{taskName}&quot; as complete</>}
+      </p>
 
       <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
       <input ref={uploadInputRef} type="file" accept={UPLOAD_ACCEPT} onChange={handleFileChange} className="hidden" />
 
       {previewUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={previewUrl} alt={taskName} className="w-full aspect-square object-cover rounded-xl mb-4" />
+        <img src={previewUrl} alt={`${taskName} — ${kind}`} className="w-full aspect-square object-cover rounded-xl mb-4" />
       ) : (
         <div className="grid grid-cols-2 gap-3 mb-4">
           <button
@@ -130,6 +146,16 @@ export default function PhotoCaptureModal({ bookingId, taskId, taskName, existin
 
       {error && <p role="alert" className="text-xs text-red-600 mb-3">{error}</p>}
 
+      {readOnly ? (
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600"
+        >
+          Close
+        </button>
+      ) : (
+      <>
       {previewUrl && (
         <div className="grid grid-cols-2 gap-2 mb-2">
           <button
@@ -157,6 +183,8 @@ export default function PhotoCaptureModal({ bookingId, taskId, taskName, existin
       >
         {submitting ? 'Submitting…' : 'Submit'}
       </button>
+      </>
+      )}
     </ModalShell>
   )
 }

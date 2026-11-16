@@ -1,6 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { acceptSeriesForBooking } from '@/lib/recurringBookings'
+import { isUnpaidVisit } from '@/lib/recurringPayments'
+import { recurringPaymentDueAt } from '@/lib/recurrence'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { startMaskedCall } from '@/lib/maskedCalls'
@@ -10,11 +13,10 @@ import {
   cancelGroupForCustomer,
   cancelOtherRequests,
   isAwaitingReplacements,
-  refundBookingPayment,
-  refundLateCancellation,
+  refundBookingTotal,
   restoreBookingTasks,
 } from '@/lib/bookingRequestGroups'
-import { hasAcceptanceWindowClosed, isLateCancellation } from '@/lib/bookingTime'
+import { bookingStartInstant, hasAcceptanceWindowClosed, isLateCancellation } from '@/lib/bookingTime'
 import { lateCancelCleanerPay, lateCancelRefund } from '@/lib/pricingRules'
 import { canChangeStartTime, hasScheduleConflict } from '@/lib/bookingTimeProposals'
 import type { TidyTask } from '@/app/dashboard/types'
@@ -30,6 +32,8 @@ import {
 } from '@/lib/notifications'
 import { notifyCustomer } from '@/lib/customerNotifications'
 import { userFacingError } from '@/lib/userFacingError'
+import { dropPendingUpcharges } from '@/lib/bookingUpcharges'
+import { CUSTOMER_CANCEL_REASONS, parseCancellation, type Cancellation } from '@/lib/cancellationReasons'
 
 async function notifyTidyPro(
   admin: ReturnType<typeof createAdminClient>,
@@ -81,16 +85,21 @@ export async function sendMessageAction(bookingId: string, body: string): Promis
 // isn't canceled on terms they never saw.
 export async function cancelBookingRequestAction(
   bookingId: string,
+  cancellation: Cancellation,
   acceptLateFee = false
 ): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
 
+  const chosen = parseCancellation(CUSTOMER_CANCEL_REASONS, cancellation)
+  if ('error' in chosen) return chosen
+  const reasonFields = { cancellation_reason: chosen.reason, cancellation_note: chosen.note }
+
   const admin = createAdminClient()
 
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, tidy_pro_id, status, progress_status, stripe_payment_intent_id, stripe_refund_id, request_group_id, cancelled_reason, task_list, scheduled_date, scheduled_time, time_zone, total_customer_charge, cleaner_pay')
+    .select('id, tidy_pro_id, status, progress_status, stripe_payment_intent_id, stripe_refund_id, request_group_id, cancelled_reason, cancellation_reason, task_list, scheduled_date, scheduled_time, time_zone, total_customer_charge, cleaner_pay')
     .eq('id', bookingId)
     .eq('user_id', session.profileId)
     .maybeSingle()
@@ -105,6 +114,8 @@ export async function cancelBookingRequestAction(
   if (booking.status === 'pending' && booking.request_group_id) {
     const result = await cancelGroupForCustomer(admin, booking.request_group_id)
     if ('error' in result) return result
+    // Only requests without a reason yet: a cleaner who canceled one keeps theirs.
+    await admin.from('bookings').update(reasonFields).eq('request_group_id', booking.request_group_id).is('cancellation_reason', null)
     await Promise.all(result.tidyProIds.map((id) => notifyTidyPro(admin, id, cancelledPayload)))
     await notifyCustomer(admin, session.profileId, notifyBookingCancelledConfirmation())
 
@@ -130,19 +141,20 @@ export async function cancelBookingRequestAction(
   if (!cancellable) return { error: 'This booking can no longer be cancelled.' }
 
   // Only an accepted booking: until a cleaner has committed to it, nobody has held the time.
+  // A recurring visit that was never paid has nothing to keep, so canceling it is free.
   const isLate =
     booking.status === 'scheduled' &&
+    booking.stripe_payment_intent_id != null &&
     isLateCancellation(booking.scheduled_date, booking.scheduled_time, new Date(), booking.time_zone)
   if (isLate && !acceptLateFee) {
-    return { error: 'Your booking is now less than 12 hours away, so canceling refunds 50%. Refresh the page to see your refund.' }
+    return { error: 'Your booking is now less than 2 hours away, so canceling refunds 50%. Refresh the page to see your refund.' }
   }
 
+  // On the booking's whole total, including any upcharges they paid.
   let refundId: string | null = null
   if (booking.stripe_payment_intent_id) {
     try {
-      refundId = isLate
-        ? await refundLateCancellation(booking.stripe_payment_intent_id)
-        : await refundBookingPayment(booking.stripe_payment_intent_id)
+      refundId = (await refundBookingTotal(admin, booking, isLate ? 'late_cancel' : 'minus_fee')).refundId
     } catch (err) {
       return { error: userFacingError(err, 'Failed to refund this booking.') }
     }
@@ -155,10 +167,14 @@ export async function cancelBookingRequestAction(
       stripe_refund_id: refundId,
       user_unread: false,
       tidy_pro_unread: !declinedAndHeld,
+      // A cleaner who canceled first keeps their reason on it.
+      ...(booking.cancellation_reason ? {} : reasonFields),
       ...(isLate ? { cancelled_reason: LATE_CANCEL_REASON, cleaner_pay: lateCancelCleanerPay(booking.cleaner_pay ?? 0) } : {}),
     })
     .eq('id', bookingId)
   if (error) return { error: userFacingError(error) }
+
+  await dropPendingUpcharges(admin, bookingId)
 
   // Pays the cleaner their share now. If the transfer fails, the scheduled job retries it.
   if (isLate) {
@@ -206,7 +222,7 @@ export async function respondToTimeProposalAction(
 
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, tidy_pro_id, status, progress_status, scheduled_date, scheduled_time, estimated_duration_minutes, time_zone, request_group_id')
+    .select('id, tidy_pro_id, status, progress_status, scheduled_date, scheduled_time, estimated_duration_minutes, time_zone, request_group_id, payment_due_at')
     .eq('id', proposal.booking_id)
     .eq('user_id', session.profileId)
     .maybeSingle()
@@ -256,6 +272,7 @@ export async function respondToTimeProposalAction(
         return { error: 'This booking can no longer be changed.' }
       }
       if (booking.request_group_id) await cancelOtherRequests(admin, booking.request_group_id, bookingId)
+      await acceptSeriesForBooking(admin, bookingId, tidyProId)
     } else {
       const conflict = await hasScheduleConflict(admin, tidyProId, bookingId, {
         date: proposal.proposed_date,
@@ -264,9 +281,13 @@ export async function respondToTimeProposalAction(
       })
       if (conflict) return { error: 'Your Tidy Pro already has a booking at that time.' }
 
+      // An unpaid recurring visit is charged 3 days before its new time instead.
+      const paymentDue = isUnpaidVisit(booking)
+        ? { payment_due_at: recurringPaymentDueAt(bookingStartInstant(proposal.proposed_date, proposal.proposed_time.slice(0, 5), booking.time_zone ?? undefined)).toISOString() }
+        : {}
       const { error } = await admin
         .from('bookings')
-        .update(newTime)
+        .update({ ...newTime, ...paymentDue })
         .eq('id', bookingId)
         .eq('status', 'scheduled')
         .is('progress_status', null)

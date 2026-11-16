@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import DownloadAppCard from '@/app/components/DownloadAppCard'
 import { usePostHog } from 'posthog-js/react'
 import { logoutAction, deleteAccountAction } from '../actions'
 import ModalShell from '@/app/components/ModalShell'
@@ -109,6 +110,8 @@ export default function ProfileView({ firstName, lastName, email, unreadMessageC
 
         <h1 className="text-3xl font-bold text-slate-900 mb-6">Profile</h1>
 
+        <DownloadAppCard href="/dashboard/profile/download-app" />
+
         {/* Profile card */}
         <div className="bg-white rounded-2xl p-5 mb-4 shadow-sm">
           <div className="flex items-center gap-4 mb-4">
@@ -144,6 +147,8 @@ export default function ProfileView({ firstName, lastName, email, unreadMessageC
           { label: 'Payment methods', href: '/dashboard/profile/payment-methods' },
           { label: 'Notifications', href: '/dashboard/profile/notifications' },
           { label: 'Accessibility', href: '/dashboard/profile/accessibility' },
+          { label: 'Download app', href: '/dashboard/profile/download-app' },
+          { label: 'Help & FAQs', href: '/faq' },
         ].map(item =>
           item.href ? (
             <Link

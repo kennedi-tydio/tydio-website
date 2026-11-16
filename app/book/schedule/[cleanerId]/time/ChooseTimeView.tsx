@@ -3,16 +3,16 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { confirmSelectionAction } from './actions'
-import { WEEKDAY_KEYS, minutesSinceMidnight, minutesToTime, rangesOverlap, type WeeklyAvailability } from '@/lib/cleanerMatching'
+import { minutesSinceMidnight, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import LoadingScreen from '@/app/components/LoadingSpinner'
-import { isDateInTimeOff, timeOffBlocksOn, type TimeOffRange } from '@/lib/timeOff'
+import { isDateInTimeOff, type TimeOffRange } from '@/lib/timeOff'
+import { openStartTimes, type StartWindow } from '@/lib/bookingSlots'
 import { useLocalClock } from '@/app/components/useLocalClock'
 
 export type BusyRange = { time: string; durationMinutes: number }
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const WEEKDAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-const SLOT_STEP_MINUTES = 30
 const SEARCH_HORIZON_DAYS = 120
 const MIN_LEAD_MINUTES = 60
 
@@ -27,11 +27,17 @@ function formatTimeLabel(hhmm: string): string {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`
 }
 
+function formatShortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`)
+  return `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`
+}
+
 type DateStatus = 'past' | 'unavailable' | 'available'
 
-type Props = {
-  draftId: string
-  cleanerId: string
+// The picker itself, shared with choosing a new date for a recurring visit on hold
+// (app/dashboard/bookings/[bookingId]/reschedule). onConfirm returns an error to show, or
+// null once it's done.
+export type TimePickerProps = {
   availability: WeeklyAvailability
   // Days the Tidy Pro marked off. Shown as unavailable, like a day they don't work.
   timeOff: TimeOffRange[]
@@ -43,17 +49,40 @@ type Props = {
   // customer can still change either one.
   initialDate: string | null
   initialTime: string | null
+  // A date range and start-time window searched with on "Plan your booking". Only
+  // dates and start times inside them are offered.
+  dateRange: { start: string; end: string } | null
+  timeWindow: StartWindow | null
+  title?: string
+  intro?: string
+  confirmLabel?: string
+  onConfirm: (date: string, time: string) => Promise<string | null>
 }
 
-export default function ChooseTimeView(props: Omit<Props, 'todayISO' | 'nowMinutes'>) {
+type ChooseTimeProps = Omit<TimePickerProps, 'todayISO' | 'nowMinutes' | 'onConfirm'> & { draftId: string; cleanerId: string }
+
+export default function ChooseTimeView({ draftId, cleanerId, ...props }: ChooseTimeProps) {
+  const router = useRouter()
+  return (
+    <TimePicker
+      {...props}
+      onConfirm={async (date, time) => {
+        const result = await confirmSelectionAction(draftId, cleanerId, date, time)
+        if ('error' in result) return result.error
+        router.push('/book/review')
+        return null
+      }}
+    />
+  )
+}
+
+export function TimePicker(props: Omit<TimePickerProps, 'todayISO' | 'nowMinutes'>) {
   const clock = useLocalClock()
   if (!clock) return <LoadingScreen />
   return <ChooseTimeForm {...props} todayISO={clock.todayISO} nowMinutes={clock.nowMinutes} />
 }
 
 function ChooseTimeForm({
-  draftId,
-  cleanerId,
   availability,
   timeOff,
   busyByDate,
@@ -62,41 +91,36 @@ function ChooseTimeForm({
   nowMinutes,
   initialDate,
   initialTime,
-}: Props) {
+  dateRange,
+  timeWindow,
+  title = 'Choose a time',
+  intro,
+  confirmLabel = 'Confirm time',
+  onConfirm,
+}: TimePickerProps) {
   const router = useRouter()
 
   const computeSlots = useMemo(() => {
     return (dateISO: string): string[] => {
-      const weekday = WEEKDAY_KEYS[new Date(`${dateISO}T00:00:00`).getDay()]
-      const blocks = availability[weekday] ?? []
-      if (blocks.length === 0 || isDateInTimeOff(timeOff, dateISO)) return []
-
+      if (dateRange && (dateISO < dateRange.start || dateISO > dateRange.end)) return []
+      if (isDateInTimeOff(timeOff, dateISO)) return []
       // Part-day time off blocks slots the same way an existing booking does.
-      const busy = [
-        ...(busyByDate[dateISO] ?? []).map((b) => {
+      return openStartTimes({
+        availability,
+        timeOff,
+        dateISO,
+        durationMinutes,
+        bookings: (busyByDate[dateISO] ?? []).map((b) => {
           const start = minutesSinceMidnight(b.time)
           return { start, end: start + b.durationMinutes }
         }),
-        ...timeOffBlocksOn(timeOff, dateISO),
-      ]
-
-      // Same-day bookings need at least an hour's lead time — a slot
-      // starting earlier than that isn't enough notice for a Tidy Pro.
-      const earliestStart = dateISO === todayISO ? nowMinutes + MIN_LEAD_MINUTES : 0
-
-      const slots: string[] = []
-      for (const block of blocks) {
-        const blockStart = minutesSinceMidnight(block.start)
-        const blockEnd = minutesSinceMidnight(block.end)
-        for (let t = blockStart; t + durationMinutes <= blockEnd; t += SLOT_STEP_MINUTES) {
-          if (t < earliestStart) continue
-          const slotEnd = t + durationMinutes
-          if (!busy.some((b) => rangesOverlap(t, slotEnd, b.start, b.end))) slots.push(minutesToTime(t))
-        }
-      }
-      return Array.from(new Set(slots)).sort()
+        // Same-day bookings need at least an hour's lead time — a slot
+        // starting earlier than that isn't enough notice for a Tidy Pro.
+        earliestStart: dateISO === todayISO ? nowMinutes + MIN_LEAD_MINUTES : 0,
+        window: timeWindow,
+      })
     }
-  }, [availability, timeOff, busyByDate, durationMinutes, todayISO, nowMinutes])
+  }, [availability, timeOff, busyByDate, durationMinutes, todayISO, nowMinutes, dateRange, timeWindow])
 
   const dateStatus = useMemo(() => {
     return (dateISO: string): DateStatus => {
@@ -106,7 +130,8 @@ function ChooseTimeForm({
   }, [computeSlots, todayISO])
 
   const earliestAvailable = useMemo(() => {
-    const start = new Date(`${todayISO}T00:00:00`)
+    const fromISO = dateRange && dateRange.start > todayISO ? dateRange.start : todayISO
+    const start = new Date(`${fromISO}T00:00:00`)
     for (let i = 0; i < SEARCH_HORIZON_DAYS; i++) {
       const d = new Date(start)
       d.setDate(d.getDate() + i)
@@ -118,15 +143,18 @@ function ChooseTimeForm({
   }, [])
 
   // A specific date already chosen on "Plan your booking" wins over the
-  // earliest-available fallback (as long as it's still valid).
-  const effectiveInitialDate = initialDate && initialDate >= todayISO ? initialDate : earliestAvailable
+  // earliest-available fallback (as long as it's still valid). With a date
+  // range, the first day in it with an opening.
+  const effectiveInitialDate = !dateRange && initialDate && initialDate >= todayISO ? initialDate : earliestAvailable
 
   const initialView = effectiveInitialDate ? new Date(`${effectiveInitialDate}T00:00:00`) : new Date(`${todayISO}T00:00:00`)
   const [viewYear, setViewYear] = useState(initialView.getFullYear())
   const [viewMonth, setViewMonth] = useState(initialView.getMonth())
   const [selectedDate, setSelectedDate] = useState<string | null>(effectiveInitialDate)
+  // An exact time carries over; a window's start is just where the window opens.
+  const carriedTime = timeWindow ? null : initialTime
   const [selectedTime, setSelectedTime] = useState<string | null>(() =>
-    initialTime && effectiveInitialDate && computeSlots(effectiveInitialDate).includes(initialTime) ? initialTime : null
+    carriedTime && effectiveInitialDate && computeSlots(effectiveInitialDate).includes(carriedTime) ? carriedTime : null
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -144,20 +172,16 @@ function ChooseTimeForm({
     setSelectedDate(iso)
     // A specific time already chosen on "Plan your booking" carries over to
     // whichever date ends up selected, as long as it's still open that day.
-    setSelectedTime(initialTime && computeSlots(iso).includes(initialTime) ? initialTime : null)
+    setSelectedTime(carriedTime && computeSlots(iso).includes(carriedTime) ? carriedTime : null)
   }
 
   async function handleConfirm() {
     if (!selectedDate || !selectedTime) return
     setSaving(true)
     setError(null)
-    const result = await confirmSelectionAction(draftId, cleanerId, selectedDate, selectedTime)
+    const problem = await onConfirm(selectedDate, selectedTime)
     setSaving(false)
-    if ('error' in result) {
-      setError(result.error)
-      return
-    }
-    router.push('/book/review')
+    if (problem) setError(problem)
   }
 
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
@@ -174,7 +198,17 @@ function ChooseTimeForm({
           </svg>
         </button>
 
-        <h1 className="text-3xl font-bold text-slate-900 mb-6">Choose a time</h1>
+        <h1 className="text-3xl font-bold text-slate-900 mb-6">{title}</h1>
+        {intro && <p className="text-sm text-slate-500 -mt-3 mb-5">{intro}</p>}
+
+        {(dateRange || timeWindow) && (
+          <p className="text-sm text-slate-500 -mt-3 mb-5">
+            Showing times
+            {dateRange && <> from {formatShortDate(dateRange.start)} to {formatShortDate(dateRange.end)}</>}
+            {timeWindow && <> starting between {formatTimeLabel(timeWindow.start)} and {formatTimeLabel(timeWindow.end)}</>}
+            .
+          </p>
+        )}
 
         <div className="rounded-2xl border border-slate-100 shadow-sm p-4 mb-3">
           <div className="flex items-center justify-between mb-3">
@@ -264,7 +298,7 @@ function ChooseTimeForm({
           className="w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide disabled:opacity-50 transition-opacity"
           style={{ backgroundColor: 'var(--color-brand)' }}
         >
-          {saving ? 'Confirming…' : 'Confirm time'}
+          {saving ? 'Confirming…' : confirmLabel}
         </button>
       </div>
     </main>

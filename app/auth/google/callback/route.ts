@@ -14,6 +14,7 @@ import {
   type SignInRole,
 } from '@/lib/auth/google'
 import { resolveGoogleSignIn } from '@/lib/auth/googleAccount'
+import { customerLanding } from '@/lib/waitlistLanding'
 
 // Google sends the person back here with ?code=…&state=…
 export async function GET(req: NextRequest) {
@@ -44,7 +45,8 @@ export async function GET(req: NextRequest) {
     return toLogin(saved.role, { google_error: reason })
   }
 
-  const outcome = await resolveGoogleSignIn(createAdminClient(), identity, saved.role)
+  const admin = createAdminClient()
+  const outcome = await resolveGoogleSignIn(admin, identity, saved.role)
 
   if (outcome.kind === 'banned') return toLogin(saved.role, { banned: '1' })
   if (outcome.kind === 'linked_elsewhere') return toLogin(saved.role, { google_error: 'linked_elsewhere' })
@@ -64,7 +66,8 @@ export async function GET(req: NextRequest) {
   await createSession({ profileId: outcome.profile.id, role: outcome.profile.role, email: outcome.profile.email })
 
   const dest = saved.next ?? (outcome.profile.role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
-  const res = NextResponse.redirect(new URL(dest, req.url))
+  const landing = await customerLanding(admin, outcome.profile.id, outcome.profile.role, dest)
+  const res = NextResponse.redirect(new URL(landing, req.url))
   res.cookies.set(OAUTH_STATE_COOKIE, '', { ...oauthStateCookieOptions, maxAge: 0 })
   return res
 }

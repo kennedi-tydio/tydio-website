@@ -5,6 +5,8 @@
 // the rule can't be skipped. The AI validator's prompt carries the same rule
 // for broad wordings this list doesn't cover.
 
+import { petTaskKindFromName } from './petTasks'
+
 // Verbs that, on their own or with only a place after them, don't say what
 // the work is.
 const GENERIC_VERBS = [
@@ -139,7 +141,92 @@ export function broadTaskMessage(name: string, room?: string | null): string | n
     const m = n.match(verbPlace) ?? n.match(placeVerb) ?? n.match(justPlace)
     if (m) matched = m[1]
   }
-  if (matched == null) return null
+  if (matched == null) return vagueFloorMessage(name, room)
 
   return `That’s too broad for a Tidy Task. Add each specific job as its own task, like ${examplesFor(matched || r)}.`
+}
+
+// Surfaces that can be cleaned more than one way, so "Clean the floor" doesn't
+// say what the work is: swept, mopped or vacuumed.
+const FLOORS = ['floor', 'floors', 'flooring', 'ground']
+const FLOOR_MESSAGE =
+  'That’s too vague for a Tidy Task. Add a “Sweep floor” task and a “Mop floor” task separately.'
+
+// "Floor cleaning", "Clean the kitchen floor", "Floors". A room may come
+// before the floor; a specific verb ("Mop the floor") isn't vague. Checked in
+// every room, Entire home too, so "Floor cleaning" there gets this message
+// rather than Entire home's list of accepted tasks.
+export function vagueFloorMessage(name: string, room?: string | null): string | null {
+  const n = normalize(name)
+  if (!n) return null
+  const places = room ? [...PLACES, normalize(room)] : PLACES
+  const verbs = alt(GENERIC_VERBS)
+  const fillers = `(?:(?:${alt(FILLERS)}) )*`
+  const floor = `(?:${fillers}(?:(?:${alt(places)}) )?(?:${alt(FLOORS)}))`
+  const vague = [
+    new RegExp(`^(?:${verbs}) ${floor}$`),
+    new RegExp(`^${floor} (?:${verbs}|care)$`),
+    new RegExp(`^${floor}$`),
+  ]
+  return vague.some((re) => re.test(n)) ? FLOOR_MESSAGE : null
+}
+
+// ── More than one task in one ──────────────────────────────────────────────
+
+// Verbs that each start a separate job. "Sweep and mop the floor" is two
+// tasks: the Tidy Pro is paid, and timed, per task.
+const TASK_VERBS = [
+  'sweep', 'mop', 'mop up', 'vacuum', 'dust', 'wipe', 'wipe down', 'scrub', 'scour', 'wash', 'clean',
+  'spot clean', 'polish', 'shine', 'disinfect', 'sanitize', 'sanitise', 'deodorize', 'steam', 'tidy',
+  'tidy up', 'straighten', 'organize', 'organise', 'sort', 'declutter', 'fold', 'iron', 'launder',
+  'empty', 'load', 'unload', 'make', 'change', 'strip', 'take out', 'pick up', 'put away', 'hang up',
+  'rinse', 'dry', 'refill', 'replace',
+]
+
+// Steps that finish the job before them rather than starting a new one:
+// "Wash and dry the dishes", "Fold and put away clothes", "Wipe and sanitize counters".
+const FINISHING_VERBS = ['rinse', 'dry', 'put away', 'hang up', 'refill', 'sanitize', 'sanitise', 'disinfect']
+
+const JOINERS = /\s(?:and then|and also|and|then|plus|also|as well as)\s/
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// The message to show when one task names two or more separate jobs ("Sweep
+// and mop floor", "Wipe counters, scrub the sink"), or null when it's one job.
+// Entire home has its own fixed list (which includes sweeping and mopping
+// together), so callers skip this for it. Pet enclosure and litter box tasks
+// pick their scope from fixed options instead.
+export function combinedTaskMessage(name: string): string | null {
+  if (petTaskKindFromName(name)) return null
+  const n = ` ${name
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .replace(/[&+/,;]/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()} `
+  const verbStart = new RegExp(`^(${alt(TASK_VERBS)})(?: (.*))?$`)
+  const finishing = new Set(FINISHING_VERBS)
+
+  const jobs = n
+    .split(JOINERS)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.match(verbStart))
+    .filter((m): m is RegExpMatchArray => m != null)
+    .map((m) => ({ verb: m[1], object: m[2]?.trim() ?? '' }))
+
+  if (jobs.length < 2 || !jobs.slice(1).some((j) => !finishing.has(j.verb))) return null
+
+  // "Sweep and mop floor": the first job takes the object named at the end.
+  const sharedObject = [...jobs].reverse().find((j) => j.object)?.object ?? ''
+  const examples = jobs
+    .filter((j) => !finishing.has(j.verb))
+    .slice(0, 3)
+    .map((j) => `“${capitalize([j.verb, j.object || sharedObject].filter(Boolean).join(' '))}”`)
+  const list = examples.length > 1 ? `${examples.slice(0, -1).join(', ')} and ${examples[examples.length - 1]}` : examples[0]
+
+  return `That’s more than one task. Add each job as its own task, like ${list}.`
 }

@@ -76,6 +76,7 @@ export default function BookingSummary({
   notes,
   orderLines,
   totalPrice,
+  banner,
   children,
 }: {
   eyebrow: string
@@ -91,6 +92,8 @@ export default function BookingSummary({
   notes: string | null
   orderLines: OrderLine[]
   totalPrice: number
+  // Shown right under the heading, for something the customer needs to act on.
+  banner?: ReactNode
   children: ReactNode
 }) {
   const router = useRouter()
@@ -109,6 +112,8 @@ export default function BookingSummary({
 
         <p className="text-sm text-slate-400 mb-1">{eyebrow}</p>
         <h1 className="text-2xl font-bold text-slate-900 mb-3">{cleanerName}</h1>
+
+        {banner}
 
         <div className="flex items-stretch gap-4 mb-7">
           <div className="flex-shrink-0">

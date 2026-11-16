@@ -9,12 +9,13 @@ export const metadata: Metadata = { title: 'Payment Methods — Tydio' }
 export default async function PaymentMethodsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ draftId?: string }>
+  // `declined`: a card that just failed to charge for this booking draft.
+  searchParams: Promise<{ draftId?: string; declined?: string }>
 }) {
   const session = await getSession()
   if (!session || session.role !== 'USER') redirect('/login')
 
-  const { draftId } = await searchParams
+  const { draftId, declined } = await searchParams
 
   const admin = createAdminClient()
 
@@ -38,11 +39,16 @@ export default async function PaymentMethodsPage({
     selectedId = draft?.selected_payment_method_id ?? null
   }
 
+  const declinedId = draftId && paymentMethods?.some((pm) => pm.id === declined) ? declined! : null
+  // Make them pick again rather than leaving the card that failed selected.
+  if (declinedId && selectedId === declinedId) selectedId = null
+
   return (
     <PaymentMethodsView
       initialPaymentMethods={paymentMethods ?? []}
       draftId={draftId ?? null}
       initialSelectedId={selectedId}
+      declinedId={declinedId}
     />
   )
 }

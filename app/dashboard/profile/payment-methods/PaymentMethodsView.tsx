@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { removePaymentMethodAction, selectPaymentMethodForDraftAction, type SavedPaymentMethod } from './actions'
 import AddCardSheet from './AddCardSheet'
+import { useRefreshOnReturn } from '@/app/components/useRefreshOnReturn'
 
 function IconBack() {
   return (
@@ -64,15 +65,27 @@ type Props = {
   initialPaymentMethods: SavedPaymentMethod[]
   draftId: string | null
   initialSelectedId: string | null
+  // The card that just failed to charge for this booking, if that's why they're here.
+  declinedId?: string | null
 }
 
-export default function PaymentMethodsView({ initialPaymentMethods, draftId, initialSelectedId }: Props) {
+export default function PaymentMethodsView({ initialPaymentMethods, draftId, initialSelectedId, declinedId = null }: Props) {
   const router = useRouter()
+  useRefreshOnReturn()
   const [paymentMethods, setPaymentMethods] = useState(initialPaymentMethods)
+  // When the server sends a newer list (after a refresh or revalidation),
+  // show it instead of the copy this view started with.
+  const [shownInitial, setShownInitial] = useState(initialPaymentMethods)
+  if (initialPaymentMethods !== shownInitial) {
+    setShownInitial(initialPaymentMethods)
+    setPaymentMethods(initialPaymentMethods)
+  }
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId)
   const [showAddCard, setShowAddCard] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const declinedCard = paymentMethods.find((pm) => pm.id === declinedId) ?? null
+  const otherCardCount = paymentMethods.filter((pm) => pm.id !== declinedId).length
 
   async function handleConfirmSelection() {
     if (!draftId || !selectedId) return
@@ -105,6 +118,17 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
         </button>
 
         <h1 className="text-3xl font-bold text-slate-900 mb-5">Payment Methods</h1>
+
+        {declinedCard && (
+          <div role="alert" className="rounded-2xl px-4 py-3.5 mb-4 bg-red-50 border border-red-100">
+            <p className="text-sm font-bold text-red-700">Your card ending in {declinedCard.last4} couldn’t be charged</p>
+            <p className="text-xs text-red-600 mt-0.5 leading-relaxed">
+              {otherCardCount > 0
+                ? 'Choose another card or add a new one to finish your booking request.'
+                : 'Add a new card to finish your booking request.'}
+            </p>
+          </div>
+        )}
 
         <StripeNotice />
 
@@ -139,6 +163,7 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
                       <p className="text-sm font-semibold text-slate-800">**** {pm.last4}</p>
                       <p className="text-xs text-slate-400">
                         expires {pm.exp_month}/{String(pm.exp_year).slice(-2)}
+                        {pm.id === declinedId && <span className="ml-1.5 font-semibold text-red-600">· Declined</span>}
                       </p>
                     </div>
                   </button>

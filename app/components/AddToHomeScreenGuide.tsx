@@ -15,13 +15,16 @@ type Props = {
   titleId: string
   // added is true for "I've added it" (or an accepted install prompt), false for Skip.
   onDone: (added: boolean) => void
-  skipLabel?: string
+  // null hides the skip link (the profile page, where there's nothing to skip).
+  skipLabel?: string | null
+  // 'page' renders the title as the page's h1 instead of a modal's h2.
+  variant?: 'modal' | 'page'
 }
 
 // Step-by-step "add Tydio to your home screen" instructions. Uses the detected
 // phone and browser when it can, and lets the person pick their device when
 // it can't (a computer) or when the detection is wrong.
-export default function AddToHomeScreenGuide({ titleId, onDone, skipLabel = 'Skip' }: Props) {
+export default function AddToHomeScreenGuide({ titleId, onDone, skipLabel = 'Skip', variant = 'modal' }: Props) {
   const detected = useDevice()
   const canPrompt = useCanPromptInstall()
   const [chosen, setChosen] = useState<Platform | null>(null)
@@ -47,7 +50,11 @@ export default function AddToHomeScreenGuide({ titleId, onDone, skipLabel = 'Ski
 
   return (
     <>
-      <h2 id={titleId} className="text-lg font-bold text-slate-900 mb-1">Add Tydio to your home screen</h2>
+      {variant === 'page' ? (
+        <h1 id={titleId} className="text-3xl font-bold text-slate-900 mb-2">Download the app</h1>
+      ) : (
+        <h2 id={titleId} className="text-lg font-bold text-slate-900 mb-1">Add Tydio to your home screen</h2>
+      )}
       <p className="text-sm text-slate-500 mb-4">
         Open Tydio in one tap like an app, and get push notifications about your bookings.
       </p>
@@ -122,13 +129,15 @@ export default function AddToHomeScreenGuide({ titleId, onDone, skipLabel = 'Ski
       >
         I&apos;ve added it to my home screen
       </button>
-      <button
-        type="button"
-        onClick={() => onDone(false)}
-        className="block mx-auto mt-3 text-sm text-slate-500 underline underline-offset-2"
-      >
-        {skipLabel}
-      </button>
+      {skipLabel !== null && (
+        <button
+          type="button"
+          onClick={() => onDone(false)}
+          className="block mx-auto mt-3 text-sm text-slate-500 underline underline-offset-2"
+        >
+          {skipLabel}
+        </button>
+      )}
     </>
   )
 }

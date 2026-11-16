@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import RecurringBookingOption from './RecurringBookingOption'
+import type { RecurrenceFrequency } from '@/lib/recurrence'
 import Link from 'next/link'
 import { saveSchedule, searchAvailableCleaners, type CleanerSearchResult, type ScheduledLocation, type Schedule } from './actions'
 import { useRouter } from '@/app/components/NavigationSpinner'
@@ -12,10 +14,13 @@ import TimeSelect from '@/app/components/form/TimeSelect'
 import LoadingScreen from '@/app/components/LoadingSpinner'
 import { useLocalClock } from '@/app/components/useLocalClock'
 import { ACCEPTANCE_CUTOFF_MINUTES } from '@/lib/bookingTime'
+import { MAX_DATE_RANGE_DAYS, addDaysISO } from '@/lib/bookingSlots'
 
 type Address = SavedAddress
 
 type Field = 'location' | 'date' | 'time' | null
+type DateMode = 'single' | 'range'
+type TimeMode = 'exact' | 'window'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
@@ -43,14 +48,30 @@ function toMinutes(hhmm: string): number {
   return h * 60 + m
 }
 
+function toHHMM(totalMinutes: number): string {
+  return `${String(Math.floor(totalMinutes / 60)).padStart(2, '0')}:${String(totalMinutes % 60).padStart(2, '0')}`
+}
+
 // `date` of null means "Any day" — nothing specific to validate. A specific
-// date in the past is always invalid; today is only invalid once the chosen
-// time (if any) is less than an hour away, since it would be auto-canceled.
-function validateDateTime(date: string | null, time: string | null, todayISO: string, nowMinutes: number): string | null {
+// date in the past is always invalid; today alone is only invalid once the
+// latest start time asked for (if any) is less than an hour away, since it
+// would be auto-canceled. A date range starting today still has later days.
+function validateDateTime(
+  date: string | null,
+  endDate: string | null,
+  time: string | null,
+  endTime: string | null,
+  todayISO: string,
+  nowMinutes: number
+): string | null {
+  if (time && endTime && endTime <= time) return 'The latest start time must be after the earliest start time.'
   if (!date) return null
   if (date < todayISO) return 'That date has already passed. Please choose a current or future date.'
-  if (date === todayISO && time && toMinutes(time) < nowMinutes + ACCEPTANCE_CUTOFF_MINUTES) {
-    return 'Please choose a time at least an hour from now.'
+  const latestStart = endTime ?? time
+  if (date === todayISO && !endDate && latestStart && toMinutes(latestStart) < nowMinutes + ACCEPTANCE_CUTOFF_MINUTES) {
+    return endTime
+      ? 'That time window is less than an hour away. Please choose a later window or another day.'
+      : 'Please choose a time at least an hour from now.'
   }
   return null
 }
@@ -117,12 +138,17 @@ function IconMessage() {
 
 function CalendarGrid({
   selected,
+  rangeEnd = null,
   onSelect,
   minDateISO,
+  maxDateISO = null,
 }: {
   selected: string | null
+  // The last day of a date range starting at `selected`; days between are shaded.
+  rangeEnd?: string | null
   onSelect: (iso: string) => void
   minDateISO: string
+  maxDateISO?: string | null
 }) {
   const initial = selected ? new Date(`${selected}T00:00:00`) : new Date()
   const [viewYear, setViewYear] = useState(initial.getFullYear())
@@ -157,24 +183,65 @@ function CalendarGrid({
         {cells.map((day, i) => {
           if (day == null) return <span key={i} />
           const iso = toISODate(new Date(viewYear, viewMonth, day))
-          const isSelected = iso === selected
-          const isPast = iso < minDateISO
+          const isSelected = iso === selected || iso === rangeEnd
+          const inRange = !!selected && !!rangeEnd && iso > selected && iso < rangeEnd
+          const isDisabled = iso < minDateISO || (maxDateISO != null && iso > maxDateISO)
           return (
             <button
               type="button"
               key={i}
-              disabled={isPast}
+              disabled={isDisabled}
+              aria-pressed={isSelected || inRange}
               onClick={() => onSelect(iso)}
               className={`w-8 h-8 mx-auto rounded-full text-sm flex items-center justify-center ${
-                isSelected ? 'text-white font-semibold' : isPast ? 'text-slate-300' : 'text-slate-700 hover:bg-slate-100'
+                isSelected ? 'text-white font-semibold' : isDisabled ? 'text-slate-300' : 'text-slate-700 hover:bg-slate-100'
               }`}
-              style={isSelected ? { backgroundColor: 'var(--color-brand)' } : undefined}
+              style={
+                isSelected
+                  ? { backgroundColor: 'var(--color-brand)' }
+                  : inRange
+                    ? { backgroundColor: 'color-mix(in srgb, var(--color-brand) 15%, transparent)' }
+                    : undefined
+              }
             >
               {day}
             </button>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ── single day / range toggle ────────────────────────────────────────────────
+
+function ModeToggle<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  options: [T, string][]
+  value: T
+  onChange: (value: T) => void
+}) {
+  return (
+    <div role="group" aria-label={label} className="grid grid-cols-2 gap-1 p-1 mb-3 rounded-xl bg-slate-200/60">
+      {options.map(([key, text]) => {
+        const active = key === value
+        return (
+          <button
+            type="button"
+            key={key}
+            aria-pressed={active}
+            onClick={() => onChange(key)}
+            className={`py-1.5 rounded-lg text-xs font-semibold transition-colors ${active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
+          >
+            {text}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -213,7 +280,16 @@ function SchedulePickerForm({
   })
   // Today, on the customer's own calendar, unless they've already chosen a date or "Any day".
   const [date, setDate] = useState<string | null>(initialSchedule.date ?? (anyDaySelected ? null : todayISO))
+  const [endDate, setEndDate] = useState<string | null>(initialSchedule.endDate)
+  const [dateMode, setDateMode] = useState<DateMode>(initialSchedule.endDate ? 'range' : 'single')
+  // In a date range, whether the next tap on the calendar sets the last day.
+  const [pickingEndDate, setPickingEndDate] = useState(false)
   const [time, setTime] = useState<string | null>(initialSchedule.time)
+  const [endTime, setEndTime] = useState<string | null>(initialSchedule.endTime)
+  const [recurrence, setRecurrence] = useState<RecurrenceFrequency | null>(initialSchedule.recurrence ?? null)
+  // Recurring needs one specific date to repeat from.
+  const canRecur = date != null && endDate == null
+  const [timeMode, setTimeMode] = useState<TimeMode>(initialSchedule.endTime ? 'window' : 'exact')
   const [timePickerError, setTimePickerError] = useState<string | null>(null)
   const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
@@ -229,9 +305,13 @@ function SchedulePickerForm({
   const locationLabel = location
     ? location.type === 'current_location' ? 'Current Location' : location.label
     : 'Current Location'
-  const dateLabel = date ? formatDateLabel(date) : 'Any day'
-  const timeLabel = time ? formatTimeLabel(time) : 'Anytime'
-  const dateTimeError = validateDateTime(date, time, todayISO, nowMinutes)
+  const dateLabel = date
+    ? endDate ? `${formatDateLabel(date)} – ${formatDateLabel(endDate)}` : formatDateLabel(date)
+    : 'Any day'
+  const timeLabel = time
+    ? endTime ? `Starts ${formatTimeLabel(time)} – ${formatTimeLabel(endTime)}` : formatTimeLabel(time)
+    : 'Anytime'
+  const dateTimeError = validateDateTime(date, endDate, time, endTime, todayISO, nowMinutes)
 
   function toggleField(field: Exclude<Field, null>) {
     if (field === 'time') setTimePickerError(null)
@@ -310,7 +390,11 @@ function SchedulePickerForm({
   function handleClearAll() {
     setLocation(null)
     setDate(null)
+    setEndDate(null)
+    setDateMode('single')
     setTime(null)
+    setEndTime(null)
+    setTimeMode('exact')
     setResults(null)
     setLocationError(null)
     setActiveField(null)
@@ -324,12 +408,57 @@ function SchedulePickerForm({
 
   function handleClearDate() {
     setDate(null)
+    setEndDate(null)
+    setDateMode('single')
     setActiveField(null)
   }
 
   function handleClearTime() {
     setTime(null)
+    setEndTime(null)
+    setTimeMode('exact')
     setActiveField(null)
+  }
+
+  function handleDateMode(mode: DateMode) {
+    setDateMode(mode)
+    setEndDate(null)
+    setPickingEndDate(false)
+  }
+
+  // One day: a tap picks it. A range: the first tap picks the first day, the next
+  // the last; tapping on or before the first day starts over from there.
+  function handlePickDate(iso: string) {
+    if (dateMode === 'single') {
+      setDate(iso)
+      setEndDate(null)
+      setActiveField(null)
+      return
+    }
+    if (!pickingEndDate || !date || iso <= date) {
+      setDate(iso)
+      setEndDate(null)
+      setPickingEndDate(true)
+      return
+    }
+    setEndDate(iso)
+    setPickingEndDate(false)
+    setActiveField(null)
+  }
+
+  // A window opens on whatever start time was already chosen (or 9 AM) and runs
+  // four hours from there, which the customer can then change.
+  function handleTimeMode(mode: TimeMode) {
+    setTimeMode(mode)
+    setTimePickerError(null)
+    if (mode === 'exact') {
+      setEndTime(null)
+      return
+    }
+    const lastSlot = 23 * 60 + 30
+    const start = time && toMinutes(time) < lastSlot ? time : '09:00'
+    setTime(start)
+    setEndTime(toHHMM(Math.min(toMinutes(start) + 240, lastSlot)))
   }
 
   // Commits immediately on pick, same as the date calendar — no separate
@@ -358,11 +487,11 @@ function SchedulePickerForm({
       return
     }
 
-    const schedule: Schedule = { location: loc, date, time }
+    const schedule: Schedule = { location: loc, date, endDate, time, endTime, recurrence: canRecur ? recurrence : null }
     setSearching(true)
     try {
       await saveSchedule(draftId, schedule)
-      const found = await searchAvailableCleaners(draftId, schedule)
+      const found = await searchAvailableCleaners(draftId, schedule, Intl.DateTimeFormat().resolvedOptions().timeZone)
       setResults(found)
     } finally {
       setSearching(false)
@@ -468,17 +597,31 @@ function SchedulePickerForm({
             </div>
             {activeField === 'date' && (
               <div className="mt-3 pt-3 border-t border-slate-200">
+                <ModeToggle
+                  label="Date type"
+                  options={[['single', 'Single day'], ['range', 'Date range']]}
+                  value={dateMode}
+                  onChange={handleDateMode}
+                />
+                {dateMode === 'range' && (
+                  <p className="text-xs text-slate-500 mb-3">
+                    {pickingEndDate && date
+                      ? `Now pick the last day that works (up to ${MAX_DATE_RANGE_DAYS} days).`
+                      : 'Pick the first day that works for you.'}
+                  </p>
+                )}
                 <CalendarGrid
                   selected={date}
+                  rangeEnd={dateMode === 'range' ? endDate : null}
                   minDateISO={todayISO}
-                  onSelect={(iso) => {
-                    setDate(iso)
-                    setActiveField(null)
-                  }}
+                  maxDateISO={dateMode === 'range' && pickingEndDate && date ? addDaysISO(date, MAX_DATE_RANGE_DAYS - 1) : null}
+                  onSelect={handlePickDate}
                 />
               </div>
             )}
           </div>
+
+          {canRecur && <RecurringBookingOption value={recurrence} onChange={setRecurrence} />}
 
           {/* Time */}
           <div className="rounded-2xl bg-slate-50 px-4 py-3.5">
@@ -498,11 +641,39 @@ function SchedulePickerForm({
             </div>
             {activeField === 'time' && (
               <div className="mt-3 pt-3 border-t border-slate-200">
-                <TimeSelect
-                  value={time ?? '08:30'}
-                  onChange={handleSelectTime}
-                  ariaLabel="Select time"
+                <ModeToggle
+                  label="Time type"
+                  options={[['exact', 'Exact time'], ['window', 'Time window']]}
+                  value={timeMode}
+                  onChange={handleTimeMode}
                 />
+                {timeMode === 'exact' ? (
+                  <TimeSelect
+                    value={time ?? '08:30'}
+                    onChange={handleSelectTime}
+                    ariaLabel="Select time"
+                  />
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-xs text-slate-500">Your Tidy Pro will start at some point in this window.</p>
+                    <div>
+                      <p className="text-xs font-medium text-slate-700 mb-1.5">Earliest start</p>
+                      <TimeSelect value={time ?? '09:00'} onChange={setTime} ariaLabel="Earliest start time" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-700 mb-1.5">Latest start</p>
+                      <TimeSelect value={endTime ?? '13:00'} onChange={setEndTime} ariaLabel="Latest start time" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveField(null)}
+                      className="self-end text-sm font-semibold px-4 py-2 rounded-xl text-white"
+                      style={{ backgroundColor: 'var(--color-brand)' }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                )}
                 {timePickerError && (
                   <p role="alert" className="text-xs text-red-600 mt-2">{timePickerError}</p>
                 )}
@@ -539,7 +710,12 @@ function SchedulePickerForm({
         ) : cleaners.length === 0 ? (
           <div className="rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm mt-6">
             <p className="font-semibold text-slate-900 mb-1">There are no cleaners available</p>
-            <p className="text-sm text-slate-400">Try changing the date and time, or choose Any day / Anytime.</p>
+            <p className="text-sm text-slate-400">Try a wider date range or time window, or choose Any day / Anytime.</p>
+            {results?.notifyWhenAvailable && (
+              <p className="text-sm text-slate-600 mt-3">
+                We&apos;ll let you know as soon as a Tidy Pro becomes available for this booking.
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3 mt-6">

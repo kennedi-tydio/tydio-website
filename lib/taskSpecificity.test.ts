@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { broadTaskMessage } from './taskSpecificity'
+import { broadTaskMessage, combinedTaskMessage, vagueFloorMessage } from './taskSpecificity'
 
 describe('broadTaskMessage', () => {
   it.each([
@@ -47,5 +47,68 @@ describe('broadTaskMessage', () => {
   it('suggests jobs for the room named', () => {
     expect(broadTaskMessage('Clean kitchen', 'Bathroom')).toContain('microwave')
     expect(broadTaskMessage('Clean bathroom', 'Kitchen')).toContain('toilet')
+  })
+
+  it.each(['Floor cleaning', 'Clean the floor', 'clean floors', 'Floors', 'Clean the kitchen floor', 'Floor care', 'Tidy up the floor'])(
+    'asks how the floor should be cleaned for "%s"',
+    (name) => {
+      expect(broadTaskMessage(name, 'Kitchen')).toBe(
+        'That’s too vague for a Tidy Task. Add a “Sweep floor” task and a “Mop floor” task separately.'
+      )
+    }
+  )
+
+  it.each(['Floor cleaning', 'Clean the floors', 'Clean the entire home floors'])('catches "%s" in Entire home', (name) => {
+    expect(vagueFloorMessage(name, 'Entire home')).toContain('“Sweep floor” task and a “Mop floor” task')
+    expect(vagueFloorMessage('Sweep floors', 'Entire home')).toBeNull()
+  })
+
+  it.each(['Sweep the floor', 'Mop the kitchen floor', 'Vacuum floors', 'Clean the floor mat', 'Wipe up the spill on the floor'])(
+    'accepts specific floor task "%s"',
+    (name) => {
+      expect(broadTaskMessage(name, 'Kitchen')).toBeNull()
+    }
+  )
+})
+
+describe('combinedTaskMessage', () => {
+  it.each([
+    'Sweep and mop floor',
+    'Sweep & mop the kitchen floor',
+    'sweep/mop floors',
+    'Wipe counters, scrub the sink',
+    'Dust shelves and vacuum the rug',
+    'Vacuum then mop',
+    'Make the bed and change the sheets',
+    'Wash and fold laundry',
+    'Empty the dishwasher and wipe the counters',
+  ])('rejects "%s"', (name) => {
+    expect(combinedTaskMessage(name)).toMatch(/^That’s more than one task/)
+  })
+
+  it('names each job, sharing the object named at the end', () => {
+    expect(combinedTaskMessage('Sweep and mop floor')).toBe(
+      'That’s more than one task. Add each job as its own task, like “Sweep floor” and “Mop floor”.'
+    )
+    expect(combinedTaskMessage('Wipe counters, scrub sink, mop floor')).toContain('“Wipe counters”, “Scrub sink” and “Mop floor”')
+  })
+
+  it.each([
+    'Scrub the toilet',
+    'Wash and dry the dishes',
+    'Wash & dry laundry',
+    'Fold and put away clothes',
+    'Wipe and sanitize the counters',
+    'Scrub and rinse the tub',
+    'Wash pots and pans',
+    'Dust the shelves and books',
+    'Pick up toys and put them away',
+    'Clean litter box',
+    'Scoop and refill the litter box',
+    'Empty and wash the litter box',
+    'Take out trash and recycling',
+    '',
+  ])('accepts "%s"', (name) => {
+    expect(combinedTaskMessage(name)).toBeNull()
   })
 })

@@ -18,8 +18,11 @@ export async function confirmSelectionAction(
     .from('booking_drafts')
     .update({
       selected_tidy_pro_id: cleanerId,
+      // The exact time chosen replaces any range searched with.
       scheduled_date: date,
+      scheduled_end_date: null,
       scheduled_time: time,
+      scheduled_end_time: null,
     })
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)

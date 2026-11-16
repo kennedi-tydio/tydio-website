@@ -103,7 +103,7 @@ export function hourInZone(timeZone: string, now: Date = new Date()): number {
 
 // A customer canceling an accepted booking this close to its start only gets part of
 // their payment back (see lateCancelRefund).
-export const LATE_CANCEL_WINDOW_HOURS = 12
+export const LATE_CANCEL_WINDOW_HOURS = 2
 
 export function isLateCancellation(
   date: string | null,
@@ -114,14 +114,17 @@ export function isLateCancellation(
   return hasBookingStarted(date, time, new Date(now.getTime() + LATE_CANCEL_WINDOW_HOURS * 60 * 60 * 1000), timeZone)
 }
 
-// A cleaner who can't get in waits this long, from the start time or when they arrived,
-// whichever is later, before they can report "Customer unavailable — no access". An
-// "anytime" booking has no start time, so the wait runs from their arrival.
-export const NO_ACCESS_WAIT_MINUTES = 15
+// A cleaner who can't get in waits this long, from the start time or when they pressed
+// "Unable to access location", whichever is later, before they can cancel with
+// "Customer unavailable — no access". An "anytime" booking has no start time, so the
+// wait runs from when they pressed it.
+export const NO_ACCESS_WAIT_MINUTES = 10
 
 export function noAccessReportableAt(
   date: string | null,
   time: string | null,
+  // bookings.no_access_reported_at, falling back to arrived_at for bookings
+  // marked unable to access before that column existed.
   arrivedAt: string | null,
   timeZone: string | null = DEFAULT_BOOKING_TIME_ZONE
 ): Date | null {
@@ -146,7 +149,7 @@ export function canReportNoAccess(
 
 // A customer whose cleaner still hasn't arrived this long after the start time can report
 // a no-show. "Anytime" bookings have no start time to measure from.
-export const NO_SHOW_REPORT_AFTER_MINUTES = 30
+export const NO_SHOW_REPORT_AFTER_MINUTES = 20
 
 export function noShowReportableAt(
   date: string | null,

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  halfRefund,
+  halfRefundCleanerPay,
   lateCancelCleanerPay,
   lateCancelRefund,
   BASE_PRICE_DIVISOR_MINUTES,
@@ -249,7 +251,7 @@ describe('netOfStripeFee', () => {
 })
 
 describe('late cancellation', () => {
-  it('refunds half, and pays the cleaner half their usual pay', () => {
+  it('refunds 50%, and pays the cleaner 80% of the 50% kept, half of what they would have earned', () => {
     expect(lateCancelRefund(100)).toBe(50)
     expect(lateCancelCleanerPay(80)).toBe(40)
   })
@@ -257,5 +259,12 @@ describe('late cancellation', () => {
   it('rounds to the cent', () => {
     expect(lateCancelRefund(37.75)).toBe(18.88)
     expect(lateCancelCleanerPay(29.07)).toBe(14.54)
+  })
+})
+
+describe('half refund', () => {
+  it('refunds half, and pays the cleaner half their usual pay', () => {
+    expect(halfRefund(100)).toBe(50)
+    expect(halfRefundCleanerPay(80)).toBe(40)
   })
 })

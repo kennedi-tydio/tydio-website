@@ -26,7 +26,7 @@ export default async function ReviewPage() {
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
     .select(
-      'id, task_list, scheduled_location, scheduled_date, scheduled_time, selected_tidy_pro_id, notes, entry_instructions, supplies_provided, gift_code, selected_payment_method_id'
+      'id, task_list, scheduled_location, scheduled_date, scheduled_time, selected_tidy_pro_id, notes, entry_instructions, supplies_provided, gift_code, selected_payment_method_id, recurrence_frequency'
     )
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
@@ -47,7 +47,7 @@ export default async function ReviewPage() {
     { data: tidyProIdentity },
     { data: paymentMethods },
   ] = await Promise.all([
-    admin.from('profiles').select('first_name, service_area_id, city, state').eq('id', session.profileId).single(),
+    admin.from('profiles').select('first_name, service_area_id, city, state, booking_access_status').eq('id', session.profileId).single(),
     admin
       .from('tidypro_profiles')
       .select('rating, total_accepted_bookings, latitude, longitude')
@@ -64,6 +64,7 @@ export default async function ReviewPage() {
 
   if (profileError) throw new Error(`Failed to load profile: ${profileError.message}`)
   if (!profile) redirect('/login')
+  if (profile.booking_access_status !== 'booking_allowed') redirect('/dashboard')
 
   const statePricing = await resolveStatePricing(admin, profile.service_area_id, profile)
   if (!statePricing.configured) redirect('/dashboard?priceError=state_pricing_not_configured')
@@ -128,6 +129,7 @@ export default async function ReviewPage() {
       photoUrls={await signedTaskPhotoUrls(admin, tasks)}
       date={draft.scheduled_date}
       time={draft.scheduled_time}
+      recurrence={draft.recurrence_frequency}
       durationMinutes={breakdown.total_task_minutes}
       addressName={addressName}
       addressLine={addressLine}

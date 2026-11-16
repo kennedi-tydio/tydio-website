@@ -2,13 +2,15 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { hasPushSubscription } from '@/lib/pushRequirement'
-import { isAvailableForBooking, type WeeklyAvailability } from '@/lib/cleanerMatching'
+import { notificationStatus } from '@/lib/pushRequirement'
+import { bookingBlockers, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { DEFAULT_BOOKING_TIME_ZONE, todayInZone } from '@/lib/bookingTime'
 import { formatTimeOffRange, normalizeTimeOff, parseTimeOff } from '@/lib/timeOff'
 import CleanerDetailView from '@/app/book/schedule/[cleanerId]/CleanerDetailView'
+import { loadPortfolio } from '@/lib/tidyProPortfolio'
 import { FavoriteStar } from '../../users/FavoriteStar'
 import { serviceLabels } from '@/lib/tidyProServices'
+import { VerifiedToggle } from '../VerifiedToggle'
 import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
 import { amendmentStatuses } from '@/lib/legal/agreementAmendments'
 import AmendmentStatusList from '../../AmendmentStatusList'
@@ -22,7 +24,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
   const { proId } = await params
   const admin = createAdminClient()
 
-  const [{ data: tidyPro, error }, { data: profile }, { data: favoriteRow }, { data: agreement }, amendmentsById] = await Promise.all([
+  const [{ data: tidyPro, error }, { data: profile }, { data: favoriteRow }, portfolio, { data: agreement }, amendmentsById] = await Promise.all([
     admin
       .from('tidypro_profiles')
       .select(
@@ -32,6 +34,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
       .maybeSingle(),
     admin.from('profiles').select('first_name, last_name, email').eq('id', proId).maybeSingle(),
     admin.from('admin_favorite_tidy_pros').select('pro_id').eq('pro_id', proId).maybeSingle(),
+    loadPortfolio(admin, proId),
     admin.from('agreement_signatures').select('id, signed_at').eq('pro_id', proId).eq('agreement_version', ICA_VERSION).maybeSingle(),
     amendmentStatuses(admin, [proId]),
   ])
@@ -42,12 +45,13 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
   const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'Tidy Pro'
   const timeZone = tidyPro.time_zone ?? DEFAULT_BOOKING_TIME_ZONE
   const timeOff = normalizeTimeOff(parseTimeOff(tidyPro.time_off), todayInZone(timeZone))
-  const bookable = isAvailableForBooking({ ...tidyPro, has_push: await hasPushSubscription(admin, proId) })
+  const blockers = bookingBlockers({ ...tidyPro, ...(await notificationStatus(admin, proId)) })
+  const bookable = blockers.length === 0
   const backHref = `/admin/users?role=TIDYPRO&search=${encodeURIComponent(profile?.email ?? '')}`
 
   return (
     <div>
-      <Link href="/admin/users?role=TIDYPRO" className="text-sm text-slate-500 underline">
+      <Link href="/admin/tidy-pros" className="text-sm text-slate-500 underline">
         ← Back to Tidy Pros
       </Link>
 
@@ -71,6 +75,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
             usesOrganicProducts={tidyPro.uses_organic_products ?? false}
             allergies={Array.isArray(tidyPro.allergies) ? (tidyPro.allergies as string[]) : []}
             reviewsHref={`/admin/tidy-pros/${proId}/reviews`}
+            portfolio={portfolio}
             previewBackHref={backHref}
           />
         </div>
@@ -87,8 +92,20 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
             <span className={`inline-block w-2.5 h-2.5 rounded-full ${bookable ? 'bg-green-500' : 'bg-slate-300'}`} aria-hidden="true" />
             {bookable ? 'Customers can book them' : 'Not bookable right now'}
           </p>
-          {tidyPro.is_away && <p className="text-sm text-amber-700 mb-1">Away: hidden from search until they turn it off</p>}
+          {!bookable && (
+            <ul className="text-sm text-slate-600 list-disc pl-5 mb-1 space-y-0.5" aria-label="Why they can't be booked">
+              {blockers.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          )}
           <p className="text-xs text-slate-400 mb-4">Times are in their time zone ({timeZone}).</p>
+
+          <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Verification</h3>
+          <div className="mb-1">
+            <VerifiedToggle proId={proId} name={name} initialVerified={tidyPro.is_verified} />
+          </div>
+          <p className="text-xs text-slate-400 mb-4">Verified Tidy Pros show customers a green verified checkmark.</p>
 
           <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Contractor agreement</h3>
           <div className="mb-4">
@@ -107,6 +124,13 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
             <p className="text-sm text-slate-600 mb-4">{serviceLabels(tidyPro.services_provided).join(', ')}</p>
           ) : (
             <p className="text-sm text-slate-400 mb-4">Not chosen yet</p>
+          )}
+
+          <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Travel distance</h3>
+          {tidyPro.travel_radius_miles != null ? (
+            <p className="text-sm text-slate-600 mb-4">Up to {tidyPro.travel_radius_miles} miles</p>
+          ) : (
+            <p className="text-sm text-slate-400 mb-4">Not set</p>
           )}
 
           <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Upcoming time off</h3>

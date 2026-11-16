@@ -105,9 +105,9 @@ describe('shiftDateISO', () => {
 
 describe('isLateCancellation', () => {
   // 9am Eastern on Dec 1 is 14:00 UTC.
-  it('is late from 12 hours before the start', () => {
-    expect(isLateCancellation('2026-12-01', '09:00', new Date('2026-12-01T01:59:00Z'), 'America/New_York')).toBe(false)
-    expect(isLateCancellation('2026-12-01', '09:00', new Date('2026-12-01T02:00:00Z'), 'America/New_York')).toBe(true)
+  it('is late from 2 hours before the start', () => {
+    expect(isLateCancellation('2026-12-01', '09:00', new Date('2026-12-01T11:59:00Z'), 'America/New_York')).toBe(false)
+    expect(isLateCancellation('2026-12-01', '09:00', new Date('2026-12-01T12:00:00Z'), 'America/New_York')).toBe(true)
   })
 
   it('is never late without a time', () => {
@@ -117,20 +117,20 @@ describe('isLateCancellation', () => {
 
 describe('canReportNoAccess', () => {
   // 9am Eastern on 2026-12-01 is 14:00Z.
-  it('waits 15 minutes past the start when the cleaner arrived early', () => {
+  it('waits 10 minutes past the start when the cleaner arrived early', () => {
     const arrived = '2026-12-01T13:50:00Z'
-    expect(canReportNoAccess('2026-12-01', '09:00', arrived, new Date('2026-12-01T14:14:00Z'))).toBe(false)
-    expect(canReportNoAccess('2026-12-01', '09:00', arrived, new Date('2026-12-01T14:15:00Z'))).toBe(true)
+    expect(canReportNoAccess('2026-12-01', '09:00', arrived, new Date('2026-12-01T14:09:00Z'))).toBe(false)
+    expect(canReportNoAccess('2026-12-01', '09:00', arrived, new Date('2026-12-01T14:10:00Z'))).toBe(true)
   })
 
-  it('waits 15 minutes past arrival when the cleaner arrived after the start', () => {
+  it('waits 10 minutes past arrival when the cleaner arrived after the start', () => {
     const arrived = '2026-12-01T14:10:00Z'
-    expect(canReportNoAccess('2026-12-01', '09:00', arrived, new Date('2026-12-01T14:20:00Z'))).toBe(false)
-    expect(canReportNoAccess('2026-12-01', '09:00', arrived, new Date('2026-12-01T14:25:00Z'))).toBe(true)
+    expect(canReportNoAccess('2026-12-01', '09:00', arrived, new Date('2026-12-01T14:19:00Z'))).toBe(false)
+    expect(canReportNoAccess('2026-12-01', '09:00', arrived, new Date('2026-12-01T14:20:00Z'))).toBe(true)
   })
 
   it('measures an anytime booking from arrival', () => {
-    expect(noAccessReportableAt('2026-12-01', null, '2026-12-01T16:00:00Z')?.toISOString()).toBe('2026-12-01T16:15:00.000Z')
+    expect(noAccessReportableAt('2026-12-01', null, '2026-12-01T16:00:00Z')?.toISOString()).toBe('2026-12-01T16:10:00.000Z')
   })
 
   it('never unlocks with nothing to measure from', () => {
@@ -139,9 +139,9 @@ describe('canReportNoAccess', () => {
 })
 
 describe('canReportNoShow', () => {
-  it('unlocks 30 minutes after the start time', () => {
-    expect(canReportNoShow('2026-12-01', '09:00', new Date('2026-12-01T14:29:00Z'))).toBe(false)
-    expect(canReportNoShow('2026-12-01', '09:00', new Date('2026-12-01T14:30:00Z'))).toBe(true)
+  it('unlocks 20 minutes after the start time', () => {
+    expect(canReportNoShow('2026-12-01', '09:00', new Date('2026-12-01T14:19:00Z'))).toBe(false)
+    expect(canReportNoShow('2026-12-01', '09:00', new Date('2026-12-01T14:20:00Z'))).toBe(true)
   })
 
   it('never unlocks for an anytime booking', () => {

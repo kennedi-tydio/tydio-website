@@ -8,7 +8,12 @@ import PetTaskDetails from '@/app/components/PetTaskDetails'
 import Link from 'next/link'
 import { markBookingDoneAction } from '@/app/pro/messages/[bookingId]/actions'
 import PhotoCaptureModal from './PhotoCaptureModal'
+import AddToProfileModal, { type PhotoPair } from './AddToProfileModal'
+import type { TaskPhotoKind } from './actions'
 import { formatVisitDuration } from '@/lib/laundry'
+import { reportUnableToAccessAction } from '@/app/pro/messages/[bookingId]/actions'
+import ElapsedTimer from './ElapsedTimer'
+import ReportCustomerButton from './ReportCustomerButton'
 
 export type ProBookingTaskRow = {
   id: string
@@ -17,6 +22,8 @@ export type ProBookingTaskRow = {
   task_icon: string | null
   is_completed: boolean
   completion_photo_url: string | null
+  // Optional photo taken before the task (see BeforePhotosPrompt).
+  before_photo_url: string | null
 }
 
 export function IconBack() {
@@ -88,6 +95,10 @@ type Props = {
   // Pet enclosure / litter box details and signed photo URLs.
   petTasks?: TidyTask[]
   photoUrls?: Record<string, string>
+  // They said yes to before photos when they arrived.
+  wantsBeforePhotos?: boolean
+  // When they pressed "I've arrived", for the elapsed time.
+  arrivedAtMs?: number | null
 }
 
 export default function TaskListView({
@@ -103,22 +114,63 @@ export default function TaskListView({
   tasks: initialTasks,
   petTasks = [],
   photoUrls = {},
+  wantsBeforePhotos = false,
+  arrivedAtMs = null,
 }: Props) {
   const router = useRouter()
   const [tasks, setTasks] = useState(initialTasks)
-  const [activeTask, setActiveTask] = useState<ProBookingTaskRow | null>(null)
+  const [activePhoto, setActivePhoto] = useState<{ task: ProBookingTaskRow; kind: TaskPhotoKind } | null>(null)
   const [finishing, setFinishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [choosingProfilePhotos, setChoosingProfilePhotos] = useState(false)
+  const [reportingNoAccess, setReportingNoAccess] = useState(false)
 
   const allComplete = tasks.length > 0 && tasks.every((t) => t.is_completed)
+  const noneStarted = tasks.every((t) => !t.is_completed)
+  const photoPairs: PhotoPair[] = tasks.flatMap((t) =>
+    t.before_photo_url && t.completion_photo_url
+      ? [{ taskId: t.id, taskName: t.task_name, beforeUrl: t.before_photo_url, afterUrl: t.completion_photo_url }]
+      : []
+  )
 
-  function handlePhotoSubmitted(taskId: string, photoUrl: string) {
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, is_completed: true, completion_photo_url: photoUrl } : t)))
-    setActiveTask(null)
+  function handlePhotoSubmitted(taskId: string, kind: TaskPhotoKind, photoUrl: string) {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id !== taskId
+          ? t
+          : kind === 'before'
+            ? { ...t, before_photo_url: photoUrl }
+            : { ...t, is_completed: true, completion_photo_url: photoUrl }
+      )
+    )
+    setActivePhoto(null)
   }
 
-  async function handleAllTasksComplete() {
+  function handleAllTasksComplete() {
     if (!allComplete || finishing) return
+    // With any before/after pairs, offer to add them to their profile first.
+    if (photoPairs.length > 0) {
+      setChoosingProfilePhotos(true)
+      return
+    }
+    void finishJob()
+  }
+
+  // Only offered before any task is done; takes them to the no-access countdown.
+  async function handleUnableToAccess() {
+    setReportingNoAccess(true)
+    setError(null)
+    const result = await reportUnableToAccessAction(bookingId)
+    setReportingNoAccess(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    router.replace(`/pro/bookings/${bookingId}`)
+    router.refresh()
+  }
+
+  async function finishJob() {
     setFinishing(true)
     setError(null)
     const result = await markBookingDoneAction(bookingId)
@@ -126,6 +178,7 @@ export default function TaskListView({
     // Refresh on error: a failed payout transfer still leaves the job finished
     // (see completeBookingPayout), so this moves on to the past booking page.
     if ('error' in result) {
+      setChoosingProfilePhotos(false)
       setError(result.error)
       router.refresh()
       return
@@ -145,7 +198,10 @@ export default function TaskListView({
           >
             <IconBack />
           </button>
-          <EmergencyButton addressLine={addressLine} />
+          <div className="flex items-center gap-2">
+            <EmergencyButton addressLine={addressLine} />
+            <ReportCustomerButton bookingId={bookingId} />
+          </div>
         </div>
 
         <p className="text-xs text-slate-400 mb-0.5">Happening Now</p>
@@ -155,7 +211,28 @@ export default function TaskListView({
           {scheduledDate && scheduledTime && addressLabel && <span>|</span>}
           {addressLabel && <span>{addressLabel}</span>}
         </div>
-        {scheduledTime && <p className="text-xs text-slate-400 -mt-5 mb-6">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
+        {scheduledTime && <p className="text-xs text-slate-400 -mt-5 mb-1">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
+        <ElapsedTimer sinceMs={arrivedAtMs} className="mb-6" />
+
+        {noneStarted && (
+          <div className="rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3 mb-5">
+            {wantsBeforePhotos ? (
+              <p className="text-sm text-slate-700">
+                <span className="font-semibold">Take your before photos first.</span> Tap &quot;Before photo&quot; on each
+                task before you start it.
+              </p>
+            ) : (
+              <p className="text-sm text-slate-700">
+                Want to show your work? Take a <span className="font-semibold">before photo</span> of a task before you
+                start it.
+              </p>
+            )}
+            <p className="text-xs text-slate-500 mt-1">
+              After photos are required for every task. Before and after pairs can go on your profile for future
+              customers to see.
+            </p>
+          </div>
+        )}
 
         <p className="text-sm font-bold" style={{ color: 'var(--color-brand)' }}>
           Tasks
@@ -193,14 +270,27 @@ export default function TaskListView({
                       <p className={`text-sm ${task.is_completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
                         {task.task_name}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTask(task)}
-                        className="text-xs font-semibold"
-                        style={{ color: 'var(--color-brand)' }}
-                      >
-                        {task.is_completed ? 'View Photo' : 'Add photo'}
-                      </button>
+                      <div className="flex items-center gap-3">
+                        {(!task.is_completed || task.before_photo_url) && (
+                          <button
+                            type="button"
+                            onClick={() => setActivePhoto({ task, kind: 'before' })}
+                            className="text-xs font-semibold text-slate-500"
+                            aria-label={`${task.before_photo_url ? 'View' : 'Add'} before photo for ${task.task_name}`}
+                          >
+                            {task.before_photo_url ? 'View before' : 'Before photo'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setActivePhoto({ task, kind: 'after' })}
+                          className="text-xs font-semibold"
+                          style={{ color: 'var(--color-brand)' }}
+                          aria-label={`${task.is_completed ? 'View' : 'Add'} after photo for ${task.task_name}`}
+                        >
+                          {task.is_completed ? 'View after' : 'After photo (required)'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -243,6 +333,16 @@ export default function TaskListView({
         >
           Send a message
         </Link>
+        {noneStarted && (
+          <button
+            type="button"
+            onClick={handleUnableToAccess}
+            disabled={reportingNoAccess || finishing}
+            className="w-full py-2.5 rounded-xl text-center bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-60"
+          >
+            {reportingNoAccess ? 'Starting timer…' : 'Unable to access location'}
+          </button>
+        )}
         <button
           type="button"
           onClick={handleAllTasksComplete}
@@ -254,14 +354,28 @@ export default function TaskListView({
         </button>
       </div>
 
-      {activeTask && (
+      {activePhoto && (
         <PhotoCaptureModal
+          // Remount when switching between a task's before and after photo.
+          key={`${activePhoto.task.id}-${activePhoto.kind}`}
           bookingId={bookingId}
-          taskId={activeTask.id}
-          taskName={activeTask.task_name}
-          existingPhotoUrl={activeTask.completion_photo_url}
-          onClose={() => setActiveTask(null)}
-          onSubmitted={(photoUrl) => handlePhotoSubmitted(activeTask.id, photoUrl)}
+          taskId={activePhoto.task.id}
+          taskName={activePhoto.task.task_name}
+          kind={activePhoto.kind}
+          // A before photo can't be replaced once the task is done.
+          readOnly={activePhoto.kind === 'before' && activePhoto.task.is_completed}
+          existingPhotoUrl={activePhoto.kind === 'before' ? activePhoto.task.before_photo_url : activePhoto.task.completion_photo_url}
+          onClose={() => setActivePhoto(null)}
+          onSubmitted={(photoUrl) => handlePhotoSubmitted(activePhoto.task.id, activePhoto.kind, photoUrl)}
+        />
+      )}
+
+      {choosingProfilePhotos && (
+        <AddToProfileModal
+          bookingId={bookingId}
+          pairs={photoPairs}
+          onFinish={finishJob}
+          onClose={() => setChoosingProfilePhotos(false)}
         />
       )}
     </main>

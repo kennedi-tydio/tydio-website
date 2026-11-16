@@ -435,7 +435,9 @@ export default function PetTaskStep({ name, notes, draft, setDraft, taskInputs, 
         {current?.status === 'ok' && (
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3 mb-4">
             <p className="text-sm font-semibold text-emerald-900">
-              Photos look good · {formatEstimatedMinutes(current.minutes)}
+              {/* An enclosure's photos are just accepted or not; the time
+                  estimate stays behind the scenes (it still prices the task). */}
+              {kind === 'enclosure' ? 'Photos look good' : <>Photos look good · {formatEstimatedMinutes(current.minutes)}</>}
             </p>
             <p className="text-xs text-emerald-900 leading-relaxed mt-1">{current.scope}</p>
           </div>

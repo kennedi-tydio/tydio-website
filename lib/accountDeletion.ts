@@ -11,7 +11,7 @@ export const UNPAID_PAYOUT_MESSAGE =
   'A completed booking is still waiting on its Tidy Pro payout. Try again once it has been paid out, or email kennedicoats@tydioapp.com for help.'
 
 // Folders in these buckets are named by profile id (see the upload actions).
-const PROFILE_BUCKETS = ['profile-photos', 'insurance-documents', 'customer-task-photos', 'customer-pet-photos']
+const PROFILE_BUCKETS = ['profile-photos', 'insurance-documents', 'customer-task-photos', 'customer-pet-photos', 'portfolio-photos']
 
 // Deleting the profile row cascades to everything tied to it in the database:
 // addresses, saved cards, drafts, push subscriptions, a Tidy Pro's profile and
@@ -52,6 +52,13 @@ export async function deleteOwnAccount(admin: Admin, profileId: string): Promise
     admin.from('bookings').select('id').eq('user_id', profileId),
   ])
 
+  // Before/after photos of this customer's home that Tidy Pros added to their
+  // profiles. The rows cascade with the bookings; the files are removed below.
+  const bookingIds = (bookings ?? []).map(b => b.id)
+  const { data: portfolioOfHome } = bookingIds.length
+    ? await admin.from('tidypro_portfolio_items').select('before_photo_path, after_photo_path').in('booking_id', bookingIds)
+    : { data: [] }
+
   // Selecting the deleted row confirms it's really gone: a delete matching nothing isn't an error.
   const { data: removedRows, error } = await admin.from('profiles').delete().eq('id', profileId).select('id')
   if (error || !removedRows?.length) return { error: 'We could not delete your account. Please try again.' }
@@ -61,6 +68,12 @@ export async function deleteOwnAccount(admin: Admin, profileId: string): Promise
     ...(bookings ?? []).map(b => ({ bucket: 'task-photos', prefix: b.id })),
   ]
   await Promise.all(folders.map(({ bucket, prefix }) => removeFolder(admin, bucket, prefix)))
+
+  const portfolioPaths = (portfolioOfHome ?? []).flatMap(p => (p.before_photo_path ? [p.before_photo_path, p.after_photo_path] : [p.after_photo_path]))
+  if (portfolioPaths.length) {
+    const { error: portfolioError } = await admin.storage.from('portfolio-photos').remove(portfolioPaths)
+    if (portfolioError) console.error('[Tydio] Removing portfolio photos of a deleted customer failed:', portfolioError)
+  }
 
   if (profile?.stripe_customer_id) {
     await stripe.customers

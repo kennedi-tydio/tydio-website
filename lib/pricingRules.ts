@@ -306,15 +306,29 @@ export function refundableAmount(totalCharge: number, percentage: number = STRIP
 }
 
 // A customer canceling an accepted booking within LATE_CANCEL_WINDOW_HOURS of its start
-// (see lib/bookingTime) gets half of what they paid back. The cleaner, who held that time
-// for them, is paid their usual 80% of the half of the booking price Tydio keeps, i.e.
-// half of the booking's `cleaner_pay`.
+// (see lib/bookingTime) gets 50% of what they paid back. The 50% kept is split as usual:
+// the cleaner, who held that time for them, gets 80% of it and Tydio 20%. That makes the
+// cleaner's pay 50% of what they would have earned (the booking's `cleaner_pay`), i.e.
+// 40% of the Service Price.
 export const LATE_CANCEL_REFUND_RATE = 0.5
+export const LATE_CANCEL_CLEANER_PAY_RATE = 0.5
 
 export function lateCancelRefund(totalCharge: number): number {
   return round2(totalCharge * LATE_CANCEL_REFUND_RATE)
 }
 
 export function lateCancelCleanerPay(cleanerPay: number): number {
-  return round2(cleanerPay * (1 - LATE_CANCEL_REFUND_RATE))
+  return round2(cleanerPay * LATE_CANCEL_CLEANER_PAY_RATE)
+}
+
+// The admin's "half refund" (canceling a booking, or settling an incident): half of
+// what they paid back, and the cleaner is paid half their usual pay.
+export const HALF_REFUND_RATE = 0.5
+
+export function halfRefund(totalCharge: number): number {
+  return round2(totalCharge * HALF_REFUND_RATE)
+}
+
+export function halfRefundCleanerPay(cleanerPay: number): number {
+  return round2(cleanerPay * (1 - HALF_REFUND_RATE))
 }

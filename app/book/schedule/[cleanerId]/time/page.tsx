@@ -7,6 +7,7 @@ import { visitDurationMinutes } from '@/app/dashboard/taskPricing'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
 import { parseTimeOff } from '@/lib/timeOff'
+import { normalizeScheduleRange } from '@/lib/bookingSlots'
 import ChooseTimeView, { type BusyRange } from './ChooseTimeView'
 
 export const metadata: Metadata = { title: 'Choose a Time — Tydio' }
@@ -33,7 +34,7 @@ export default async function ChooseTimePage({
 
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
-    .select('id, task_list, scheduled_date, scheduled_time')
+    .select('id, task_list, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time')
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -45,8 +46,14 @@ export default async function ChooseTimePage({
   // A specific date AND time were already locked in on "Plan your booking" —
   // search only returned cleaners free at that exact slot, so there's
   // nothing left to choose here. Lock in this cleaner and go straight to
-  // reviewing the request.
-  if (draft.scheduled_date && draft.scheduled_time) {
+  // reviewing the request. A date range or time window still needs a pick.
+  const { date: rangeStart, endDate: rangeEnd, time: windowStart, endTime: windowEnd } = normalizeScheduleRange({
+    date: draft.scheduled_date,
+    endDate: draft.scheduled_end_date,
+    time: draft.scheduled_time,
+    endTime: draft.scheduled_end_time,
+  })
+  if (draft.scheduled_date && draft.scheduled_time && !rangeEnd && !windowEnd) {
     const { error: confirmError } = await admin
       .from('booking_drafts')
       .update({ selected_tidy_pro_id: cleanerId })
@@ -93,6 +100,8 @@ export default async function ChooseTimePage({
       durationMinutes={durationMinutes}
       initialDate={draft.scheduled_date}
       initialTime={draft.scheduled_time}
+      dateRange={rangeStart && rangeEnd ? { start: rangeStart, end: rangeEnd } : null}
+      timeWindow={windowStart && windowEnd ? { start: windowStart, end: windowEnd } : null}
     />
   )
 }

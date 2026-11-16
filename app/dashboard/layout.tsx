@@ -18,7 +18,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .eq('id', session.profileId)
     .maybeSingle()
 
-  if (profile?.booking_access_status === 'waitlisted' || profile?.booking_access_status === 'denied') redirect('/waitlist')
+  // Waitlisted customers can use the dashboard (profile, Tidy Tasks) but can't
+  // book; the dashboard shows a banner and /book redirects back. Denied accounts
+  // only see /waitlist.
+  if (profile?.booking_access_status === 'denied') redirect('/waitlist')
 
   return (
     <>

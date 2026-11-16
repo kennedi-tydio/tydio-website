@@ -61,7 +61,19 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/063_customer_pets.sql` (customer pets + private `customer-pet-photos` bucket). Booking pages, Profile → Pets, and booking checkout read `customer_pets` / `profiles.has_no_pets` and fail without it.
 - [x] Apply `supabase/migrations/065_customer_pet_notes_optional.sql` (pet notes optional). Until it's applied, saving a pet without notes fails
 - [ ] **After deploying the pets code**, apply `supabase/migrations/066_drop_old_pets_text.sql` (drops the old free-text `profiles.pets` and `booking_drafts.pets`). Applying it before the deploy breaks checkout on the old code
+- [x] Apply `supabase/migrations/067_unmet_booking_searches.sql` (saved searches nobody matched)
+- [x] Apply `supabase/migrations/068_booking_schedule_ranges.sql` (date ranges and time windows on drafts and saved searches)
+- [x] Apply `supabase/migrations/069_recurring_bookings.sql` (recurring bookings; hourly `tydio-recurring-bookings` job)
+- [x] Apply `supabase/migrations/070_split_general_cleaning.sql` (General cleaning → Standard + Deep cleaning)
 - [x] Apply `supabase/migrations/064_entry_instructions.sql` (`user_addresses` / `booking_drafts.entry_instructions`). Saving an address and loading Manage Addresses fail without it
+- [x] Apply `supabase/migrations/071_tidypro_portfolio.sql` (before photos, photo locations, `tidypro_portfolio_items`, public `portfolio-photos` bucket; `booking_tasks` locked to the service role)
+- [x] Apply `supabase/migrations/072_no_access_reported_at.sql` (`bookings.no_access_reported_at`). "Unable to access location" fails without it
+- [x] Apply `supabase/migrations/073_cancellation_reason.sql` (`bookings.cancellation_reason` / `cancellation_note`). Every customer and Tidy Pro cancel fails without it
+- [x] Apply `supabase/migrations/073_no_access_photo.sql` (`bookings.no_access_photo_url` / `no_access_photo_latitude` / `no_access_photo_longitude`). Canceling for no access fails without it
+- [x] Apply `supabase/migrations/074_admin_review.sql` (`bookings.cancellation_resolved_at` / `cancellation_admin_note` for /admin/cancellations)
+- [x] Apply `supabase/migrations/075_booking_upcharges.sql` (`booking_upcharges`, `bookings.suspended_for_upcharge_at`). Booking pages, Tidy Pro progress buttons, cancellations and payouts all fail without it
+- [x] Apply `supabase/migrations/076_portfolio_uploads.sql` (`tidypro_portfolio_items.before_photo_path` nullable). Work photo uploads without a before photo fail without it
+- [x] Apply `supabase/migrations/077_recurring_visit_payments.sql` (`recurring_bookings.tidy_pro_accepted_at`; `bookings.amount_due`, `payment_due_at`, `payment_attempted_at`, `payment_failed_at`, `payment_error`, `suspended_for_payment_at`, `auto_accepted`; `incident_refund_level` allows `minus_fee`; acceptance-rate view skips auto-accepted visits). Recurring bookings, booking pages, the Tidy Pro thread and no-show reports fail without it
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel

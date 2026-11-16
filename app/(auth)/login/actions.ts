@@ -8,6 +8,7 @@ import { hasGoogleIdentity } from '@/lib/auth/googleAccount'
 import { sendEmail, emailShell } from '@/lib/email'
 import { BANNED_MESSAGE, isBanned } from '@/lib/bannedUsers'
 import { safeRedirectPath } from '@/lib/safeRedirect'
+import { customerLanding } from '@/lib/waitlistLanding'
 import { RATE_LIMITED_MESSAGE, RATE_LIMITS, allowEmailSend, clientIp, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 import { redirect } from 'next/navigation'
 
@@ -82,9 +83,8 @@ export async function loginAction(
 
   await createSession({ profileId: profile.id, role: profile.role as 'USER' | 'TIDYPRO', email }, { remember })
 
-  const safeNext = safeRedirectPath(next)
-  if (safeNext) redirect(safeNext)
-  redirect(role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
+  const dest = safeRedirectPath(next) ?? (role === 'TIDYPRO' ? '/pro/onboarding' : '/dashboard')
+  redirect(await customerLanding(admin, profile.id, profile.role, dest))
 }
 
 export async function resendVerificationAction(

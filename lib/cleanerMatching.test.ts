@@ -140,6 +140,8 @@ describe('findAvailableCleaners with "Any day"', () => {
           eq: () => chain,
           not: () => chain,
           in: () => chain,
+          gte: () => chain,
+          lte: () => chain,
           then: (resolve: (value: { data: unknown[] }) => void) =>
             resolve({ data: table === 'tidypro_profiles' ? candidates : table === 'push_subscriptions' ? candidates.map((c) => ({ profile_id: c.id })) : candidates.map((c) => ({ id: c.id, first_name: c.id, last_name: '' })) }),
         }
@@ -174,6 +176,29 @@ describe('findAvailableCleaners with "Any day"', () => {
 
   it('needs the whole job to fit inside their hours', async () => {
     expect(await ids('11:30', 120)).toEqual([])
+  })
+
+  const rangeIds = async (range: { date: string | null; endDate?: string | null; time: string | null; endTime?: string | null }, durationMinutes = 60) =>
+    (await findAvailableCleaners({ ...atlanta, ...range, durationMinutes, requiredServices: ['taskBased'] }, fakeAdmin()))
+      .map((c) => c.id)
+      .sort()
+
+  // 2026-11-16 is a Monday and 2026-11-20 a Friday.
+  it('with a date range, shows cleaners free on any day in it', async () => {
+    expect(await rangeIds({ date: '2026-11-17', endDate: '2026-11-19', time: null })).toEqual([])
+    expect(await rangeIds({ date: '2026-11-16', endDate: '2026-11-19', time: null })).toEqual(['eight-miles-wide', 'morning'])
+    expect(await rangeIds({ date: '2026-11-16', endDate: '2026-11-20', time: null })).toEqual(['eight-miles-wide', 'evening', 'morning'])
+  })
+
+  it('with a time window, shows cleaners who can start inside it', async () => {
+    expect(await rangeIds({ date: null, time: '16:00', endTime: '18:00' })).toEqual(['evening'])
+    expect(await rangeIds({ date: null, time: '07:00', endTime: '09:00' })).toEqual(['eight-miles-wide', 'morning'])
+    expect(await rangeIds({ date: null, time: '05:00', endTime: '08:00' })).toEqual([])
+  })
+
+  it('with both, needs a start in the window on a day in the range', async () => {
+    expect(await rangeIds({ date: '2026-11-16', endDate: '2026-11-20', time: '10:00', endTime: '11:00' })).toEqual(['eight-miles-wide', 'morning'])
+    expect(await rangeIds({ date: '2026-11-16', endDate: '2026-11-20', time: '10:30', endTime: '11:00' }, 120)).toEqual([])
   })
 
   it('only shows cleaners within their own travel distance', async () => {

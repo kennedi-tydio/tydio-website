@@ -6,7 +6,7 @@ import { getUnreadMessageCountForTidyPro } from '@/lib/bookings'
 import { hasOutstandingPayoutRequirements, refreshPayoutOnboardingStatus, listPayoutMethods, type PayoutMethodSummary } from '@/lib/stripe/connect'
 import PayoutMethodView from './PayoutMethodView'
 
-export const metadata: Metadata = { title: 'Payout Method — Tydio' }
+export const metadata: Metadata = { title: 'Payout Methods — Tydio' }
 
 export default async function PayoutMethodPage() {
   const session = await getSession()
@@ -32,12 +32,16 @@ export default async function PayoutMethodPage() {
     hasPayoutMethod = await refreshPayoutOnboardingStatus(session.profileId, tidyPro.stripe_account_id).catch(() => false)
   }
 
+  // List whatever is on the account even before Stripe finishes verifying it,
+  // so a bank account they just added shows up right away.
   let payoutMethods: PayoutMethodSummary[] = []
   let needsMoreInfo = false
-  if (hasPayoutMethod && tidyPro?.stripe_account_id) {
+  if (tidyPro?.stripe_account_id) {
     ;[payoutMethods, needsMoreInfo] = await Promise.all([
       listPayoutMethods(tidyPro.stripe_account_id).catch(() => []),
-      hasOutstandingPayoutRequirements(tidyPro.stripe_account_id).catch(() => false),
+      hasPayoutMethod
+        ? hasOutstandingPayoutRequirements(tidyPro.stripe_account_id).catch(() => false)
+        : Promise.resolve(false),
     ])
   }
 

@@ -3,7 +3,7 @@ import { bookingStartInstant } from '@/lib/bookingTime'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { stripe } from '@/lib/stripe'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
-import type { CleanerReportCategory } from '@/lib/cleanerReportCategories'
+import { reportChoiceLabel, type ReportChoice } from '@/lib/reportCategories'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -74,7 +74,7 @@ export type BookingIncident = {
   sections: { cleaner: string; booking: string; customer: string; payment: string }
 }
 
-export async function loadBookingIncident(admin: Admin, bookingId: string, customerTitle = 'Customer'): Promise<BookingIncident | null> {
+export async function loadBookingIncident(admin: Admin, bookingId: string, customerTitle = 'Customer', cleanerTitle = 'Cleaner'): Promise<BookingIncident | null> {
   const { data: booking } = await admin.from('bookings').select('*').eq('id', bookingId).maybeSingle()
   if (!booking) return null
 
@@ -100,7 +100,7 @@ export async function loadBookingIncident(admin: Admin, bookingId: string, custo
     cleanerName,
     customerName,
     sections: {
-      cleaner: detailSection('Cleaner', [
+      cleaner: detailSection(cleanerTitle, [
         ['Full name', cleanerName],
         ['Phone', tidyPro?.phone ?? cleaner?.phone],
         ['Email', cleaner?.email],
@@ -117,6 +117,18 @@ export async function loadBookingIncident(admin: Admin, bookingId: string, custo
         ['Entry instructions', booking.entry_instructions],
         ['Notes', booking.notes],
         ['Unusual notes', booking.unusual_notes],
+        // The photo of the location the cleaner took before canceling for no access.
+        ...(booking.no_access_photo_url
+          ? ([
+              ['No-access location photo', booking.no_access_photo_url],
+              [
+                'Where photo was taken',
+                booking.no_access_photo_latitude != null && booking.no_access_photo_longitude != null
+                  ? `https://www.google.com/maps?q=${booking.no_access_photo_latitude},${booking.no_access_photo_longitude}`
+                  : 'Not recorded by the phone',
+              ],
+            ] as [string, string][])
+          : []),
         ['Pets', booking.pets],
         ['Customer provides supplies', booking.will_provide_supplies ? 'Yes' : 'No'],
         ['Booked', formatInZone(booking.created_at, booking.time_zone)],
@@ -165,13 +177,22 @@ export async function sendAdminEscalation(
   })
 }
 
+function reportSection(choice: ReportChoice, details: string, reportedAt: Date, timeZone: string): string {
+  return detailSection('Report', [
+    ['Category', choice.category.label],
+    ['Reason', choice.reason?.label ?? 'Something else'],
+    [choice.reason ? 'Note' : 'What happened', details || null],
+    ['Submitted', formatInZone(reportedAt.toISOString(), timeZone)],
+  ])
+}
+
 // A customer reported their cleaner from the booking page. The report itself is already
 // saved; this tells the admin straight away, with who reported it and what they said.
 export async function sendCleanerReportEscalation(
   admin: Admin,
   bookingId: string,
-  category: CleanerReportCategory,
-  reason: string,
+  choice: ReportChoice,
+  details: string,
   reportedAt: Date = new Date()
 ): Promise<void> {
   const incident = await loadBookingIncident(admin, bookingId, 'Reported by (customer)')
@@ -180,17 +201,58 @@ export async function sendCleanerReportEscalation(
   await sendAdminEscalation(incident, {
     subject: 'ESCALATION: CLEANER REPORTED',
     heading: 'Cleaner reported',
-    intro: `<strong>${escapeHtml(incident.customerName)}</strong> reported their cleaner, <strong>${escapeHtml(incident.cleanerName)}</strong>, for <strong>${escapeHtml(category.label)}</strong>.`,
+    intro: `<strong>${escapeHtml(incident.customerName)}</strong> reported their cleaner, <strong>${escapeHtml(incident.cleanerName)}</strong>, for <strong>${escapeHtml(reportChoiceLabel(choice))}</strong>.`,
     sections: [
-      detailSection('Report', [
-        ['Category', category.label],
-        ['What happened', reason],
-        ['Submitted', formatInZone(reportedAt.toISOString(), incident.booking.time_zone)],
-      ]),
+      reportSection(choice, details, reportedAt, incident.booking.time_zone),
       incident.sections.customer,
       incident.sections.cleaner,
       incident.sections.booking,
       incident.sections.payment,
     ],
+  })
+}
+
+// A Tidy Pro reported the customer from the booking page. Same as above, the other way round.
+export async function sendCustomerReportEscalation(
+  admin: Admin,
+  bookingId: string,
+  choice: ReportChoice,
+  details: string,
+  reportedAt: Date = new Date()
+): Promise<void> {
+  const incident = await loadBookingIncident(admin, bookingId, 'Customer', 'Reported by (cleaner)')
+  if (!incident) return
+
+  await sendAdminEscalation(incident, {
+    subject: 'ESCALATION: CUSTOMER REPORTED',
+    heading: 'Customer reported',
+    intro: `<strong>${escapeHtml(incident.cleanerName)}</strong> reported their customer, <strong>${escapeHtml(incident.customerName)}</strong>, for <strong>${escapeHtml(reportChoiceLabel(choice))}</strong>.`,
+    sections: [
+      reportSection(choice, details, reportedAt, incident.booking.time_zone),
+      incident.sections.cleaner,
+      incident.sections.customer,
+      incident.sections.booking,
+      incident.sections.payment,
+    ],
+  })
+}
+
+// The Tidy Pro pressed "Unable to access location" at the door. Sent the first time
+// only, so the admin can reach the customer while the cleaner waits out the countdown.
+export async function sendUnableToAccessEscalation(admin: Admin, bookingId: string, reportedAt: Date = new Date()): Promise<void> {
+  const incident = await loadBookingIncident(admin, bookingId)
+  if (!incident) return
+
+  await sendAdminEscalation(incident, {
+    subject: `Tidy Pro can't access location: ${incident.customerName}`,
+    heading: "Tidy Pro can't access the location",
+    intro: `<strong>${escapeHtml(incident.cleanerName)}</strong> is at <strong>${escapeHtml(incident.customerName)}</strong>'s booking but can't get in. They have to wait out the countdown before they can cancel, so this is the time to reach the customer.`,
+    sections: [
+      detailSection('Report', [['Pressed "Unable to access location"', formatInZone(reportedAt.toISOString(), incident.booking.time_zone)]]),
+      incident.sections.customer,
+      incident.sections.booking,
+      incident.sections.cleaner,
+    ],
+    adminPath: '/admin/bookings',
   })
 }

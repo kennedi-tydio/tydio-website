@@ -2,7 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { backgroundCheckStage } from '@/lib/backgroundCheck'
 import { FEE_REFUND_REASONS, feeStatusLabel, hasPaidFee } from '@/lib/backgroundCheckFee'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
-import { withPushStatus } from '@/lib/pushRequirement'
+import { NOTIFICATIONS_REQUIRED, meetsNotificationRequirement, pushSubscribedIds, withPushStatus } from '@/lib/pushRequirement'
 import { amendmentStatuses } from '@/lib/legal/agreementAmendments'
 import AmendmentStatusList from '../AmendmentStatusList'
 import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
@@ -36,6 +36,15 @@ const CLEANER_STATUS_COLORS: Record<string, string> = {
 
 // background_checks.status is a pre-existing check constraint allowing only
 // pending/in_review/passed/failed/expired.
+// Under each contact detail: whether that kind of notification actually reaches them.
+function ChannelStatus({ on, label }: { on: boolean; label: string }) {
+  return on ? (
+    <div className="text-[11px] font-semibold text-green-700 mt-0.5">✓ {label} on</div>
+  ) : (
+    <div className="text-[11px] text-slate-400 mt-0.5">✗ {label} off</div>
+  )
+}
+
 function withDate(label: string, iso: string | null): string {
   if (!iso) return label
   return `${label} (${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
@@ -75,17 +84,21 @@ export default async function UsersPage({
 }: {
   searchParams: Promise<{ search?: string; role?: string; status?: string; verified?: string; state?: string; city?: string; organic?: string; acceptance?: string; available?: string; favorite?: string }>
 }) {
-  const { search = '', role = '', status = '', verified = '', state = '', city = '', organic = '', acceptance = '', available = '', favorite = '' } = await searchParams
+  // With no state in the URL the page opens on Georgia; picking "All states" sends
+  // state= (empty), which shows everyone.
+  const { search = '', role = '', status = '', verified = '', state = DEFAULT_STATE, city = '', organic = '', acceptance = '', available = '', favorite = '' } = await searchParams
   const admin = createAdminClient()
   const locations = await userLocations(admin)
   // City options are "City, ST" so two same-named cities stay distinct.
   const cityFilter = parseCityOption(city)
   const cityOptions = locations.filter((l) => !state || l.state === state)
-  const stateOptions = [...new Set(locations.map((l) => l.state))]
+  // Keep the selected state listed even before anyone there has signed up, so the
+  // dropdown never shows "All states" while a state filter is applied.
+  const stateOptions = [...new Set([...locations.map((l) => l.state), ...(state ? [state] : [])])].sort()
 
   let query = admin
     .from('profiles')
-    .select('id, first_name, last_name, email, phone, street_address, city, state, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at', { count: 'exact' })
+    .select('id, first_name, last_name, email, phone, street_address, city, state, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at, email_notifications_enabled, sms_consent', { count: 'exact' })
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -192,10 +205,12 @@ export default async function UsersPage({
   const { data: cleanerProfiles } = cleanerIds.length
     ? await admin
         .from('tidypro_profiles')
-        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude, phone, street_address, city, state, zip_code, uses_organic_products, time_off')
+        .select('id, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude, phone, street_address, city, state, zip_code, uses_organic_products, time_off, sms_consent, email_notifications_enabled')
         .in('id', cleanerIds)
     : { data: [] }
   const cleanerById = new Map((await withPushStatus(admin, cleanerProfiles ?? [])).map((c) => [c.id, c]))
+  // For the Email / Phone / Push columns: who'd actually get each kind of notification.
+  const pushIds = await pushSubscribedIds(admin, (users ?? []).map((u) => u.id))
   const acceptanceByProId = await getAcceptanceStats(admin, cleanerIds)
   const { data: favoriteRows } = cleanerIds.length
     ? await admin.from('admin_favorite_tidy_pros').select('pro_id').in('pro_id', cleanerIds)
@@ -377,7 +392,7 @@ export default async function UsersPage({
         </button>
         {hasFilters && (
           <a
-            href="/admin/users"
+            href="/admin/users?state="
             className="px-3 py-2 rounded-xl text-sm text-slate-400 hover:text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors"
           >
             Clear
@@ -416,10 +431,12 @@ export default async function UsersPage({
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">State</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Email</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Phone</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Push</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Address</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Role</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Availability</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Travels</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Onboarding Left</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Background Check</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Acceptance</th>
@@ -464,6 +481,12 @@ export default async function UsersPage({
                 const proProfile = user.role === 'TIDYPRO' ? cleanerById.get(user.id) : undefined
                 const saved = addressByUserId.get(user.id)
                 const phone = proProfile?.phone ?? user.phone
+                // Tidy Pros are notified from their Tidy Pro profile's settings, customers from their account's.
+                const emailOn = (user.role === 'TIDYPRO' && proProfile ? proProfile.email_notifications_enabled : user.email_notifications_enabled) !== false
+                const smsOn = (user.role === 'TIDYPRO' && proProfile ? proProfile.sms_consent : user.sms_consent) === 'opted_in' && !!phone
+                const pushOn = pushIds.has(user.id)
+                const notificationsMissing =
+                  NOTIFICATIONS_REQUIRED && user.role !== 'ADMIN' && !meetsNotificationRequirement({ has_push: pushOn, has_sms: smsOn })
                 const address = proProfile?.street_address
                   ? [proProfile.street_address, proProfile.city, proProfile.state, proProfile.zip_code]
                   : saved
@@ -496,9 +519,27 @@ export default async function UsersPage({
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.city ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.state ?? '—'}</td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">{user.email}</td>
+                    <td className="px-4 py-3 text-slate-500 text-xs">
+                      <div>{user.email}</div>
+                      <ChannelStatus on={emailOn} label="Email" />
+                    </td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                      {phone ? <a href={`tel:${phone}`} className="underline">{phone}</a> : '—'}
+                      <div>{phone ? <a href={`tel:${phone}`} className="underline">{phone}</a> : '—'}</div>
+                      <ChannelStatus on={smsOn} label="SMS" />
+                    </td>
+                    <td className="px-4 py-3 text-xs whitespace-nowrap">
+                      {user.role === 'ADMIN' ? (
+                        <span className="text-slate-400">—</span>
+                      ) : (
+                        <>
+                          <ChannelStatus on={pushOn} label="Push" />
+                          {notificationsMissing && (
+                            <div className="text-[11px] font-semibold text-red-600 mt-0.5">
+                              {user.role === 'TIDYPRO' ? "Can't receive bookings" : "Can't book"}
+                            </div>
+                          )}
+                        </>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 min-w-48">{addressText || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{user.role}</td>
@@ -547,6 +588,13 @@ export default async function UsersPage({
                           />
                         </div>
                       )}
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs text-slate-500 whitespace-nowrap">
+                      {user.role === 'TIDYPRO'
+                        ? proProfile?.travel_radius_miles != null
+                          ? `${proProfile.travel_radius_miles} mi`
+                          : <span className="text-slate-400">Not set</span>
+                        : null}
                     </td>
                     <td className="px-4 py-3 align-top min-w-48">
                       {user.role === 'TIDYPRO' && (() => {
@@ -636,9 +684,10 @@ export default async function UsersPage({
                           <form action={revokeAccessAction.bind(null, user.id)}>
                             <button
                               type="submit"
+                              title="Put them back on the waitlist and email them. Use this if you let them off by mistake."
                               className="text-xs font-medium text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
                             >
-                              Revoke
+                              Back to waitlist
                             </button>
                           </form>
                         ) : (
@@ -647,6 +696,17 @@ export default async function UsersPage({
                       )}
                       {!user.suspended_at && cleanerWaitlisted && (
                         <WaitlistDecision profileId={user.id} canDeny={user.booking_access_status === 'waitlisted'} />
+                      )}
+                      {!user.suspended_at && user.role === 'TIDYPRO' && !cleanerWaitlisted && (
+                        <form action={revokeAccessAction.bind(null, user.id)} className="mb-1.5">
+                          <button
+                            type="submit"
+                            title="Put them back on the waitlist and email them. Use this if you let them off by mistake."
+                            className="text-xs font-medium text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                          >
+                            Back to waitlist
+                          </button>
+                        </form>
                       )}
                       {!user.suspended_at && user.role === 'TIDYPRO' && !cleanerWaitlisted && (
                         cleaner?.active_for_booking ? (
@@ -754,6 +814,8 @@ async function userLocations(admin: ReturnType<typeof createAdminClient>): Promi
   }
   return [...seen.values()].sort((a, b) => a.state.localeCompare(b.state) || a.city.localeCompare(b.city))
 }
+
+const DEFAULT_STATE = 'GA'
 
 function parseCityOption(value: string): { city: string; state: string } | null {
   const at = value.lastIndexOf(', ')

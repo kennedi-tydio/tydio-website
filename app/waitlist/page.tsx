@@ -5,15 +5,20 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import PostHogIdentify from '@/app/components/PostHogIdentify'
 import SignOutForm from '@/app/components/SignOutForm'
+import Link from 'next/link'
+import { safeRedirectPath } from '@/lib/safeRedirect'
 
 export const metadata: Metadata = { title: "You're on the Waitlist — Tydio" }
 
 // Every new account lands here after signup until an admin grants or denies
-// access from /admin/users. The /dashboard and /pro layouts redirect waitlisted
-// and denied accounts here.
-export default async function WaitlistPage() {
+// access from /admin/users. The /pro layout redirects waitlisted and denied Tidy
+// Pros here, and /dashboard redirects denied customers. Waitlisted customers are
+// sent here on each sign-in (lib/waitlistLanding) and Continue on into the app,
+// where they can set up their profile and Tidy Tasks but can't book.
+export default async function WaitlistPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const session = await getSession()
   if (!session) redirect('/login')
+  const continueHref = safeRedirectPath((await searchParams).next) ?? '/dashboard'
 
   const isPro = session.role === 'TIDYPRO'
   const admin = createAdminClient()
@@ -70,14 +75,23 @@ export default async function WaitlistPage() {
           <p className="text-sm text-slate-500 mt-2 leading-relaxed">
             {isPro
               ? "Thanks for applying to be a Tidy Pro. We're bringing cleaners on a few at a time during early access, and we'll let you know as soon as you can start setting up your profile."
-              : "Thanks for signing up. We're letting customers in a few at a time during early access, and we'll let you know as soon as you can book your first cleaning."}
+              : "Thanks for signing up. We're letting customers in a few at a time during early access, and we'll let you know as soon as you can book your first cleaning. In the meantime, you can set up your profile and add Tidy Tasks."}
           </p>
           <p className="text-sm text-slate-500 mt-3 leading-relaxed">
             Keep an eye on <span className="font-medium text-slate-700">{profile.email}</span>.
           </p>
         </div>
 
-        <SignOutForm className="w-full mt-2" buttonClassName="w-full py-3 rounded-xl text-sm font-medium text-slate-500 hover:text-slate-700" />
+        {isPro ? (
+          <SignOutForm className="w-full mt-2" buttonClassName="w-full py-3 rounded-xl text-sm font-medium text-slate-500 hover:text-slate-700" />
+        ) : (
+          <Link
+            href={continueHref}
+            className="block w-full mt-2 py-3 rounded-xl text-sm font-semibold text-white bg-brand text-center"
+          >
+            Continue
+          </Link>
+        )}
       </div>
 
       <p className="mt-6 text-xs text-slate-400 text-center max-w-xs">

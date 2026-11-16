@@ -1,8 +1,9 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
-import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { adminStepLabel, missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 import { providesServices, type TidyProService } from '@/lib/tidyProServices'
 import { withPushStatus } from '@/lib/pushRequirement'
 import { isDateInTimeOff, overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
+import { datesInRange, hasStartInWindowOnSomeWeekday, openStartTimes, type Busy, type StartWindow } from '@/lib/bookingSlots'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -119,14 +120,18 @@ export async function hasBookingConflict(
   cleanerId: string,
   date: string,
   time: string,
-  durationMinutes: number
+  durationMinutes: number,
+  // The booking being moved, which can't clash with itself.
+  excludeBookingId?: string
 ): Promise<boolean> {
-  const { data: existing } = await admin
+  let query = admin
     .from('bookings')
     .select('scheduled_time, estimated_duration_minutes')
     .eq('tidy_pro_id', cleanerId)
     .eq('scheduled_date', date)
     .not('status', 'in', '("cancelled","declined")')
+  if (excludeBookingId) query = query.neq('id', excludeBookingId)
+  const { data: existing } = await query
 
   const reqStart = minutesSinceMidnight(time)
   const reqEnd = reqStart + durationMinutes
@@ -154,12 +159,20 @@ export function isAvailableForBooking(cleaner: {
   longitude: number | null
   has_push: boolean
 }): boolean {
-  return (
-    cleaner.active_for_booking &&
-    cleaner.cleaner_status === 'approved' &&
-    !cleaner.is_away &&
-    missingOnboardingSteps(cleaner).length === 0
-  )
+  return bookingBlockers(cleaner).length === 0
+}
+
+type BookabilityFields = Parameters<typeof isAvailableForBooking>[0]
+
+// Why customers can't book this Tidy Pro right now, for admins. Empty when
+// they're bookable. The same checks as isAvailableForBooking, one per reason.
+export function bookingBlockers(cleaner: BookabilityFields): string[] {
+  const reasons: string[] = []
+  if (cleaner.cleaner_status !== 'approved') reasons.push(`Status is ${cleaner.cleaner_status ?? 'applied'}, not approved`)
+  if (!cleaner.active_for_booking) reasons.push('Booking turned off (suspended, paused, or not yet activated)')
+  if (cleaner.is_away) reasons.push('Away mode is on')
+  for (const step of missingOnboardingSteps(cleaner)) reasons.push(adminStepLabel(step.label))
+  return reasons
 }
 
 export async function findAvailableCleaners(
@@ -168,14 +181,20 @@ export async function findAvailableCleaners(
     longitude: number
     date: string | null // "YYYY-MM-DD", or null for "Any day"
     time: string | null // "HH:MM" or null for "Anytime"
+    // A date range, from `date` through this date. Needs `date`.
+    endDate?: string | null
+    // A time window: the job starts anywhere from `time` through this time. Needs `time`.
+    endTime?: string | null
     durationMinutes: number
     // What the booking's tasks need (requiredServicesForTasks). Only Tidy Pros
     // who provide every one of them are matched.
     requiredServices: TidyProService[]
+    // Check just this Tidy Pro, by the same rules.
+    onlyCleanerId?: string
   },
   admin: AdminClient
 ): Promise<CleanerMatch[]> {
-  const { data: candidates } = await admin
+  let query = admin
     .from('tidypro_profiles')
     .select('id, active_for_booking, cleaner_status, is_away, rating, review_count, is_verified, total_accepted_bookings, profile_photo_url, bio, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude, availability, time_off')
     .eq('active_for_booking', true)
@@ -183,6 +202,8 @@ export async function findAvailableCleaners(
     .eq('is_away', false)
     .not('latitude', 'is', null)
     .not('longitude', 'is', null)
+  if (params.onlyCleanerId) query = query.eq('id', params.onlyCleanerId)
+  const { data: candidates } = await query
 
   if (!candidates || candidates.length === 0) return []
 
@@ -202,7 +223,9 @@ export async function findAvailableCleaners(
   // "Any day" with "Anytime": every bookable cleaner in range. The customer picks whoever
   // they like, then a day from that cleaner's calendar. With a time, it narrows further down.
   let available = nearby
-  if (params.date) {
+  if ((params.date && params.endDate) || (params.time && params.endTime)) {
+    available = await filterByScheduleRange(nearby, params, admin)
+  } else if (params.date) {
     const date = params.date
     const weekday = WEEKDAY_KEYS[new Date(`${date}T00:00:00`).getDay()]
     const timeRange = params.time
@@ -276,4 +299,55 @@ export async function findAvailableCleaners(
       distanceMiles: Math.round(c.distanceMiles * 10) / 10,
     }))
     .sort((a, b) => a.distanceMiles - b.distanceMiles)
+}
+
+// A date range or time window: the cleaner needs at least one open start time in it,
+// by the same rules as the "Choose a time" calendar the customer picks from next.
+async function filterByScheduleRange<C extends { id: string; availability: unknown; time_off: unknown }>(
+  cleaners: C[],
+  params: { date: string | null; endDate?: string | null; time: string | null; endTime?: string | null; durationMinutes: number },
+  admin: AdminClient
+): Promise<C[]> {
+  const window: StartWindow | null = params.time ? { start: params.time, end: params.endTime ?? params.time } : null
+
+  // "Any day": only their weekly hours can be checked, as with a single time.
+  if (!params.date) {
+    if (!window) return cleaners
+    return cleaners.filter((c) =>
+      hasStartInWindowOnSomeWeekday((c.availability as WeeklyAvailability) ?? {}, params.durationMinutes, window)
+    )
+  }
+
+  const dates = datesInRange(params.date, params.endDate ?? params.date)
+  const { data: existingBookings } = await admin
+    .from('bookings')
+    .select('tidy_pro_id, scheduled_date, scheduled_time, estimated_duration_minutes')
+    .in('tidy_pro_id', cleaners.map((c) => c.id))
+    .gte('scheduled_date', dates[0])
+    .lte('scheduled_date', dates[dates.length - 1])
+    .not('status', 'in', '("cancelled","declined")')
+
+  const busy = new Map<string, Busy[]>()
+  for (const b of existingBookings ?? []) {
+    if (!b.tidy_pro_id || !b.scheduled_date || !b.scheduled_time) continue
+    const key = `${b.tidy_pro_id} ${b.scheduled_date}`
+    const start = minutesSinceMidnight(b.scheduled_time)
+    busy.set(key, [...(busy.get(key) ?? []), { start, end: start + (b.estimated_duration_minutes ?? 60) }])
+  }
+
+  return cleaners.filter((c) => {
+    const availability = (c.availability as WeeklyAvailability) ?? {}
+    const timeOff = parseTimeOff(c.time_off)
+    return dates.some(
+      (dateISO) =>
+        openStartTimes({
+          availability,
+          timeOff,
+          dateISO,
+          durationMinutes: params.durationMinutes,
+          bookings: busy.get(`${c.id} ${dateISO}`),
+          window,
+        }).length > 0
+    )
+  })
 }

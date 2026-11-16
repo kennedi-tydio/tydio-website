@@ -16,6 +16,7 @@ import {
   type ProBookingTaskRow,
 } from './TaskListView'
 import { formatVisitDuration } from '@/lib/laundry'
+import ReportCustomerButton from './ReportCustomerButton'
 
 type Props = {
   // An accepted booking that hasn't started yet shows the same summary,
@@ -85,13 +86,16 @@ export default function PastBookingDetailView({
   return (
     <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
-        <Link
-          href="/pro/bookings"
-          aria-label="Back"
-          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4"
-        >
-          <IconBack />
-        </Link>
+        <div className="flex items-center justify-between mb-4">
+          <Link
+            href="/pro/bookings"
+            aria-label="Back"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2"
+          >
+            <IconBack />
+          </Link>
+          <ReportCustomerButton bookingId={bookingId} />
+        </div>
 
         <p className="text-xs font-semibold text-slate-400 mb-1">{isUpcoming ? 'Upcoming Booking' : 'Past Booking'}</p>
         <h1 className="text-2xl font-bold text-slate-900">{customerName}</h1>

@@ -7,6 +7,10 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn() }))
 vi.mock('@/lib/stripe', () => ({ stripe: {} }))
 vi.mock('@/lib/marketPricing', () => ({}))
 vi.mock('@/lib/accountSuspension', () => ({ suspendAccounts: vi.fn(), unsuspendAccounts: vi.fn() }))
+vi.mock('@/lib/accountBookingCancellation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/accountBookingCancellation')>()),
+  cancelBookingsForAccounts: vi.fn(),
+}))
 vi.mock('@/lib/accountDeletion', () => ({
   OPEN_BOOKINGS_MESSAGE: 'open-bookings',
   UNPAID_PAYOUT_MESSAGE: 'unpaid-payout',
@@ -28,6 +32,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { suspendAccounts, unsuspendAccounts } from '@/lib/accountSuspension'
 import { deleteOwnAccount } from '@/lib/accountDeletion'
 import { banAccount } from '@/lib/banAccount'
+import { cancelBookingsForAccounts } from '@/lib/accountBookingCancellation'
 import { manageAccountsAction } from './actions'
 
 type Profile = { id: string; role: string; first_name: string | null; last_name: string | null; email: string }
@@ -47,11 +52,13 @@ function request(intent: string, ids: string[], note?: string): FormData {
 }
 
 const loggedDeletions: unknown[] = []
+const NOTHING_CANCELLED = { cancelled: 0, released: 0, inProgress: 0, failed: 0 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(isAdminAuthed).mockResolvedValue(true)
   loggedDeletions.length = 0
+  vi.mocked(cancelBookingsForAccounts).mockResolvedValue(NOTHING_CANCELLED)
   vi.mocked(createAdminClient).mockReturnValue({
     from: () => ({
       select: () => ({
@@ -77,8 +84,18 @@ describe('manageAccountsAction', () => {
   it('suspends the selection, skipping admin accounts', async () => {
     vi.mocked(suspendAccounts).mockResolvedValue(2)
     const result = await manageAccountsAction({}, request('suspend', ['u1', 'p1', 'a1', 'u1']))
-    expect(suspendAccounts).toHaveBeenCalledWith(expect.anything(), ['u1', 'p1'])
-    expect(result).toEqual({ message: 'Suspended 2 accounts. Skipped 1 admin account.' })
+    expect(suspendAccounts).toHaveBeenCalledWith(expect.anything(), ['u1', 'p1'], { notify: true })
+    expect(result).toEqual({ message: 'Suspended 2 accounts and emailed each one. Skipped 1 admin account.' })
+  })
+
+  it('cancels the suspended accounts’ upcoming bookings and says what happened', async () => {
+    vi.mocked(suspendAccounts).mockResolvedValue(1)
+    vi.mocked(cancelBookingsForAccounts).mockResolvedValue({ cancelled: 0, released: 2, inProgress: 1, failed: 0 })
+    const result = await manageAccountsAction({}, request('suspend', ['p1']))
+    expect(cancelBookingsForAccounts).toHaveBeenCalledWith(expect.anything(), ['p1'], 'suspend')
+    expect(result.message).toBe(
+      "Suspended 1 account and emailed them. Took the Tidy Pro off 2 upcoming bookings or requests, as if they'd canceled: customers can choose someone else, or are refunded in full if it's too late. 1 job already under way was left for you to settle."
+    )
   })
 
   it('refuses when only admin accounts are selected', async () => {
@@ -111,12 +128,13 @@ describe('manageAccountsAction', () => {
   })
 
   it('bans each account with the given reason, skipping admins', async () => {
-    vi.mocked(banAccount).mockResolvedValue(undefined)
+    vi.mocked(banAccount).mockResolvedValue({ cancelled: 1, released: 0, inProgress: 0, failed: 0 })
     const result = await manageAccountsAction({}, request('ban', ['u1', 'p1', 'a1'], '  Fraud  '))
     expect(banAccount).toHaveBeenCalledWith(expect.anything(), 'u1', 'Fraud')
     expect(banAccount).toHaveBeenCalledWith(expect.anything(), 'p1', 'Fraud')
     expect(banAccount).toHaveBeenCalledTimes(2)
     expect(result.message).toMatch(/^Banned 2 accounts\./)
+    expect(result.message).toContain('Canceled 2 upcoming bookings or requests, each with a full refund.')
     expect(result.message).toContain('Skipped 1 admin account.')
   })
 
@@ -129,6 +147,7 @@ describe('manageAccountsAction', () => {
     vi.mocked(banAccount).mockImplementation(async (_admin, id) => {
       if (id === 'u1') throw new Error('This user is already banned.')
       if (id === 'p1') throw new Error('boom')
+      return NOTHING_CANCELLED
     })
     const result = await manageAccountsAction({}, request('ban', ['u1', 'p1'], '   '))
     expect(banAccount).toHaveBeenCalledWith(expect.anything(), 'u1', null)

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test-only chainable Supabase query mock */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/stripe', () => ({
   stripe: {
@@ -31,6 +31,7 @@ import {
   expireUnacceptedBookings,
   isHiddenGroupRequest,
   refundBookingInFull,
+  refundBookingTotal,
   refundLateCancellation,
   restoreBookingTasks,
   validateExtraCleanerSelection,
@@ -181,12 +182,63 @@ describe('cancellation refunds', () => {
     expect(stripe.refunds.create).toHaveBeenCalledWith({ payment_intent: 'pi_1' }, { idempotencyKey: 'refund-booking-full-pi_1' })
   })
 
-  it('refunds half when the customer cancels late', async () => {
+  it('refunds 50% when the customer cancels late', async () => {
     await refundLateCancellation('pi_1')
     expect(stripe.refunds.create).toHaveBeenCalledWith(
       { payment_intent: 'pi_1', amount: 1887 },
       { idempotencyKey: 'refund-booking-late-pi_1' }
     )
+  })
+})
+
+describe('refundBookingTotal', () => {
+  const paidUpcharge = { id: 'u1', stripe_payment_intent_id: 'pi_up', amount: 20, customer_charge: 20.9, cleaner_pay: 16 }
+
+  beforeEach(() => {
+    vi.mocked(stripe.refunds.create).mockReset().mockResolvedValue({ id: 're_x' } as any)
+    vi.mocked(stripe.paymentIntents.retrieve).mockReset()
+  })
+  // Later tests rely on the default mock.
+  afterEach(() => vi.mocked(stripe.paymentIntents.retrieve).mockReset().mockResolvedValue({ amount_received: 3774 } as any))
+
+  it('takes the same share of an upcharge as of the booking, so it adds up to that share of the total', async () => {
+    vi.mocked(stripe.paymentIntents.retrieve).mockImplementation(async (id: string) => ({ amount_received: id === 'pi_up' ? 2090 : 3774 }) as any)
+    const { admin, updates } = fakeAdmin({ booking_upcharges: [{ data: [paidUpcharge] }] })
+
+    const result = await refundBookingTotal(admin, { id: 'b1', stripe_payment_intent_id: 'pi_1' }, 'half')
+
+    expect(stripe.refunds.create).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 1887 }, { idempotencyKey: 'refund-booking-half-pi_1' })
+    expect(stripe.refunds.create).toHaveBeenCalledWith({ payment_intent: 'pi_up', amount: 1045 }, { idempotencyKey: 'refund-booking-half-pi_up' })
+    expect(result.refundId).toBe('re_x')
+    expect(updates.find((u) => u.table === 'booking_upcharges')?.values).toMatchObject({ status: 'refunded', stripe_refund_id: 're_x' })
+  })
+
+  it('takes a custom amount off the booking charge first, then the upcharge', async () => {
+    vi.mocked(stripe.paymentIntents.retrieve).mockImplementation(
+      async (id: string) => ({ amount_received: id === 'pi_up' ? 2090 : 3774, latest_charge: { amount_refunded: 0 } }) as any
+    )
+    const { admin } = fakeAdmin({ booking_upcharges: [{ data: [paidUpcharge] }] })
+
+    await refundBookingTotal(admin, { id: 'b1', stripe_payment_intent_id: 'pi_1' }, { custom: 45 })
+
+    expect(stripe.refunds.create).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 3774 }, expect.anything())
+    expect(stripe.refunds.create).toHaveBeenCalledWith({ payment_intent: 'pi_up', amount: 726 }, expect.anything())
+  })
+
+  it('leaves the upcharge alone when the custom amount fits in the booking charge', async () => {
+    vi.mocked(stripe.paymentIntents.retrieve).mockResolvedValue({ amount_received: 3774, latest_charge: { amount_refunded: 0 } } as any)
+    const { admin, updates } = fakeAdmin({ booking_upcharges: [{ data: [paidUpcharge] }] })
+
+    await refundBookingTotal(admin, { id: 'b1', stripe_payment_intent_id: 'pi_1' }, { custom: 10 })
+
+    expect(stripe.refunds.create).toHaveBeenCalledTimes(1)
+    expect(updates.some((u) => u.table === 'booking_upcharges')).toBe(false)
+  })
+
+  it('refunds nothing with no refund', async () => {
+    const { admin } = fakeAdmin({ booking_upcharges: [{ data: [paidUpcharge] }] })
+    expect(await refundBookingTotal(admin, { id: 'b1', stripe_payment_intent_id: 'pi_1' }, 'none')).toEqual({ refundId: null, refunded: 0 })
+    expect(stripe.refunds.create).not.toHaveBeenCalled()
   })
 })
 
@@ -334,7 +386,7 @@ describe('cancelBookingAsAdmin', () => {
   it('refunds half when the admin chooses it, and says how much', async () => {
     const { admin } = fakeAdmin({ bookings: [{ data: [{ id: 'b1' }] }] }, { bookings: { ...booking, total_customer_charge: 40 } })
     expect(await cancelBookingAsAdmin(admin, 'b1', 'half')).toEqual({ success: true })
-    expect(refundCreate).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 1887 }, { idempotencyKey: 'refund-booking-late-pi_1' })
+    expect(refundCreate).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 1887 }, { idempotencyKey: 'refund-booking-half-pi_1' })
     expect(push.mock.calls.some(([, payload]: any) => payload.body.includes('$18.87 has been refunded'))).toBe(true)
   })
 
@@ -357,6 +409,20 @@ describe('cancelBookingAsAdmin', () => {
     expect(await cancelBookingAsAdmin(admin, 'b1', 'custom', null, 30)).toEqual({ success: true })
     expect(refundCreate).toHaveBeenCalledOnce()
     expect(refundCreate).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 3000 }, expect.anything())
+  })
+
+  // It once refunded 75% here (the late-cancel share) while the label said 50%.
+  it('refunds half, not the late-cancel share, for a booking out to several cleaners', async () => {
+    const { admin } = fakeAdmin(
+      {
+        booking_request_groups: [{ data: [{ user_id: 'customer_1', stripe_payment_intent_id: 'pi_1', original_booking_id: null, primary_booking_id: 'b1' }] }],
+        bookings: [{ data: [{ id: 'b1', tidy_pro_id: 'p1' }, { id: 'b2', tidy_pro_id: 'p2' }] }],
+      },
+      { bookings: { ...booking, status: 'pending', request_group_id: 'g1', total_customer_charge: 37.74 } }
+    )
+    expect(await cancelBookingAsAdmin(admin, 'b1', 'half')).toEqual({ success: true })
+    expect(refundCreate).toHaveBeenCalledOnce()
+    expect(refundCreate).toHaveBeenCalledWith({ payment_intent: 'pi_1', amount: 1887 }, { idempotencyKey: 'refund-booking-half-pi_1' })
   })
 
   it('refuses a custom refund of nothing, or more than was paid', async () => {

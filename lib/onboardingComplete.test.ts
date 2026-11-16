@@ -8,10 +8,16 @@ vi.mock('@/lib/email', () => ({
   TYDIO_ADMIN_EMAIL: 'admin@example.com',
 }))
 
+vi.mock('@/lib/unmetBookingSearches', () => ({
+  notifyCustomersOfNewCleaner: vi.fn().mockResolvedValue({ checked: 0, notified: 0, removed: 0 }),
+}))
+
 import { sendEmail } from '@/lib/email'
+import { notifyCustomersOfNewCleaner } from '@/lib/unmetBookingSearches'
 import { notifyIfOnboardingComplete } from './onboardingComplete'
 
 const email = vi.mocked(sendEmail)
+const matchCustomers = vi.mocked(notifyCustomersOfNewCleaner)
 
 const bookable = {
   cleaner_status: 'approved',
@@ -61,7 +67,10 @@ function fakeAdmin(tidyPro: any, { claimed = true } = {}) {
   return { admin: admin as any, updates }
 }
 
-beforeEach(() => email.mockClear())
+beforeEach(() => {
+  email.mockClear()
+  matchCustomers.mockClear()
+})
 
 describe('notifyIfOnboardingComplete', () => {
   it('emails the admin once a cleaner is bookable, and records it', async () => {
@@ -107,11 +116,26 @@ describe('notifyIfOnboardingComplete', () => {
     expect(email).not.toHaveBeenCalled()
   })
 
-  it('swallows errors so the triggering save still succeeds', async () => {
+  it('still sends waiting customers the new Tidy Pro when the admin email fails', async () => {
     email.mockRejectedValueOnce(new Error('smtp down'))
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { admin } = fakeAdmin(bookable)
-    expect(await notifyIfOnboardingComplete(admin, 'p1')).toBe(false)
+    expect(await notifyIfOnboardingComplete(admin, 'p1')).toBe(true)
+    expect(matchCustomers).toHaveBeenCalledWith(admin, 'p1')
     spy.mockRestore()
+  })
+
+  it('swallows a failure matching customers so the triggering save still succeeds', async () => {
+    matchCustomers.mockRejectedValueOnce(new Error('db down'))
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { admin } = fakeAdmin(bookable)
+    await expect(notifyIfOnboardingComplete(admin, 'p1')).resolves.toBe(true)
+    spy.mockRestore()
+  })
+
+  it('only matches customers once the Tidy Pro is bookable', async () => {
+    const { admin } = fakeAdmin({ ...bookable, bio: null })
+    expect(await notifyIfOnboardingComplete(admin, 'p1')).toBe(false)
+    expect(matchCustomers).not.toHaveBeenCalled()
   })
 })

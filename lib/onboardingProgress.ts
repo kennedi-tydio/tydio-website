@@ -1,6 +1,6 @@
 import { backgroundCheckStage } from '@/lib/backgroundCheck'
 import { hasPaidFee } from '@/lib/backgroundCheckFee'
-import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { adminStepLabel, missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 
 // Where a Tidy Pro is in getting from signup to bookable, as the admin Users page shows it:
 //
@@ -79,10 +79,4 @@ export function remainingOnboardingActions(progress: TidyProProgress): string[] 
     for (const step of missingOnboardingSteps(progress.profile)) actions.push(adminStepLabel(step.label))
   }
   return actions
-}
-
-// missingOnboardingSteps talks to the cleaner ("Write your bio"); the admin list reads
-// better without the "your".
-function adminStepLabel(label: string): string {
-  return label.replace(/\byour\b /i, '')
 }

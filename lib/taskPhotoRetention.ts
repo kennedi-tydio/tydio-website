@@ -5,7 +5,7 @@ import { CUSTOMER_TASK_PHOTOS_BUCKET, isPetTask, petTaskPhotoPaths } from './pet
 type Admin = ReturnType<typeof createAdminClient>
 
 // Task photos are deleted this long after a booking ends (completed,
-// cancelled, declined, ...): the Tidy Pro's completion photos and the photos
+// cancelled, declined, ...): the Tidy Pro's before and completion photos and the photos
 // the customer added to pet enclosure / litter box tasks. Customer photos on
 // tasks that never get booked go this long after upload.
 export const TASK_PHOTO_RETENTION_DAYS = 7
@@ -105,11 +105,13 @@ async function removeEndedBookingPhotos(admin: Admin, cutoff: Date) {
       const petPaths = petTaskPhotoPaths((b.task_list as TidyTask[] | null) ?? [])
       await removePaths(admin, CUSTOMER_TASK_PHOTOS_BUCKET, petPaths)
 
+      // Before and after photos both live in this booking's folder. Pairs the
+      // Tidy Pro added to their profile were copied out (portfolio-photos).
       const { error: tasksError } = await admin
         .from('booking_tasks')
-        .update({ completion_photo_url: null })
+        .update({ completion_photo_url: null, before_photo_url: null })
         .eq('booking_id', b.id)
-        .not('completion_photo_url', 'is', null)
+        .or('completion_photo_url.not.is.null,before_photo_url.not.is.null')
       if (tasksError) throw new Error(tasksError.message)
 
       const { error: markError } = await admin

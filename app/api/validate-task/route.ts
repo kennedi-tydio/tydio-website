@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { estimateTaskDuration } from '@/lib/aiTaskEstimate'
-import { broadTaskMessage } from '@/lib/taskSpecificity'
+import { broadTaskMessage, combinedTaskMessage } from '@/lib/taskSpecificity'
+import { isEntireHomeRoom } from '@/lib/entireHome'
 import { unsupportedTaskMessage } from '@/lib/unsupportedTasks'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -35,6 +36,12 @@ export async function POST(req: NextRequest) {
   const broad = broadTaskMessage(name ?? '', room)
   if (broad) {
     return NextResponse.json({ valid: false, reason: broad, estimated_minutes: null, tier: null })
+  }
+
+  // One job per task, as Add Task checks. Entire home takes sweep and mop together.
+  const combined = isEntireHomeRoom(room) ? null : combinedTaskMessage(name ?? '')
+  if (combined) {
+    return NextResponse.json({ valid: false, reason: combined, estimated_minutes: null, tier: null })
   }
 
   try {

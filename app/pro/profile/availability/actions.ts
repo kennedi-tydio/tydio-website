@@ -7,6 +7,7 @@ import { WEEKDAY_KEYS, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { userFacingError } from '@/lib/userFacingError'
 import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 import { DEFAULT_BOOKING_TIME_ZONE, todayInZone } from '@/lib/bookingTime'
+import { cancelBookingForTidyPro } from '@/lib/tidyProCancellation'
 import {
   MAX_TIME_OFF_RANGES,
   isValidISODate,
@@ -63,7 +64,9 @@ export async function saveAvailabilityAction(
   return { success: true }
 }
 
-type TimeOffResult = { error: string } | { success: true; timeOff: TimeOffRange[]; conflicts: number }
+// conflicts: bookings and requests still on those dates. cancelledVisits: recurring
+// visits on them, which time off cancels (the customer is told).
+type TimeOffResult = { error: string } | { success: true; timeOff: TimeOffRange[]; conflicts: number; cancelledVisits: number }
 
 async function loadTimeOff(admin: ReturnType<typeof createAdminClient>, proId: string) {
   const { data, error } = await admin.from('tidypro_profiles').select('time_off, time_zone').eq('id', proId).single()
@@ -108,21 +111,41 @@ export async function addTimeOffAction(input: {
     const { error } = await admin.from('tidypro_profiles').update({ time_off: timeOff as never }).eq('id', session.profileId)
     if (error) return { error: userFacingError(error) }
 
-    // Time off only stops new bookings. Anything already accepted or waiting on them is
-    // still theirs to handle, so they're told about it.
+    // Time off stops new bookings. A recurring visit on those dates was put on their
+    // schedule for them, so it's canceled and the customer told. Anything else already
+    // accepted or waiting on them is still theirs to handle, so they're told about it.
     const { data: existing } = await admin
       .from('bookings')
-      .select('scheduled_date, scheduled_time, estimated_duration_minutes')
+      .select('id, scheduled_date, scheduled_time, estimated_duration_minutes, status, progress_status, recurring_booking_id')
       .eq('tidy_pro_id', session.profileId)
       .in('status', ['pending', 'scheduled'])
       .gte('scheduled_date', start)
       .lte('scheduled_date', last)
-    const conflicts = (existing ?? []).filter((b) =>
+    const overlapping = (existing ?? []).filter((b) =>
       b.scheduled_date && b.scheduled_time ? overlapsTimeOff([range], b.scheduled_date, b.scheduled_time, b.estimated_duration_minutes ?? 60) : true
-    ).length
+    )
+
+    let cancelledVisits = 0
+    let conflicts = 0
+    for (const b of overlapping) {
+      if (b.recurring_booking_id && b.status === 'scheduled' && b.progress_status == null) {
+        const result = await cancelBookingForTidyPro(admin, {
+          bookingId: b.id,
+          tidyProId: session.profileId,
+          reason: { cancellation_reason: 'no_longer_available', cancellation_note: 'Time off' },
+        })
+        if ('success' in result) {
+          cancelledVisits++
+          continue
+        }
+        console.error(`Canceling recurring visit ${b.id} for time off:`, result.error)
+      }
+      conflicts++
+    }
 
     revalidatePath('/pro/profile/availability')
-    return { success: true, timeOff, conflicts }
+    if (cancelledVisits > 0) revalidatePath('/pro/bookings')
+    return { success: true, timeOff, conflicts, cancelledVisits }
   } catch (err) {
     return { error: userFacingError(err) }
   }
@@ -144,7 +167,7 @@ export async function removeTimeOffAction(range: TimeOffRange): Promise<TimeOffR
     if (error) return { error: userFacingError(error) }
 
     revalidatePath('/pro/profile/availability')
-    return { success: true, timeOff, conflicts: 0 }
+    return { success: true, timeOff, conflicts: 0, cancelledVisits: 0 }
   } catch (err) {
     return { error: userFacingError(err) }
   }

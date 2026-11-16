@@ -85,6 +85,10 @@ export async function checkUnresponsiveCleaners(
     .eq('status', 'scheduled')
     .is('progress_status', null)
     .is('unresponsive_alert_sent_at', null)
+    // On hold for an upcharge: they've been told not to set off yet.
+    .is('suspended_for_upcharge_at', null)
+    // Or a recurring visit not paid yet (lib/recurringPayments).
+    .is('payment_due_at', null)
     .not('tidy_pro_id', 'is', null)
     // A day either side, since the booking's date is in the customer's zone, not the server's.
     .gte('scheduled_date', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
@@ -106,6 +110,8 @@ export async function checkUnresponsiveCleaners(
         .eq('id', booking.id)
         .eq('status', 'scheduled')
         .is('progress_status', null)
+        .is('suspended_for_upcharge_at', null)
+        .is('payment_due_at', null)
         .is(column, null)
         .select('id')
       if (error) throw new Error(error.message)

@@ -6,6 +6,8 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
 import { bookedTaskName } from '@/lib/laundry'
 import { cancelBookingRequestAction, respondToTimeProposalAction, sendMessageAction, startCallAction } from './actions'
+import CancelReasonSheet from '@/app/components/CancelReasonSheet'
+import { CUSTOMER_CANCEL_REASONS, type Cancellation } from '@/lib/cancellationReasons'
 
 export type ChatMessage = {
   id: string
@@ -223,8 +225,7 @@ export default function MessageThreadView({
 }: Props) {
   const router = useRouter()
   const [status, setStatus] = useState(initialStatus)
-  const [cancelling, setCancelling] = useState(false)
-  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [askingReason, setAskingReason] = useState(false)
   // `initialMessages` comes straight from the server component, so anything
   // already in it is authoritative — only an in-flight send that the server
   // hasn't echoed back yet needs to live in local state.
@@ -315,16 +316,12 @@ export default function MessageThreadView({
     router.refresh()
   }
 
-  async function handleCancel() {
-    setCancelling(true)
-    setCancelError(null)
-    const result = await cancelBookingRequestAction(bookingId)
-    setCancelling(false)
-    if ('error' in result) {
-      setCancelError(result.error)
-      return
-    }
+  async function handleCancel(cancellation: Cancellation): Promise<string | null> {
+    const result = await cancelBookingRequestAction(bookingId, cancellation)
+    if ('error' in result) return result.error
+    setAskingReason(false)
     setStatus('cancelled')
+    return null
   }
 
   return (
@@ -456,16 +453,17 @@ export default function MessageThreadView({
             </span>
           </div>
 
-          {cancelError && <p role="alert" className="text-xs text-red-600 mt-3">{cancelError}</p>}
+          {askingReason && (
+            <CancelReasonSheet reasons={CUSTOMER_CANCEL_REASONS} onConfirm={handleCancel} onClose={() => setAskingReason(false)} />
+          )}
 
           {outcome === 'pending' && (
             <button
               type="button"
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="w-full mt-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
+              onClick={() => setAskingReason(true)}
+              className="w-full mt-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600"
             >
-              {cancelling ? 'Cancelling…' : 'Cancel'}
+              Cancel
             </button>
           )}
           {outcome === 'cancelled' && (
@@ -515,11 +513,10 @@ export default function MessageThreadView({
             <p className="text-xs text-slate-500 text-center leading-relaxed mt-2">You won&apos;t be charged again. Your payment is held for your booking. If you cancel, you&apos;re refunded minus the nonrefundable Stripe fee.</p>
             <button
               type="button"
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="w-full mt-3 py-3 rounded-2xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
+              onClick={() => setAskingReason(true)}
+              className="w-full mt-3 py-3 rounded-2xl bg-white border border-slate-200 text-sm font-semibold text-slate-600"
             >
-              {cancelling ? 'Cancelling…' : 'Cancel booking and get a refund'}
+              Cancel booking and get a refund
             </button>
           </>
         )}

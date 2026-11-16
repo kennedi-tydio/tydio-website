@@ -1,7 +1,8 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
-import { hasPushSubscription } from '@/lib/pushRequirement'
+import { notificationStatus } from '@/lib/pushRequirement'
+import { notifyCustomersOfNewCleaner } from '@/lib/unmetBookingSearches'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -22,7 +23,7 @@ export async function notifyIfOnboardingComplete(admin: Admin, proId: string): P
     if (error) throw new Error(error.message)
     if (!tidyPro || tidyPro.onboarding_completed_notified_at) return false
     if (tidyPro.cleaner_status !== 'approved' || !tidyPro.active_for_booking) return false
-    if (missingOnboardingSteps({ ...tidyPro, has_push: await hasPushSubscription(admin, proId) }).length > 0) return false
+    if (missingOnboardingSteps({ ...tidyPro, ...(await notificationStatus(admin, proId)) }).length > 0) return false
 
     // Claimed before sending, so two saves landing together can't both email.
     const { data: marked, error: markError } = await admin
@@ -39,7 +40,12 @@ export async function notifyIfOnboardingComplete(admin: Admin, proId: string): P
       email: profile?.email ?? null,
       name: [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A cleaner',
       location: [tidyPro.city, tidyPro.state].filter(Boolean).join(', '),
-    })
+    }).catch((err) => console.error('Onboarding complete admin email failed', proId, err))
+
+    // Customers who searched nearby and found nobody get this Tidy Pro's profile.
+    await notifyCustomersOfNewCleaner(admin, proId).catch((err) =>
+      console.error('Notifying customers of new cleaner failed', proId, err)
+    )
     return true
   } catch (err) {
     console.error('Onboarding complete admin notification failed', proId, err)

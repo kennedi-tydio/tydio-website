@@ -5,6 +5,9 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import { WEEKDAY_KEYS, formatCompactTime, type WeekdayKey, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { US_STATES } from '@/lib/usStates'
 import { IconLeaf } from '@/app/components/IconLeaf'
+import { VerifiedCheck } from '@/app/components/VerifiedCheck'
+import type { PortfolioItem } from '@/lib/portfolioItems'
+import PortfolioPhotos from '@/app/components/PortfolioPhotos'
 
 const DAY_LABELS: Record<WeekdayKey, string> = {
   sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
@@ -73,6 +76,8 @@ type Props = {
   allergies: string[]
   usesOrganicProducts: boolean
   reviewsHref: string
+  // Before/after pairs from past jobs (lib/tidyProPortfolio.ts).
+  portfolio?: PortfolioItem[]
   // Set when a Tidy Pro is viewing their own profile as a customer would: back
   // returns here, and Book/Message are on the page for show but do nothing.
   previewBackHref?: string
@@ -96,6 +101,7 @@ export default function CleanerDetailView({
   allergies,
   usesOrganicProducts,
   reviewsHref,
+  portfolio = [],
   previewBackHref,
   embedded = false,
 }: Props) {
@@ -139,12 +145,19 @@ export default function CleanerDetailView({
         </div>
 
         <div className="px-5 pt-5">
-          <h1 className="text-2xl font-bold text-slate-900">{name}</h1>
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+            {name}
+            {isVerified && <VerifiedCheck size={22} />}
+          </h1>
 
           <div className="flex flex-col gap-1.5 mt-2 mb-4">
-            {isVerified && (
+            {(isVerified || responseTimeLabel) && (
               <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                <IconStar /> Top Tidy Pro
+                {isVerified && (
+                  <>
+                    <VerifiedCheck size={15} /> Verified Tidy Pro
+                  </>
+                )}
                 {responseTimeLabel && <span className="text-slate-400 ml-auto text-xs">{responseTimeLabel}</span>}
               </div>
             )}
@@ -189,6 +202,21 @@ export default function CleanerDetailView({
               )}
             </Link>
           </div>
+
+          {portfolio.length > 0 && (
+            <section aria-labelledby="recent-work-heading" className="border-t border-slate-100 pt-4 mb-4">
+              <h2 id="recent-work-heading" className="font-semibold text-slate-900 mb-0.5">Recent Work</h2>
+              <p className="text-xs text-slate-400 mb-3">Photos from {name.split(' ')[0]}&apos;s cleanings</p>
+              <ul className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 snap-x">
+                {portfolio.map((item) => (
+                  <li key={item.id} className="flex-shrink-0 w-64 snap-start">
+                    <PortfolioPhotos item={item} />
+                    <p className="text-sm text-slate-700 mt-1.5 truncate">{item.taskName}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <div className="border-t border-slate-100 pt-4 mb-5">
             <h2 className="font-semibold text-slate-900 mb-1.5">Availability</h2>

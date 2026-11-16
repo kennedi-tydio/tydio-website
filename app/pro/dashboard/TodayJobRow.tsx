@@ -38,7 +38,8 @@ export default function TodayJobRow({ job, timeRangeLabel }: { job: TodayJob; ti
       setWorking(true)
       const result = await markOnTheWayAction(job.id)
       setWorking(false)
-      if ('error' in result) return
+      // On hold for an upcharge: the booking page explains why.
+      if ('error' in result && !result.error.includes('on hold')) return
     }
     router.push(`/pro/bookings/${job.id}`)
   }

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
+import { isRecurrenceFrequency, recurrenceLabel } from '@/lib/recurrence'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CLEANER_CANCELLED_REASON, cleanerCancelledNote } from '@/lib/bookingRequestGroups'
@@ -28,7 +29,7 @@ export default async function ProMessageThreadPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, user_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, task_list, pets, notes, will_provide_supplies, cleaner_pay, status, decision_status, progress_status, tidy_pro_unread, cancelled_reason, time_zone'
+      'id, user_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, task_list, pets, notes, will_provide_supplies, cleaner_pay, status, decision_status, progress_status, tidy_pro_unread, cancelled_reason, time_zone, recurring_booking_id, payment_due_at'
     )
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
@@ -83,6 +84,20 @@ export default async function ProMessageThreadPage({
 
   const customerName = [customerProfile?.first_name, customerProfile?.last_name].filter(Boolean).join(' ') || 'the customer'
 
+  // A visit of a recurring booking. "mine" while this Tidy Pro still has the series, so
+  // they can drop all of it, not just this visit.
+  const { data: series } = booking.recurring_booking_id
+    ? await admin.from('recurring_bookings').select('frequency, tidy_pro_id, status').eq('id', booking.recurring_booking_id).maybeSingle()
+    : { data: null }
+  const recurrence =
+    series && isRecurrenceFrequency(series.frequency)
+      ? {
+          label: recurrenceLabel(series.frequency),
+          mine: series.status === 'active' && series.tidy_pro_id === session.profileId,
+          unpaid: booking.payment_due_at != null,
+        }
+      : null
+
   return (
     <ProMessageThreadView
       bookingId={booking.id}
@@ -113,6 +128,7 @@ export default async function ProMessageThreadPage({
       decisionStatus={booking.decision_status}
       progressStatus={booking.progress_status}
       messages={messages}
+      recurrence={recurrence}
     />
   )
 }

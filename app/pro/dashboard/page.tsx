@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getRatingVisibleToTidyPro, getUnreadMessageCountForTidyPro } from '@/lib/bookings'
 import { isBackgroundCheckStepDone, shouldShowVerifiedScreen } from '@/lib/backgroundCheck'
 import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
-import { hasPushSubscription } from '@/lib/pushRequirement'
+import { notificationStatus } from '@/lib/pushRequirement'
 import { DEFAULT_BOOKING_TIME_ZONE, bookingStartInstant, scheduleForViewer, shiftDateISO, todayInZone } from '@/lib/bookingTime'
 import { NO_ACCEPTANCE_STATS, getAcceptanceStats } from '@/lib/acceptanceRate'
 import DashboardHome, { type TodayJob, type UpcomingJob } from './DashboardHome'
@@ -55,7 +55,7 @@ export default async function ProDashboardPage() {
     ...(tidyPro.cleaner_status === 'approved' || backgroundCheck?.status === 'failed'
       ? []
       : [{ label: 'Complete background check', href: '/pro/onboarding/almost-there' }]),
-    ...missingOnboardingSteps({ ...tidyPro, has_push: await hasPushSubscription(admin, session.profileId) }),
+    ...missingOnboardingSteps({ ...tidyPro, ...(await notificationStatus(admin, session.profileId)) }),
   ]
 
   // A cleaner still waiting on their check gets the regular dashboard, with the

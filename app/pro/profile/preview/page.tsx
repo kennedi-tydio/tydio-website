@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getRatingVisibleToTidyPro } from '@/lib/bookings'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
 import CleanerDetailView from '@/app/book/schedule/[cleanerId]/CleanerDetailView'
+import { loadPortfolio } from '@/lib/tidyProPortfolio'
 
 export const metadata: Metadata = { title: 'View as customer — Tydio' }
 
@@ -28,7 +29,10 @@ export default async function ProProfilePreviewPage() {
 
   // This page is the Tidy Pro's own screen, so a review still hidden from them
   // stays out of the rating here too, even though customers already count it.
-  const { rating, reviewCount } = await getRatingVisibleToTidyPro(admin, session.profileId, tidyPro.rating, tidyPro.review_count)
+  const [{ rating, reviewCount }, portfolio] = await Promise.all([
+    getRatingVisibleToTidyPro(admin, session.profileId, tidyPro.rating, tidyPro.review_count),
+    loadPortfolio(admin, session.profileId),
+  ])
 
   return (
     <CleanerDetailView
@@ -47,6 +51,7 @@ export default async function ProProfilePreviewPage() {
       usesOrganicProducts={tidyPro.uses_organic_products ?? false}
       allergies={Array.isArray(tidyPro.allergies) ? (tidyPro.allergies as string[]) : []}
       reviewsHref="/pro/profile/preview/reviews"
+      portfolio={portfolio}
       previewBackHref="/pro/profile/edit"
     />
   )

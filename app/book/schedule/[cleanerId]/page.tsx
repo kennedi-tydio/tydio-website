@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
 import CleanerDetailView from './CleanerDetailView'
+import { loadPortfolio } from '@/lib/tidyProPortfolio'
 
 export const metadata: Metadata = { title: 'Tidy Pro — Tydio' }
 
@@ -27,11 +28,10 @@ export default async function CleanerDetailPage({
   if (error) throw new Error(`Failed to load Tidy Pro: ${error.message}`)
   if (!tidyPro) redirect('/book/schedule')
 
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('first_name, last_name')
-    .eq('id', cleanerId)
-    .maybeSingle()
+  const [{ data: profile }, portfolio] = await Promise.all([
+    admin.from('profiles').select('first_name, last_name').eq('id', cleanerId).maybeSingle(),
+    loadPortfolio(admin, cleanerId),
+  ])
 
   const allergies = Array.isArray(tidyPro.allergies) ? (tidyPro.allergies as string[]) : []
 
@@ -52,6 +52,7 @@ export default async function CleanerDetailPage({
       usesOrganicProducts={tidyPro.uses_organic_products ?? false}
       allergies={allergies}
       reviewsHref={`/book/schedule/${cleanerId}/reviews`}
+      portfolio={portfolio}
     />
   )
 }

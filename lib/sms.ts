@@ -3,6 +3,7 @@ import { twilioClient } from '@/lib/twilio'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/bannedUsers'
 import { TYDIO_ADMIN_EMAIL } from '@/lib/email'
+import { emailAdminManualText, textBody } from '@/lib/manualTextEmail'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -63,6 +64,15 @@ export async function sendSms(to: string, body: string): Promise<void> {
   }
 }
 
+// 'email_admin' until Twilio approves our number: each text is emailed to the admin, with
+// the booking and both people's numbers, to send by hand (lib/manualTextEmail). Set to
+// 'twilio' once the number is approved.
+export const SMS_DELIVERY = 'email_admin' as 'twilio' | 'email_admin'
+
 export async function sendSmsForPayload(to: string, payload: NotificationPayload): Promise<void> {
-  await sendSms(to, `Tydio: ${payload.body} ${payload.url}`)
+  if (SMS_DELIVERY === 'email_admin') {
+    await emailAdminManualText(createAdminClient(), to, payload)
+    return
+  }
+  await sendSms(to, textBody(payload))
 }

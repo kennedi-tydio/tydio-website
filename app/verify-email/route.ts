@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createSession } from '@/lib/auth/session'
 import { isBanned } from '@/lib/bannedUsers'
 import { addMarketingContact } from '@/lib/marketingContacts'
+import { customerLanding } from '@/lib/waitlistLanding'
+import { sendWelcomeEmail } from '@/lib/welcomeEmail'
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token')
@@ -25,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   const { data: profile } = await admin
     .from('profiles')
-    .select('id, role, email, phone, first_name, last_name, marketing_opt_in_at')
+    .select('id, role, email, phone, first_name, last_name, zip_code, marketing_opt_in_at')
     .eq('id', tokenRow.profile_id)
     .single()
 
@@ -58,6 +60,14 @@ export async function GET(req: NextRequest) {
     }).catch((err) => console.error('[Tydio] Adding Brevo marketing contact failed:', err))
   }
 
+  // Tokens are single-use, so this runs once per account. Skipped outside Georgia.
+  await sendWelcomeEmail({
+    email: profile.email,
+    firstName: profile.first_name ?? '',
+    role: profile.role as 'USER' | 'TIDYPRO' | 'ADMIN',
+    zip: profile.zip_code,
+  })
+
   await createSession({
     profileId: profile.id,
     role: profile.role as 'USER' | 'TIDYPRO' | 'ADMIN',
@@ -65,5 +75,5 @@ export async function GET(req: NextRequest) {
   })
 
   const dest = profile.role === 'TIDYPRO' ? '/pro/onboarding' : PETS_ONBOARDING_PATH
-  return NextResponse.redirect(new URL(dest, req.url))
+  return NextResponse.redirect(new URL(await customerLanding(admin, profile.id, profile.role, dest), req.url))
 }

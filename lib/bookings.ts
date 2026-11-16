@@ -4,6 +4,8 @@ import { excludeHiddenReviews } from '@/lib/cleanerReviewWindow'
 import { getHiddenReviews } from '@/lib/cleanerReviews'
 import { LATE_CANCEL_REASON } from '@/lib/bookingRequestGroups'
 import { userFacingError } from '@/lib/userFacingError'
+import { CONTACT_INFO_BLOCKED_MESSAGE, detectContactInfo } from '@/lib/contactInfoFilter'
+import { emailAdminContactInfoAttempt } from '@/lib/contactInfoAttemptEmail'
 
 // Shared by both sides' "send message" actions — inserts the chat message
 // and flips the *other* side's unread dot on the Messages list. Doesn't
@@ -18,6 +20,12 @@ export async function sendBookingMessage(
   const trimmed = body.trim()
   if (!trimmed) return { error: 'Message cannot be empty.' }
   if (trimmed.length > 2000) return { error: 'Message is too long.' }
+
+  const contactInfo = detectContactInfo(trimmed)
+  if (contactInfo) {
+    await emailAdminContactInfoAttempt(admin, { bookingId, senderRole, body: trimmed, kind: contactInfo })
+    return { error: CONTACT_INFO_BLOCKED_MESSAGE }
+  }
 
   const { error } = await admin.from('booking_messages').insert({
     booking_id: bookingId,
@@ -115,6 +123,8 @@ export async function completeBookingPayout(
     .eq('id', bookingId)
     .eq('status', 'scheduled')
     .eq('progress_status', 'done')
+    // A booking on hold for an unpaid upcharge can't finish (see lib/bookingUpcharges).
+    .is('suspended_for_upcharge_at', null)
     .select('id, tidy_pro_id, cleaner_pay, stripe_transfer_id, stripe_payment_intent_id')
     .maybeSingle()
 
@@ -150,18 +160,23 @@ export async function completeBookingPayout(
   // doesn't mean Stripe will accept a transfer to it yet.
   if (!tidyPro?.stripe_account_id || !tidyPro.stripe_onboarding_completed) return { success: true }
 
+  // cleaner_pay includes their share of any upcharge, which is part of the booking
+  // (see lib/bookingUpcharges), so this one transfer covers it.
+  const payCents = Math.round(booking.cleaner_pay * 100)
   try {
     // Tied to the customer's charge, so the transfer goes through even while that
     // charge is still pending in our balance; Stripe releases it once the charge settles.
+    // Stripe won't tie a transfer to a charge smaller than it, which a large upcharge
+    // can cause; then it's paid from the balance.
     let sourceCharge: string | undefined
     if (booking.stripe_payment_intent_id) {
       const paymentIntent = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id)
       const latestCharge = paymentIntent.latest_charge
-      sourceCharge = typeof latestCharge === 'string' ? latestCharge : latestCharge?.id
+      if (paymentIntent.amount_received >= payCents) sourceCharge = typeof latestCharge === 'string' ? latestCharge : latestCharge?.id
     }
 
     const transfer = await stripe.transfers.create({
-      amount: Math.round(booking.cleaner_pay * 100),
+      amount: payCents,
       currency: 'usd',
       destination: tidyPro.stripe_account_id,
       transfer_group: bookingId,

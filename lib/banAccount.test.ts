@@ -9,10 +9,14 @@ vi.mock('@/lib/email', () => ({
 }))
 vi.mock('@/lib/accountDeletion', () => ({ deleteOwnAccount: vi.fn() }))
 vi.mock('@/lib/accountSuspension', () => ({ suspendAccounts: vi.fn(), unsuspendAccounts: vi.fn() }))
+vi.mock('@/lib/accountBookingCancellation', () => ({
+  cancelBookingsForAccounts: vi.fn(async () => ({ cancelled: 0, released: 0, inProgress: 0, failed: 0 })),
+}))
 
 import { sendEmail } from '@/lib/email'
 import { deleteOwnAccount } from '@/lib/accountDeletion'
 import { suspendAccounts, unsuspendAccounts } from '@/lib/accountSuspension'
+import { cancelBookingsForAccounts } from '@/lib/accountBookingCancellation'
 import {
   BanAppealError,
   acceptAppeal,
@@ -124,6 +128,7 @@ describe('banAccount', () => {
       filters: ['id=u1'],
     })
     expect(suspendAccounts).toHaveBeenCalledWith(admin, ['u1'])
+    expect(cancelBookingsForAccounts).toHaveBeenCalledWith(admin, ['u1'], 'ban')
     expect(deleteOwnAccount).not.toHaveBeenCalled()
 
     const email = vi.mocked(sendEmail).mock.calls[0][0]

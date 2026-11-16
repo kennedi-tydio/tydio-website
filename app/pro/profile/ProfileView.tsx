@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import DownloadAppCard from '@/app/components/DownloadAppCard'
 import { usePostHog } from 'posthog-js/react'
 import { logoutAction, deleteAccountAction } from '../actions'
 import ModalShell from '@/app/components/ModalShell'
@@ -135,6 +136,8 @@ export default function ProfileView({
       <h1 className="sr-only">Profile</h1>
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full">
 
+        <DownloadAppCard href="/pro/profile/download-app" />
+
         {/* Profile card */}
         <div className="bg-white rounded-2xl p-5 mb-6 shadow-sm">
           <div className="flex items-center gap-4 pb-4 mb-4 border-b border-slate-200">
@@ -186,12 +189,15 @@ export default function ProfileView({
         <h2 className="text-xl font-bold text-slate-900 mt-6 mb-3">Service Area</h2>
         <MenuLink label="Travel distance" href="/pro/profile/travel-distance" />
         <MenuLink label="Services provided" href="/pro/profile/services" />
+        <MenuLink label="My work photos" href="/pro/profile/portfolio" />
 
         <h2 className="text-xl font-bold text-slate-900 mt-6 mb-3">Settings</h2>
         <MenuLink label="Preferences" href="/pro/profile/notifications" />
         <MenuLink label="Accessibility" href="/pro/profile/accessibility" />
+        <MenuLink label="Download app" href="/pro/profile/download-app" />
         <MenuLink label="Manage Address" href="/pro/profile/address" />
         <MenuLink label="Insurance" href="/pro/profile/insurance" />
+        <MenuLink label="Help & FAQs" href="/faq#tidy-pros" />
         {/* A file download rather than a page, so a plain link instead of MenuLink */}
         <a
           href="/pro/onboarding/agreements/document?signed=1"

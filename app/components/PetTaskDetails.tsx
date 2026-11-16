@@ -22,7 +22,10 @@ export default function PetTaskDetails({ tasks, photoUrls, showPrepNotice = fals
     <div className={`flex flex-col gap-3 ${className}`}>
       {petTasks.map((task) => {
         const photos = task.pet.photos.filter((p) => photoUrls[p])
-        const estimate = formatEstimatedMinutes(task.estimatedMinutes)
+        // Customers aren't shown an enclosure's time estimate (showPrepNotice
+        // marks the customer side); Tidy Pros still see it.
+        const estimate =
+          showPrepNotice && task.pet.kind === 'enclosure' ? null : formatEstimatedMinutes(task.estimatedMinutes)
         return (
           <div key={task.id} className="rounded-2xl border border-slate-100 bg-white shadow-sm p-4">
             <p className="text-sm font-semibold text-slate-900">{task.name || task.room}</p>

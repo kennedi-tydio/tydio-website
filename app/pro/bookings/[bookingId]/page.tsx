@@ -11,6 +11,7 @@ import type { TidyTask } from '@/app/dashboard/types'
 import { isPetTask } from '@/lib/petTasks'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 import NoAccessView from './NoAccessView'
+import SuspendedBookingView from './SuspendedBookingView'
 import PastBookingDetailView from './PastBookingDetailView'
 import { canLeaveCustomerReview } from '@/lib/cleanerReviewWindow'
 
@@ -18,20 +19,24 @@ export const metadata: Metadata = { title: 'Booking Details — Tydio' }
 
 export default async function ProActiveBookingPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ bookingId: string }>
+  searchParams: Promise<{ before?: string }>
 }) {
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') redirect('/login')
 
   const { bookingId } = await params
+  // Set when they said yes to before photos on arrival (BeforePhotosPrompt).
+  const wantsBeforePhotos = (await searchParams).before === '1'
 
   const admin = createAdminClient()
 
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, user_id, status, progress_status, cleaner_marked_complete_at, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, task_list, notes, entry_instructions, pets, will_provide_supplies, cleaner_pay, tip, time_zone, arrived_at'
+      'id, user_id, status, progress_status, cleaner_marked_complete_at, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, task_list, notes, entry_instructions, pets, will_provide_supplies, cleaner_pay, tip, time_zone, arrived_at, no_access_reported_at, suspended_for_upcharge_at, suspended_for_payment_at, recurring_booking_id'
     )
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
@@ -67,7 +72,7 @@ export default async function ProActiveBookingPage({
 
   const { data: taskRows } = await admin
     .from('booking_tasks')
-    .select('id, task_name, task_category, task_icon, is_completed, completion_photo_url')
+    .select('id, task_name, task_category, task_icon, is_completed, completion_photo_url, before_photo_url')
     .eq('booking_id', bookingId)
     .order('created_at', { ascending: true })
 
@@ -76,6 +81,35 @@ export default async function ProActiveBookingPage({
   // checked photos on the booking's task list.
   const petTasks = ((booking.task_list as TidyTask[] | null) ?? []).filter(isPetTask)
   const photoUrls = await signedTaskPhotoUrls(admin, petTasks)
+
+  const arrivedAtMs = booking.arrived_at ? new Date(booking.arrived_at).getTime() : null
+
+  // On hold for an upcharge the customer hasn't paid yet (see lib/bookingUpcharges).
+  if (booking.suspended_for_upcharge_at && !isFinished) {
+    return (
+      <SuspendedBookingView
+        bookingId={booking.id}
+        customerName={customerName}
+        scheduledDate={schedule.date}
+        scheduledTime={schedule.time}
+        inProgress={booking.progress_status != null}
+      />
+    )
+  }
+
+  // A recurring visit still unpaid a day before it starts (see lib/recurringPayments).
+  if (booking.suspended_for_payment_at && !isFinished) {
+    return (
+      <SuspendedBookingView
+        bookingId={booking.id}
+        customerName={customerName}
+        scheduledDate={schedule.date}
+        scheduledTime={schedule.time}
+        inProgress={booking.progress_status != null}
+        reason="payment"
+      />
+    )
+  }
 
   if (isUpcoming) {
     return (
@@ -153,7 +187,7 @@ export default async function ProActiveBookingPage({
     )
   }
 
-  // Arrived without starting the job: they couldn't get in.
+  // Arrived without starting the job: they pressed "Unable to access location".
   if (booking.progress_status === 'arrived') {
     return (
       <NoAccessView
@@ -161,7 +195,10 @@ export default async function ProActiveBookingPage({
         customerName={customerProfile?.first_name ?? customerName}
         entryInstructions={booking.entry_instructions}
         addressLine={addressLine}
-        reportableAtMs={noAccessReportableAt(booking.scheduled_date, booking.scheduled_time, booking.arrived_at, booking.time_zone)?.getTime() ?? null}
+        reportableAtMs={
+          noAccessReportableAt(booking.scheduled_date, booking.scheduled_time, booking.no_access_reported_at ?? booking.arrived_at, booking.time_zone)?.getTime() ?? null
+        }
+        arrivedAtMs={arrivedAtMs}
       />
     )
   }
@@ -181,6 +218,8 @@ export default async function ProActiveBookingPage({
       tasks={tasks}
       petTasks={petTasks}
       photoUrls={photoUrls}
+      wantsBeforePhotos={wantsBeforePhotos}
+      arrivedAtMs={arrivedAtMs}
     />
   )
 }

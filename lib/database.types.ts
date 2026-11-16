@@ -357,8 +357,13 @@ export interface Database {
           notes: string | null
           entry_instructions: string | null
           request_group_id: string | null
+          recurring_booking_id: string | null
           time_zone: string
           cancelled_reason: string | null
+          cancellation_reason: string | null
+          cancellation_note: string | null
+          cancellation_resolved_at: string | null
+          cancellation_admin_note: string | null
           scheduled_location: Json | null
           user_unread: boolean
           tidy_pro_unread: boolean
@@ -366,10 +371,22 @@ export interface Database {
           on_the_way_reminder_sent_at: string | null
           unresponsive_alert_sent_at: string | null
           arrived_at: string | null
+          no_access_reported_at: string | null
+          no_access_photo_url: string | null
+          no_access_photo_latitude: number | null
+          no_access_photo_longitude: number | null
+          suspended_for_upcharge_at: string | null
+          amount_due: number | null
+          payment_due_at: string | null
+          payment_attempted_at: string | null
+          payment_failed_at: string | null
+          payment_error: string | null
+          suspended_for_payment_at: string | null
+          auto_accepted: boolean
           incident_type: 'no_access' | 'cleaner_no_show' | null
           incident_reported_at: string | null
           incident_resolved_at: string | null
-          incident_refund_level: 'full' | 'half' | 'none' | null
+          incident_refund_level: 'full' | 'half' | 'minus_fee' | 'none' | null
           incident_note: string | null
           created_at: string
           updated_at: string
@@ -418,8 +435,13 @@ export interface Database {
           notes?: string | null
           entry_instructions?: string | null
           request_group_id?: string | null
+          recurring_booking_id?: string | null
           time_zone?: string
           cancelled_reason?: string | null
+          cancellation_reason?: string | null
+          cancellation_note?: string | null
+          cancellation_resolved_at?: string | null
+          cancellation_admin_note?: string | null
           scheduled_location?: Json | null
           user_unread?: boolean
           tidy_pro_unread?: boolean
@@ -427,10 +449,22 @@ export interface Database {
           on_the_way_reminder_sent_at?: string | null
           unresponsive_alert_sent_at?: string | null
           arrived_at?: string | null
+          no_access_reported_at?: string | null
+          no_access_photo_url?: string | null
+          no_access_photo_latitude?: number | null
+          no_access_photo_longitude?: number | null
+          suspended_for_upcharge_at?: string | null
+          amount_due?: number | null
+          payment_due_at?: string | null
+          payment_attempted_at?: string | null
+          payment_failed_at?: string | null
+          payment_error?: string | null
+          suspended_for_payment_at?: string | null
+          auto_accepted?: boolean
           incident_type?: 'no_access' | 'cleaner_no_show' | null
           incident_reported_at?: string | null
           incident_resolved_at?: string | null
-          incident_refund_level?: 'full' | 'half' | 'none' | null
+          incident_refund_level?: 'full' | 'half' | 'minus_fee' | 'none' | null
           incident_note?: string | null
           created_at?: string
           updated_at?: string
@@ -488,6 +522,30 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['customer_pets']['Insert']>
         Relationships: []
       }
+      tidypro_portfolio_items: {
+        Row: {
+          id: string
+          tidypro_id: string
+          booking_id: string | null
+          booking_task_id: string | null
+          task_name: string
+          before_photo_path: string | null
+          after_photo_path: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tidypro_id: string
+          booking_id?: string | null
+          booking_task_id?: string | null
+          task_name: string
+          before_photo_path?: string | null
+          after_photo_path: string
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['tidypro_portfolio_items']['Insert']>
+        Relationships: []
+      }
       push_subscriptions: {
         Row: {
           id: string
@@ -517,6 +575,11 @@ export interface Database {
           task_icon: string | null
           is_completed: boolean
           completion_photo_url: string | null
+          before_photo_url: string | null
+          before_photo_latitude: number | null
+          before_photo_longitude: number | null
+          completion_photo_latitude: number | null
+          completion_photo_longitude: number | null
           completed_at: string | null
           created_at: string
           updated_at: string
@@ -529,6 +592,11 @@ export interface Database {
           task_icon?: string | null
           is_completed?: boolean
           completion_photo_url?: string | null
+          before_photo_url?: string | null
+          before_photo_latitude?: number | null
+          before_photo_longitude?: number | null
+          completion_photo_latitude?: number | null
+          completion_photo_longitude?: number | null
           completed_at?: string | null
           created_at?: string
           updated_at?: string
@@ -599,12 +667,15 @@ export interface Database {
           scheduled_date: string | null
           any_day_selected: boolean
           scheduled_time: string | null
+          scheduled_end_date: string | null
+          scheduled_end_time: string | null
           selected_tidy_pro_id: string | null
           notes: string | null
           entry_instructions: string | null
           supplies_provided: boolean
           gift_code: string | null
           selected_payment_method_id: string | null
+          recurrence_frequency: 'weekly' | 'biweekly' | 'every_4_weeks' | null
           created_at: string
           updated_at: string
         }
@@ -618,16 +689,159 @@ export interface Database {
           scheduled_date?: string | null
           any_day_selected?: boolean
           scheduled_time?: string | null
+          scheduled_end_date?: string | null
+          scheduled_end_time?: string | null
           selected_tidy_pro_id?: string | null
           notes?: string | null
           entry_instructions?: string | null
           supplies_provided?: boolean
           gift_code?: string | null
           selected_payment_method_id?: string | null
+          recurrence_frequency?: 'weekly' | 'biweekly' | 'every_4_weeks' | null
           created_at?: string
           updated_at?: string
         }
         Update: Partial<Database['public']['Tables']['booking_drafts']['Insert']>
+        Relationships: []
+      }
+      recurring_bookings: {
+        Row: {
+          id: string
+          user_id: string
+          tidy_pro_id: string | null
+          tidy_pro_name: string | null
+          tidy_pro_photo_url: string | null
+          frequency: 'weekly' | 'biweekly' | 'every_4_weeks'
+          start_date: string
+          next_date: string
+          scheduled_time: string
+          time_zone: string
+          scheduled_location: Json | null
+          task_list: Json
+          notes: string | null
+          entry_instructions: string | null
+          will_provide_supplies: boolean
+          payment_method_id: string | null
+          status: 'active' | 'cancelled'
+          cancelled_at: string | null
+          last_error: string | null
+          tidy_pro_accepted_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          tidy_pro_id?: string | null
+          tidy_pro_name?: string | null
+          tidy_pro_photo_url?: string | null
+          frequency: 'weekly' | 'biweekly' | 'every_4_weeks'
+          start_date: string
+          next_date: string
+          scheduled_time: string
+          time_zone?: string
+          scheduled_location?: Json | null
+          task_list?: Json
+          notes?: string | null
+          entry_instructions?: string | null
+          will_provide_supplies?: boolean
+          payment_method_id?: string | null
+          status?: 'active' | 'cancelled'
+          cancelled_at?: string | null
+          last_error?: string | null
+          tidy_pro_accepted_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['recurring_bookings']['Insert']>
+        Relationships: []
+      }
+      booking_upcharges: {
+        Row: {
+          id: string
+          booking_id: string
+          amount: number
+          cleaner_pay: number
+          reason: string
+          status: 'pending' | 'paid' | 'cancelled' | 'refunded'
+          customer_charge: number | null
+          stripe_payment_intent_id: string | null
+          stripe_refund_id: string | null
+          paid_at: string | null
+          cancelled_at: string | null
+          refunded_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          booking_id: string
+          amount: number
+          cleaner_pay: number
+          reason: string
+          status?: 'pending' | 'paid' | 'cancelled' | 'refunded'
+          customer_charge?: number | null
+          stripe_payment_intent_id?: string | null
+          stripe_refund_id?: string | null
+          paid_at?: string | null
+          cancelled_at?: string | null
+          refunded_at?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['booking_upcharges']['Insert']>
+        Relationships: []
+      }
+      unmet_booking_searches: {
+        Row: {
+          id: string
+          customer_user_id: string
+          draft_id: string | null
+          latitude: number
+          longitude: number
+          location_label: string | null
+          scheduled_date: string | null
+          scheduled_time: string | null
+          scheduled_end_date: string | null
+          scheduled_end_time: string | null
+          time_zone: string
+          duration_minutes: number
+          required_services: string[]
+          task_names: string[]
+          estimated_price: number | null
+          search_count: number
+          admin_notified_at: string | null
+          customer_notified_at: string | null
+          notified_tidy_pro_id: string | null
+          closed_at: string | null
+          closed_reason: 'cleaner_available' | 'found_in_search' | 'draft_removed' | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          customer_user_id: string
+          draft_id?: string | null
+          latitude: number
+          longitude: number
+          location_label?: string | null
+          scheduled_date?: string | null
+          scheduled_time?: string | null
+          scheduled_end_date?: string | null
+          scheduled_end_time?: string | null
+          time_zone?: string
+          duration_minutes: number
+          required_services?: string[]
+          task_names?: string[]
+          estimated_price?: number | null
+          search_count?: number
+          admin_notified_at?: string | null
+          customer_notified_at?: string | null
+          notified_tidy_pro_id?: string | null
+          closed_at?: string | null
+          closed_reason?: 'cleaner_available' | 'found_in_search' | 'draft_removed' | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['unmet_booking_searches']['Insert']>
         Relationships: []
       }
       payment_methods: {
@@ -1063,7 +1277,7 @@ export interface Database {
       risk_events: {
         Row: {
           id: string
-          event_type: 'customer_complaint' | 'cleaner_no_show' | 'chargeback' | 'refund_requested' | 'bank_account_changed' | 'duplicate_cleaner_detected' | 'suspicious_booking' | string
+          event_type: 'customer_complaint' | 'cleaner_complaint' | 'cleaner_no_show' | 'chargeback' | 'refund_requested' | 'bank_account_changed' | 'duplicate_cleaner_detected' | 'suspicious_booking' | string
           booking_id: string | null
           user_id: string | null
           severity: 'low' | 'medium' | 'high' | 'critical'

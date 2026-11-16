@@ -9,8 +9,10 @@ import { lateCancelRefund } from '@/lib/pricingRules'
 import { MAX_ENTRY_INSTRUCTIONS_LENGTH } from '@/lib/entryInstructions'
 import { laundryDetailLabel, formatVisitDuration } from '@/lib/laundry'
 import { formatEstimatedMinutes, isPetTask, petDetailLabel } from '@/lib/petTasks'
+import { VerifiedCheck } from '@/app/components/VerifiedCheck'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
 import type { CleanerMatch } from '@/lib/cleanerMatching'
+import { recurrenceLabel, type RecurrenceFrequency } from '@/lib/recurrence'
 import {
   updateTaskNoteAction,
   removeTaskFromBookingAction,
@@ -74,6 +76,8 @@ type Props = {
   photoUrls: Record<string, string>
   date: string
   time: string
+  // Set when this is the first visit of a recurring booking.
+  recurrence: RecurrenceFrequency | null
   durationMinutes: number
   addressName: string
   addressLine: string | null
@@ -110,6 +114,7 @@ export default function ReviewRequestView({
   photoUrls,
   date,
   time,
+  recurrence,
   durationMinutes,
   addressName,
   addressLine,
@@ -150,6 +155,8 @@ export default function ReviewRequestView({
   )
   const [confirming, setConfirming] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
+  // The selected card couldn't be charged; the customer is sent to add or pick another.
+  const [paymentFailed, setPaymentFailed] = useState(false)
   const [extraCleanerIds, setExtraCleanerIds] = useState<string[]>([])
   const extrasAtLimit = extraCleanerIds.length >= MAX_EXTRA_BOOKING_CLEANERS
 
@@ -161,6 +168,9 @@ export default function ReviewRequestView({
 
   const selectedPaymentMethod = paymentMethods.find((pm) => pm.id === selectedPaymentMethodId) ?? null
   const paymentLinkHref = `/dashboard/profile/payment-methods?draftId=${draftId}`
+  const changePaymentAfterFailureHref = selectedPaymentMethod
+    ? `${paymentLinkHref}&declined=${selectedPaymentMethod.id}`
+    : paymentLinkHref
 
   async function handleRemoveTask(taskId: string) {
     await removeTaskFromBookingAction(draftId, taskId)
@@ -195,11 +205,11 @@ export default function ReviewRequestView({
     setGiftCode(committedGiftCodeRef.current)
     setPromoError(null)
   }, [pathname, giftCode])
-
   async function handleConfirmRequest() {
     if (!selectedPaymentMethod) return
     setConfirming(true)
     setConfirmError(null)
+    setPaymentFailed(false)
     const result = await confirmBookingAction(
       draftId,
       Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -209,6 +219,7 @@ export default function ReviewRequestView({
     if ('error' in result) {
       setConfirming(false)
       setConfirmError(result.error)
+      setPaymentFailed(!!result.paymentFailed)
       return
     }
     router.push(`/dashboard/messages/${result.bookingId}`)
@@ -230,6 +241,11 @@ export default function ReviewRequestView({
             <p className="text-sm font-bold text-slate-900">{formatDateLabel(date)}</p>
             <p className="text-sm text-slate-500">{formatTimeRange(time, durationMinutes)}</p>
             <p className="text-xs text-slate-400">Estimated visit: {formatVisitDuration(durationMinutes)}</p>
+            {recurrence && (
+              <p className="text-xs font-semibold mt-1" style={{ color: 'var(--color-brand)' }}>
+                Repeats {recurrenceLabel(recurrence).toLowerCase()}
+              </p>
+            )}
           </div>
           <div className="text-right">
             <p className="text-sm font-bold text-slate-900">{addressName}</p>
@@ -255,7 +271,7 @@ export default function ReviewRequestView({
                   dirtLabel,
                   laundryDetailLabel(task),
                   petDetailLabel(task),
-                  pet ? formatEstimatedMinutes(task.estimatedMinutes) : null,
+                  pet && task.pet.kind !== 'enclosure' ? formatEstimatedMinutes(task.estimatedMinutes) : null,
                   ...(task.unusual ?? []),
                 ].filter(Boolean).join(' · ')
                 return (
@@ -324,7 +340,10 @@ export default function ReviewRequestView({
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-900 truncate">{cleaner.name}</p>
+                      <p className="text-sm font-semibold text-slate-900 flex items-center gap-1 min-w-0">
+                        <span className="truncate">{cleaner.name}</span>
+                        {cleaner.isVerified && <VerifiedCheck size={14} />}
+                      </p>
                       <p className="text-xs text-slate-500">
                         <span className="text-amber-500">★</span> {cleaner.rating.toFixed(1)} · {cleaner.distanceMiles} miles
                         {cleaner.isTopTidyPro && (
@@ -478,7 +497,7 @@ export default function ReviewRequestView({
               </span>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed px-4 pb-3.5">
-              The ${processingFee.toFixed(2)} Stripe processing fee is nonrefundable. If your booking is canceled, you&apos;ll be refunded ${servicePrice.toFixed(2)}. If you cancel an accepted booking less than 12 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(totalPrice).toFixed(2)}).
+              The ${processingFee.toFixed(2)} Stripe processing fee is nonrefundable. If your booking is canceled, you&apos;ll be refunded ${servicePrice.toFixed(2)}. If you cancel an accepted booking less than 2 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(totalPrice).toFixed(2)}).
             </p>
           </div>
 
@@ -493,22 +512,47 @@ export default function ReviewRequestView({
 
       <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 px-5 py-4 safe-area-inset-bottom">
         <div className="max-w-sm mx-auto">
-          {confirmError && (
+          {confirmError && paymentFailed ? (
+            <div role="alert" className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3 leading-relaxed">
+              <p className="font-semibold">
+                {selectedPaymentMethod
+                  ? `We couldn’t charge your ${selectedPaymentMethod.brand} •••• ${selectedPaymentMethod.last4}.`
+                  : 'We couldn’t charge your card.'}
+              </p>
+              <p>{confirmError}</p>
+              <p className="mt-1 text-slate-600">Add a new card or choose another one to send your request. You haven’t been charged.</p>
+            </div>
+          ) : confirmError ? (
             <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3 leading-relaxed">
               {confirmError}
             </p>
+          ) : null}
+          {paymentFailed ? (
+            <Link
+              href={changePaymentAfterFailureHref}
+              // Done once they go change it, in case this view is still mounted when they come back.
+              onClick={() => {
+                setPaymentFailed(false)
+                setConfirmError(null)
+              }}
+              className="block w-full py-4 rounded-2xl font-semibold text-base tracking-wide text-white text-center"
+              style={{ backgroundColor: 'var(--color-brand)' }}
+            >
+              Use a different payment method
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={handleConfirmRequest}
+              disabled={!selectedPaymentMethod || confirming}
+              className="w-full py-4 rounded-2xl font-semibold text-base tracking-wide text-white disabled:text-slate-400 transition-colors"
+              style={{ backgroundColor: selectedPaymentMethod ? 'var(--color-brand)' : '#e5e9ef' }}
+            >
+              {confirming
+                ? extraCleanerIds.length > 0 ? 'Sending requests…' : 'Sending request…'
+                : extraCleanerIds.length > 0 ? `Confirm and ask ${extraCleanerIds.length + 1} Tidy Pros` : 'Confirm Request'}
+            </button>
           )}
-          <button
-            type="button"
-            onClick={handleConfirmRequest}
-            disabled={!selectedPaymentMethod || confirming}
-            className="w-full py-4 rounded-2xl font-semibold text-base tracking-wide text-white disabled:text-slate-400 transition-colors"
-            style={{ backgroundColor: selectedPaymentMethod ? 'var(--color-brand)' : '#e5e9ef' }}
-          >
-            {confirming
-              ? extraCleanerIds.length > 0 ? 'Sending requests…' : 'Sending request…'
-              : extraCleanerIds.length > 0 ? `Confirm and ask ${extraCleanerIds.length + 1} Tidy Pros` : 'Confirm Request'}
-          </button>
         </div>
       </div>
     </main>

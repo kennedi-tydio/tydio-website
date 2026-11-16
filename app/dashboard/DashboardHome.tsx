@@ -116,7 +116,8 @@ export type UpcomingBooking = {
   scheduledDate: string | null
   scheduledTime: string | null
   durationMinutes: number
-  kind: 'upcoming' | 'tracking' | 'review_prompt'
+  // needs_attention: suspended until the customer pays an upcharge.
+  kind: 'upcoming' | 'tracking' | 'review_prompt' | 'needs_attention'
   progressStatus: 'on_the_way' | 'arrived' | 'cleaning' | null
 }
 
@@ -152,7 +153,13 @@ function BookingCard({ booking }: { booking: UpcomingBooking }) {
     >
       <BookingAvatar name={booking.cleanerName} photoUrl={booking.cleanerPhotoUrl} />
       <div className="min-w-0 flex-1">
-        {booking.kind === 'review_prompt' ? (
+        {booking.kind === 'needs_attention' ? (
+          <>
+            <p className="inline-block text-[11px] font-semibold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5 mb-0.5">Needs attention</p>
+            <p className="text-sm font-bold text-slate-900 truncate">Your booking with {firstName} is on hold</p>
+            <p className="text-xs text-slate-400">Tap to pay the extra charge</p>
+          </>
+        ) : booking.kind === 'review_prompt' ? (
           <>
             <p className="text-sm font-bold text-slate-900 truncate">Rate your cleaning with {firstName}</p>
             <p className="text-xs text-slate-400">Let us know how it went</p>
@@ -337,6 +344,20 @@ export default function DashboardHome({
       {/* ── scrollable content ── */}
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full">
 
+        {bookingAccessStatus === 'waitlisted' && (
+          <div role="alert" className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 mb-5 flex items-start gap-3">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 text-red-500 mt-0.5" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-red-700">You&apos;re on the waitlist</p>
+              <p className="text-xs text-red-600 leading-relaxed mt-0.5">
+                You can&apos;t book Tidy Pros right now. You can still set up your profile and add Tidy Tasks, and we&apos;ll notify you as soon as you can book.
+              </p>
+            </div>
+          </div>
+        )}
+
         {showPriceError && (
           <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 mb-5 flex items-start justify-between gap-3">
             <p role="alert" className="text-xs text-red-600 leading-relaxed">{priceErrorMessage}</p>
@@ -395,6 +416,10 @@ export default function DashboardHome({
             </div>
           </Link>
           )
+        ) : bookingAccessStatus === 'waitlisted' ? (
+          <div className="rounded-2xl border border-slate-100 bg-white p-6 mb-8 text-center shadow-sm">
+            <p className="text-sm text-slate-400">You have no upcoming bookings.</p>
+          </div>
         ) : (
           <div className="rounded-2xl overflow-hidden h-36 mb-8 flex items-center px-5 gap-4" style={{ backgroundColor: '#e8f9fa' }}>
             <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-brand)' }}>
@@ -457,7 +482,7 @@ export default function DashboardHome({
                           ? laundryDetailLabel(task)
                           : task.laundryLoads ? `${task.laundryLoads.wash} wash · ${task.laundryLoads.dry} dry · ${task.laundryLoads.fold} fold` : null
                         const petLabel = isPetTask(task)
-                          ? [petDetailLabel(task), `${task.pet.photos.length} photo${task.pet.photos.length === 1 ? '' : 's'}`, formatEstimatedMinutes(task.estimatedMinutes)].filter(Boolean).join(' · ')
+                          ? [petDetailLabel(task), `${task.pet.photos.length} photo${task.pet.photos.length === 1 ? '' : 's'}`, task.pet.kind === 'enclosure' ? null : formatEstimatedMinutes(task.estimatedMinutes)].filter(Boolean).join(' · ')
                           : null
                         const meta = [dirtLabel, dishwasherLabel, laundryLabel, petLabel, ...(task.unusual ?? [])].filter(Boolean).join(' · ')
                         const priceable = isTaskPriceable(task)
@@ -553,12 +578,16 @@ export default function DashboardHome({
               Hire Tidy Pro
             </button>
           ) : (
-            <span
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              title={bookingAccessStatus === 'waitlisted' ? "You're on the waitlist and can't book yet" : 'Booking is not available yet'}
               className="pointer-events-auto px-5 py-3 rounded-full text-white font-semibold text-sm shadow-lg block opacity-50 cursor-not-allowed"
               style={{ backgroundColor: 'var(--color-slate-400)' }}
             >
-              Booking Not Available Yet
-            </span>
+              Hire Tidy Pro
+            </button>
           )}
         </div>
       </div>

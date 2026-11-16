@@ -193,3 +193,18 @@ export function RowAccountActions({
     </form>
   )
 }
+
+// Just the Ban button, for pages that list a person outside the Users table (Reports).
+export function BanAccountButton({ profileId, name }: { profileId: string; name: string }) {
+  const [state, action] = useActionState(manageAccountsAction, {})
+  return (
+    <form action={action}>
+      <input type="hidden" name="ids" value={profileId} />
+      <input type="hidden" name="note" />
+      <IntentButton intent="ban" label="Ban" danger onClick={event => askBanReason(event, name)} />
+      <div className="mt-1 max-w-56">
+        <ResultMessage state={state} />
+      </div>
+    </form>
+  )
+}

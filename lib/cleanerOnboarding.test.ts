@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { hasAvailability, missingOnboardingSteps } from './cleanerOnboarding'
+import { NOTIFICATIONS_REQUIRED, NOTIFICATION_STEP_LABEL } from './pushRequirement'
 
 const complete: Parameters<typeof missingOnboardingSteps>[0] = {
   profile_photo_url: 'https://example.com/photo.jpg',
@@ -30,7 +31,8 @@ describe('missingOnboardingSteps', () => {
   it('names each missing step on its own', () => {
     const labelFor = (change: Partial<typeof complete>) => missingOnboardingSteps({ ...complete, ...change }).map((s) => s.label)
     expect(labelFor({ stripe_onboarding_completed: false })).toEqual(['Set up your payout method'])
-    expect(labelFor({ has_push: false })).toEqual(['Turn on push notifications'])
+    // Only a step while lib/pushRequirement requires notifications.
+    expect(labelFor({ has_push: false })).toEqual(NOTIFICATIONS_REQUIRED ? [NOTIFICATION_STEP_LABEL] : [])
     expect(labelFor({ availability: {} })).toEqual(['Choose your availability'])
     expect(labelFor({ profile_photo_url: null })).toEqual(['Add a profile picture'])
     expect(labelFor({ bio: '   ' })).toEqual(['Write your bio'])

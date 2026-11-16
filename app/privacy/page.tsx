@@ -6,7 +6,7 @@ import Footer from '../components/Footer'
 
 export const metadata: Metadata = { title: 'Privacy Policy — Tydio' }
 
-const EFFECTIVE_DATE = 'November 10, 2026'
+const EFFECTIVE_DATE = 'November 15, 2026'
 const CONTACT_EMAIL = 'kennedicoats@tydioapp.com'
 
 const sections = [
@@ -233,7 +233,8 @@ export default function PrivacyPolicyPage() {
                 <><strong>Identity verification:</strong> you verify your identity directly with Checkr, our identity verification and screening provider, for example by submitting a photo of a government-issued ID and a selfie. Checkr may use facial comparison technology to confirm the selfie matches the ID. We receive and store only the result (for example, verified or not verified) and related dates, not your ID images, selfie, or any facial data.</>,
                 <><strong>Background check:</strong> you submit your screening information directly to our screening provider (GoodHire, powered by Checkr). We receive and store only the status of your check (for example, pending, passed, or failed) and related dates, not the full report contents.</>,
                 <><strong>Payout information:</strong> when you set up payouts, Stripe collects your bank account details and the identity details it needs to verify you, including your date of birth, directly on its own secure pages. We ask Stripe to collect these all at setup, rather than later when your payouts reach a certain amount, so your payouts aren&apos;t paused for missing details. We don&apos;t see or store your date of birth or bank details; we store only your Stripe account ID and whether onboarding is complete.</>,
-                <><strong>Job records:</strong> photos you upload of completed tasks, completion status, earnings, tips, and acceptance and cancellation history.</>,
+                <><strong>Job records:</strong> photos you take of tasks (an after photo of every completed task, plus any optional before photos), the photo of the location you must take before canceling a booking because you couldn&apos;t get in, completion status, earnings, tips, and acceptance and cancellation history.</>,
+                <><strong>Work photos:</strong> when you finish a booking, you can choose before and after photo pairs to add to your profile, with the name of the task (for example, &ldquo;Clean bathtub&rdquo;). You can also upload photos of your cleanings from your device, alone or as a before and after pair, with a caption you write. We remove the location and other metadata from uploaded photos before they are shown. Work photos are shown to customers on your profile until you remove them.</>,
                 <><strong>Signature records:</strong> when you sign the Independent Contractor and Platform Agreement, the legal name, any business entity and authorized representative, and the address you enter, plus your account email, IP address, browser, and the time you signed, along with the signed copy of the agreement. When you sign an amendment to that agreement, we keep the same kind of record (the name you type, your account email, IP address, browser, and the time you signed, with the business entity, representative, and address carried over from your agreement) along with the signed copy of the amendment. Tydio receives a copy of each signed agreement and amendment by email, plus a separate notice when you sign an amendment.</>,
               ]} />
             </Sub>
@@ -243,6 +244,7 @@ export default function PrivacyPolicyPage() {
                 <><strong>Usage and device information:</strong> pages you visit, time spent, buttons and links clicked, browser and device type, operating system, referring page, and IP address (from which an approximate location can be inferred). We don&apos;t connect this analytics data to your name or account.</>,
                 <><strong>Session recordings:</strong> we record how visitors use our pages, such as scrolling, clicks, and the pages they move between, so we can find and fix problems. Recordings hide what you type into form fields, such as passwords, card details, addresses, and messages, and aren&apos;t linked to your name or account.</>,
                 <><strong>Precise location, only if you allow it:</strong> if you choose &ldquo;use my current location&rdquo; when scheduling, your browser shares your device&apos;s coordinates with us so we can find nearby Tidy Pros. You can decline this in your browser at any time.</>,
+                <><strong>Photo location:</strong> phone cameras often record where a photo was taken. When a Tidy Pro uploads a before or after photo of a task, or a photo of the location when they couldn&apos;t get in, we read that location (if the photo has one) and store it privately with the booking, then remove it and all other camera details from the image itself. Only Tydio can see these locations; they are never shown to customers or other Tidy Pros.</>,
                 <><strong>Push subscription data:</strong> if you enable push notifications, your browser gives us a subscription endpoint and key that let us send notifications to that device.</>,
                 <><strong>Security and fraud records:</strong> payment disputes, chargebacks, refunds, and account activity that we record when we investigate complaints or suspicious behavior.</>,
               ]} />
@@ -267,6 +269,8 @@ export default function PrivacyPolicyPage() {
               'Process payments, card authorizations, tips, refunds, and Tidy Pro payouts.',
               'Screen and approve Tidy Pros, including identity verification, background checks, and insurance verification, and remind Tidy Pros before insurance expires.',
               'Display ratings and reviews and keep the marketplace trustworthy.',
+              'Show the work photos a Tidy Pro adds to their profile.',
+              'Use the location recorded in task photos and no-access location photos to confirm work was done at, or the Tidy Pro came to, the booked address, and to look into reports, disputes, and safety concerns.',
               'Send booking updates, account notices, and security messages by email, text, or push notification, as you have allowed.',
               'If you opt in, send you marketing emails about Tydio news, tips, and offers.',
               'Provide customer support.',
@@ -281,7 +285,9 @@ export default function PrivacyPolicyPage() {
             <Sub title="Between customers and Tidy Pros">
               <p>Tydio only works if the people on each side of a booking can see some information about each other:</p>
               <List items={[
-                <><strong>What customers see about Tidy Pros:</strong> full name, profile photo, bio, city and state, any allergies or sensitivities the Tidy Pro lists, rating, review count, approximate distance, availability, and verification and insurance badges.</>,
+                <><strong>What customers see about Tidy Pros:</strong> full name, profile photo, bio, city and state, any allergies or sensitivities the Tidy Pro lists, rating, review count, approximate distance, availability, verification and insurance badges, and any work photos the Tidy Pro adds to their profile.</>,
+                <><strong>Work photos taken in your home:</strong> if you are a customer, your Tidy Pro may add before and after photos of your tasks to their profile, where any customer viewing that profile can see them. Only the photos and the task name are shown, never your name, address, or the photo&apos;s location. Contact us to ask for a photo of your home to be removed. Please put away anything private, like mail or photos of people, in the areas being cleaned.</>,
+                <><strong>If your Tidy Pro can&apos;t get in:</strong> before canceling a booking because they couldn&apos;t get into your home, your Tidy Pro must take a photo of the outside of your home, including the house or apartment number. Only Tydio sees this photo; we use it to review the no-access report, and it is deleted with the booking&apos;s other photos (see Task photos below).</>,
                 <><strong>What Tidy Pros see about customers:</strong> when a booking request is sent to or accepted by a Tidy Pro, they see the customer&apos;s full name, how long they&apos;ve been a member, the service address, the requested tasks and notes (including any photos added to pet enclosure and litter box tasks), the customer&apos;s pets (including any pet photos), entry instructions, and ratings other Tidy Pros have given the customer. Please share only what your Tidy Pro needs to do the job.</>,
                 <><strong>Messages</strong> you send about a booking are visible to the other party on that booking.</>,
               ]} />
@@ -414,10 +420,25 @@ export default function PrivacyPolicyPage() {
             <Sub title="Task photos">
               <p>
                 Task photos are deleted automatically 7 days after their booking ends (is completed, cancelled, or declined).
-                This covers photos customers add to pet enclosure and litter box tasks and photos Tidy Pros take of completed
-                tasks. If a no-show or no-access report is made on a booking, its photos are kept until 7 days after that
+                This covers photos customers add to pet enclosure and litter box tasks and the before and after photos Tidy
+                Pros take of tasks, except copies a Tidy Pro adds to their profile (see Work photos below), and the location
+                photo a Tidy Pro takes when they can&apos;t get in. If a no-show or no-access report is made on a booking, its photos are kept until 7 days after that
                 report is settled. Photos customers add to tasks they never book are deleted 7 days after upload. Deleting
                 your account removes them sooner.
+              </p>
+            </Sub>
+            <Sub title="Work photos">
+              <p>
+                Work photos a Tidy Pro adds to their profile are kept until the Tidy Pro removes them or deletes their
+                account. Photos added from a booking are also deleted if the customer whose booking they came from
+                deletes their account.
+              </p>
+            </Sub>
+            <Sub title="Photo locations">
+              <p>
+                The location recorded in a task photo is kept with the booking after the photo itself is deleted, so we can
+                look into reports and disputes about that booking. It is deleted with the booking, when the customer
+                deletes their account.
               </p>
             </Sub>
             <Sub title="Pet photos">
@@ -438,8 +459,8 @@ export default function PrivacyPolicyPage() {
               <List items={[
                 'Your account and profile, including your name, email, phone, password, photo, and notification and consent settings.',
                 'Your saved addresses, pets and pet photos, booking drafts, saved card records, and push notification subscriptions. We also delete your customer record at Stripe, which removes your saved cards there.',
-                'For customers: your booking history, including the tasks, notes, entry instructions, messages, call records, task photos, payment records, and reviews tied to those bookings.',
-                'For Tidy Pros: your professional profile, availability, service areas, uploaded profile photo and insurance documents, and your identity verification and background check status records.',
+                'For customers: your booking history, including the tasks, notes, entry instructions, messages, call records, task photos and their recorded locations, payment records, and reviews tied to those bookings, plus any work photos from your bookings that Tidy Pros added to their profiles.',
+                'For Tidy Pros: your professional profile, availability, service areas, uploaded profile photo, work photos, and insurance documents, and your identity verification and background check status records.',
               ]} />
             </Sub>
             <Sub title="What may remain">
@@ -473,7 +494,9 @@ export default function PrivacyPolicyPage() {
               have a booking with, through links that expire after about an hour. They are not sent to OpenAI.
             </p>
             <p>
-              Profile photos and photos Tidy Pros take of completed tasks currently use publicly accessible, unauthenticated URLs. Anyone who obtains or
+              Profile photos, the before and after photos Tidy Pros take of tasks, and work photos on Tidy Pro profiles
+              currently use publicly accessible, unauthenticated URLs. We remove the location and other camera details from
+              task and work photos before they are stored this way, and keep the location only in our private records. Anyone who obtains or
               receives an exact link can view and reshare the image without signing in. An obscure link is not an access
               control, and Tydio cannot guarantee that recipients will not copy an image or that removal will delete copies
               held by others. <strong>Do not upload images showing people without permission, children, identity documents,
@@ -523,7 +546,7 @@ export default function PrivacyPolicyPage() {
                 <><strong>Identifiers and customer-record information:</strong> names, account identifiers, contact details, service and provider addresses, consent records, and limited payment reference information. Used for accounts, matching, communications, payments, security, and support. Disclosed as needed to hosting/database, communications, mapping, payment, waitlist, and support providers and to booking counterparties as described in Section 3.</>,
                 <><strong>Commercial information:</strong> bookings, tasks, purchases, payment and payout status, tips, cancellations, and disputes. Used to operate bookings, payments, support, fraud prevention, and required records. Disclosed as needed to hosting/database, payment, communications, AI task-validation and support providers, and booking counterparties; task-validation sharing is limited as described in Section 4.</>,
                 <><strong>Internet or network activity:</strong> device/browser information, IP addresses, page interactions, session recordings, and notification identifiers. Used for hosting, security, analytics, notifications, and troubleshooting. Disclosed as needed to hosting, analytics, embedded mapping/chat/form providers, and browser push services.</>,
-                <><strong>Geolocation:</strong> addresses, approximate IP-derived location, and precise device coordinates if permission is granted. Used for matching, distances, address search, and analytics as described above. Disclosed as needed to hosting/database, mapping and analytics providers and booking counterparties, subject to the distinctions in Sections 1 and 3.</>,
+                <><strong>Geolocation:</strong> addresses, approximate IP-derived location, precise device coordinates if permission is granted, and the location recorded in task photos Tidy Pros upload. Used for matching, distances, address search, analytics, and confirming where work was done as described above. Photo locations are not disclosed to booking counterparties. Disclosed as needed to hosting/database, mapping and analytics providers and booking counterparties, subject to the distinctions in Sections 1 and 3.</>,
                 <><strong>Visual and communication information:</strong> profile, pet, and task photos, booking messages, reviews, and support conversations. Used for profiles, service documentation, communications, support, and safety. Disclosed as needed to hosting/database and communications/support providers and relevant users. Photo links have the public-access limitation described in Section 8. Free-text task details may be sent to OpenAI as described in Section 4.</>,
                 <><strong>Professional information and limited screening records:</strong> provider bios, availability, service areas, insurance documents, identity verification and screening status, and related dates. Used for provider onboarding, matching, verification, and safety. Disclosed as needed to hosting/database and screening providers and, for the profile fields and badges identified in Section 3, customers. Screening and payout providers separately collect the identifiers described in Section 1 directly from providers.</>,
                 <><strong>Sensitive personal information:</strong> account access credentials, precise geolocation when permitted, private booking communications where applicable, health-related allergies or sensitivities voluntarily listed by Tidy Pros, and, for Tidy Pros, the government ID images, Social Security number, and selfie submitted directly to Checkr for identity verification and screening, which Checkr may process using facial comparison. Tydio receives only the verification and screening results, not the ID images, selfie, or facial data. Used for account security, requested services, safety, and displaying the profile information expressly described in Sections 1 and 3. Providers receiving these data depend on the function, as described above. Do not add sensitive information to AI-bound text or photo uploads. Any legally required consent or limitation right remains applicable.</>,

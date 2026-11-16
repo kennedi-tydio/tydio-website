@@ -1,5 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test-only chainable Supabase query mock */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const sendEmail = vi.fn()
+vi.mock('@/lib/email', () => ({
+  TYDIO_ADMIN_EMAIL: 'kennedicoats@tydioapp.com',
+  escapeHtml: (s: string) => s,
+  emailShell: (body: string) => body,
+  sendEmail: (...args: unknown[]) => sendEmail(...args),
+}))
+
+beforeEach(() => sendEmail.mockReset())
 import { SUSPENDED_PAUSE_REASON, suspendAccounts, unsuspendAccounts } from './accountSuspension'
 
 // Records each query's table, update payload and filters, and answers updates on
@@ -56,6 +66,22 @@ describe('suspendAccounts', () => {
     const { admin, queries } = fakeAdmin([{ id: 'u1', role: 'USER' }])
     await suspendAccounts(admin, ['u1'])
     expect(queries.some(q => q.table === 'tidypro_profiles')).toBe(false)
+  })
+
+  it('emails each newly suspended person with the support address when asked to', async () => {
+    const { admin } = fakeAdmin([{ id: 'u1', role: 'USER', email: 'a@example.com', first_name: 'Ada' } as any])
+    await suspendAccounts(admin, ['u1'], { notify: true })
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+    const [opts] = sendEmail.mock.calls[0]
+    expect(opts.to).toEqual([{ email: 'a@example.com', name: 'Ada' }])
+    expect(opts.subject).toMatch(/suspended/i)
+    expect(opts.htmlContent).toContain('kennedicoats@tydioapp.com')
+  })
+
+  it('sends no email unless asked to (a ban sends its own)', async () => {
+    const { admin } = fakeAdmin([{ id: 'u1', role: 'USER', email: 'a@example.com', first_name: 'Ada' } as any])
+    await suspendAccounts(admin, ['u1'])
+    expect(sendEmail).not.toHaveBeenCalled()
   })
 
   it('does nothing for an empty selection', async () => {

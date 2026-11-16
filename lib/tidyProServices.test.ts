@@ -15,6 +15,17 @@ describe('tidy pro services', () => {
     expect(normalizeServices('laundry')).toEqual([])
   })
 
+  it('turns the retired general cleaning into standard and deep cleaning', () => {
+    expect(normalizeServices(['laundry', 'generalCleaning', 'taskBased'])).toEqual([
+      'taskBased',
+      'standardCleaning',
+      'deepCleaning',
+      'laundry',
+    ])
+    expect(normalizeServices(['generalCleaning', 'deepCleaning'])).toEqual(['standardCleaning', 'deepCleaning'])
+    expect(hasChosenServices(['generalCleaning'])).toBe(true)
+  })
+
   it('counts as chosen only with at least one real service', () => {
     expect(hasChosenServices(['laundromat'])).toBe(true)
     // No longer offered, so it doesn't count.

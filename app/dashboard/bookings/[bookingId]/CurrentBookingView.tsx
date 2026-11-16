@@ -11,6 +11,8 @@ import EmergencyButton from '@/app/components/EmergencyButton'
 import PhotoViewer, { type TaskPhoto } from './PhotoViewer'
 import { CategoryIcon, groupByCategory } from './BookingSummary'
 import { cancelBookingRequestAction } from '@/app/dashboard/messages/[bookingId]/actions'
+import CancelReasonSheet from '@/app/components/CancelReasonSheet'
+import { CUSTOMER_CANCEL_REASONS, type Cancellation } from '@/lib/cancellationReasons'
 
 export type BookingTaskRow = {
   id: string
@@ -132,8 +134,7 @@ export default function CurrentBookingView({
   const router = useRouter()
   const firstName = cleanerName.split(' ')[0]
   const [showReport, setShowReport] = useState(false)
-  const [cancelling, setCancelling] = useState(false)
-  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [askingReason, setAskingReason] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [viewingPhoto, setViewingPhoto] = useState<number | null>(null)
 
@@ -152,16 +153,11 @@ export default function CurrentBookingView({
     return () => clearInterval(interval)
   }, [isDone, router])
 
-  async function handleCancel() {
-    setCancelling(true)
-    setCancelError(null)
-    const result = await cancelBookingRequestAction(bookingId, lateCancelRefund != null)
-    setCancelling(false)
-    if ('error' in result) {
-      setCancelError(result.error)
-      return
-    }
+  async function handleCancel(cancellation: Cancellation): Promise<string | null> {
+    const result = await cancelBookingRequestAction(bookingId, cancellation, lateCancelRefund != null)
+    if ('error' in result) return result.error
     router.push('/dashboard')
+    return null
   }
 
   function toggleCategory(category: string) {
@@ -346,20 +342,26 @@ export default function CurrentBookingView({
         {progressStatus === 'on_the_way' && (
           <div className="text-center mt-6">
             <ReportNoShowButton bookingId={bookingId} cleanerFirstName={firstName} reportableAtMs={noShowReportableAtMs} />
-            {cancelError && <p role="alert" className="text-xs text-red-600 mb-2">{cancelError}</p>}
             {lateCancelRefund != null && (
               <p className="text-xs text-slate-500 mb-2">
-                Your booking is less than 12 hours away, so canceling refunds 50% (${lateCancelRefund.toFixed(2)}).
+                Your booking is less than 2 hours away, so canceling refunds 50% (${lateCancelRefund.toFixed(2)}).
               </p>
             )}
             <button
               type="button"
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="text-sm text-slate-500 underline disabled:opacity-50"
+              onClick={() => setAskingReason(true)}
+              className="text-sm text-slate-500 underline"
             >
-              {cancelling ? 'Cancelling…' : 'Cancel booking'}
+              Cancel booking
             </button>
+            {askingReason && (
+              <CancelReasonSheet
+                reasons={CUSTOMER_CANCEL_REASONS}
+                warning={lateCancelRefund != null ? `Canceling now refunds 50% ($${lateCancelRefund.toFixed(2)}).` : null}
+                onConfirm={handleCancel}
+                onClose={() => setAskingReason(false)}
+              />
+            )}
           </div>
         )}
       </div>

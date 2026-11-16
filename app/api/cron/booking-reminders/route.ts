@@ -22,6 +22,10 @@ export async function GET(req: NextRequest) {
     .select('id, user_id, tidy_pro_id, scheduled_date, scheduled_time, time_zone')
     .eq('status', 'scheduled')
     .is('reminder_sent_at', null)
+    // Held back until an upcharge is paid; it's sent then if there's still time.
+    .is('suspended_for_upcharge_at', null)
+    // Or a recurring visit not paid yet (lib/recurringPayments).
+    .is('payment_due_at', null)
     // A day either side, since the booking's date is in the customer's zone, not the server's.
     .gte('scheduled_date', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
     .lte('scheduled_date', new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10))

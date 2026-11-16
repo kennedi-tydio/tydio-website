@@ -5,8 +5,10 @@ import EmergencyButton from '@/app/components/EmergencyButton'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import Link from 'next/link'
 import { arriveAndStartCleaningAction } from './actions'
-import { markArrivedAction } from '@/app/pro/messages/[bookingId]/actions'
+import { reportUnableToAccessAction } from '@/app/pro/messages/[bookingId]/actions'
 import { formatVisitDuration } from '@/lib/laundry'
+import BeforePhotosPrompt from './BeforePhotosPrompt'
+import ReportCustomerButton from './ReportCustomerButton'
 
 function IconBack() {
   return (
@@ -107,6 +109,7 @@ export default function OnTheWayView({
   const [directionsError, setDirectionsError] = useState<string | null>(null)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [askingBeforePhotos, setAskingBeforePhotos] = useState(false)
 
   const address = addressLine ?? addressLabel ?? ''
 
@@ -120,17 +123,19 @@ export default function OnTheWayView({
     window.open(provider.buildUrl(address), '_blank', 'noopener,noreferrer')
   }
 
-  // "Can't get in" marks them arrived without starting the job, which starts the wait
-  // before they can report no access (see NoAccessView).
-  async function handleImHere(startCleaning: boolean) {
+  // "Unable to access location" marks them arrived without starting the job and starts
+  // the countdown before they can cancel for no access (see NoAccessView).
+  async function handleImHere(startCleaning: boolean, wantsBeforePhotos = false) {
     setWorking(true)
     setError(null)
-    const result = await (startCleaning ? arriveAndStartCleaningAction(bookingId) : markArrivedAction(bookingId))
+    const result = await (startCleaning ? arriveAndStartCleaningAction(bookingId) : reportUnableToAccessAction(bookingId))
     setWorking(false)
+    setAskingBeforePhotos(false)
     if ('error' in result) {
       setError(result.error)
       return
     }
+    if (wantsBeforePhotos) router.replace(`/pro/bookings/${bookingId}?before=1`)
     router.refresh()
   }
 
@@ -148,6 +153,7 @@ export default function OnTheWayView({
           </button>
           <div className="flex items-center gap-2">
             <EmergencyButton addressLine={addressLine} />
+            <ReportCustomerButton bookingId={bookingId} />
             <Link href={`/pro/messages/${bookingId}`} aria-label="Message" className="w-9 h-9 flex items-center justify-center">
               <IconMessage />
             </Link>
@@ -219,22 +225,30 @@ export default function OnTheWayView({
       <div className="px-5 pb-8 max-w-sm mx-auto w-full">
         <button
           type="button"
-          onClick={() => handleImHere(true)}
+          onClick={() => setAskingBeforePhotos(true)}
           disabled={working}
           className="w-full py-3.5 rounded-2xl text-center text-sm font-semibold text-white disabled:opacity-60"
           style={{ backgroundColor: 'var(--color-brand)' }}
         >
-          {working ? 'Letting them know…' : "I'm here"}
+          {working ? 'Letting them know…' : "I've arrived"}
         </button>
         <button
           type="button"
           onClick={() => handleImHere(false)}
           disabled={working}
-          className="w-full mt-3 py-2 text-center text-sm font-medium text-slate-500 disabled:opacity-60"
+          className="w-full mt-3 py-3 rounded-2xl text-center text-sm font-semibold border border-slate-200 text-slate-600 disabled:opacity-60"
         >
-          I&apos;m here but can&apos;t get in
+          Unable to access location
         </button>
       </div>
+
+      {askingBeforePhotos && (
+        <BeforePhotosPrompt
+          working={working}
+          onContinue={(wantsBeforePhotos) => handleImHere(true, wantsBeforePhotos)}
+          onClose={() => setAskingBeforePhotos(false)}
+        />
+      )}
     </main>
   )
 }

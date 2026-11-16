@@ -12,12 +12,15 @@ import PetTaskDetails from '@/app/components/PetTaskDetails'
 import {
   acceptBookingRequestAction,
   cancelAcceptedBookingAction,
+  cancelRecurringSeriesAction,
   declineBookingRequestAction,
   markOnTheWayAction,
   proposeStartTimeAction,
   sendMessageAction,
   startCallAction,
 } from './actions'
+import CancelReasonSheet from '@/app/components/CancelReasonSheet'
+import { CLEANER_CANCEL_REASONS, type Cancellation } from '@/lib/cancellationReasons'
 
 export type ChatMessage = {
   id: string
@@ -220,6 +223,9 @@ type Props = {
   decisionStatus: string
   progressStatus: string | null
   messages: ChatMessage[]
+  // A visit of a recurring booking: how often it repeats, whether this Tidy Pro still has
+  // the series, and whether this visit is paid yet (see lib/recurringPayments).
+  recurrence: { label: string; mine: boolean; unpaid: boolean } | null
 }
 
 export default function ProMessageThreadView({
@@ -247,6 +253,7 @@ export default function ProMessageThreadView({
   decisionStatus: initialDecisionStatus,
   progressStatus: initialProgressStatus,
   messages: initialMessages,
+  recurrence,
 }: Props) {
   const router = useRouter()
   const [status, setStatus] = useState(initialStatus)
@@ -256,6 +263,8 @@ export default function ProMessageThreadView({
   const [cancelledByMe, setCancelledByMe] = useState(initialCancelledByMe)
   // What canceling will mean for the customer, worked out when they tap Cancel.
   const [cancelWarning, setCancelWarning] = useState<string | null>(null)
+  // Canceling just this visit, or every visit of the recurring booking.
+  const [cancelScope, setCancelScope] = useState<'visit' | 'series'>('visit')
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [editingTime, setEditingTime] = useState(false)
   const [newTime, setNewTime] = useState(scheduledTime?.slice(0, 5) ?? '09:00')
@@ -387,28 +396,39 @@ export default function ProMessageThreadView({
 
   // Matches cancelAcceptedBookingAction: within an hour of the start, the customer is
   // refunded rather than offered other cleaners.
+  // An unpaid recurring visit is simply canceled (see lib/tidyProCancellation).
   function handleCancelTapped() {
     setActionError(null)
+    setCancelScope('visit')
     const withinHour = startsAtMs != null && startsAtMs - Date.now() <= 60 * 60 * 1000
     setCancelWarning(
-      withinHour
-        ? `It's less than an hour until this booking, so ${firstName} will be refunded in full.`
-        : `${firstName} will be asked to choose another Tidy Pro.`
+      recurrence?.unpaid
+        ? `${firstName} won't be charged for this visit, and their other recurring visits stay on.`
+        : withinHour
+          ? `It's less than an hour until this booking, so ${firstName} will be refunded in full.`
+          : `${firstName} will be asked to choose another Tidy Pro.`
     )
   }
 
-  async function handleCancelConfirmed() {
-    setWorking('cancel')
+  function handleCancelSeriesTapped() {
     setActionError(null)
-    const result = await cancelAcceptedBookingAction(bookingId)
+    setCancelScope('series')
+    setCancelWarning(
+      `You'll stop getting ${firstName}'s recurring visits, and every visit of it already on your schedule is canceled. ${firstName} will be asked to choose another Tidy Pro.`
+    )
+  }
+
+  async function handleCancelConfirmed(cancellation: Cancellation): Promise<string | null> {
+    setWorking('cancel')
+    const result =
+      cancelScope === 'series' ? await cancelRecurringSeriesAction(bookingId, cancellation) : await cancelAcceptedBookingAction(bookingId, cancellation)
     setWorking(null)
+    if ('error' in result) return result.error
     setCancelWarning(null)
-    if ('error' in result) {
-      setActionError(result.error)
-      return
-    }
     setCancelledByMe(true)
     setProgressStatus(null)
+    router.refresh()
+    return null
   }
 
   async function handleStartBooking() {
@@ -617,6 +637,18 @@ export default function ProMessageThreadView({
 
           {/* Up top so it's seen before Accept. */}
           <LaundromatNotice tasks={tasks} className="mb-3" />
+          {recurrence && outcome === 'pending' && (
+            <div role="note" className="rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-3 mb-3">
+              <p className="text-sm font-bold text-slate-900">Recurring booking · {recurrence.label}</p>
+              <p className="text-xs text-slate-600 mt-1">
+                Accepting means you&apos;ll take every visit. Each one is added to your schedule a week ahead. You can cancel a single visit,
+                or the whole recurring booking, at any time.
+              </p>
+            </div>
+          )}
+          {recurrence && outcome !== 'pending' && (
+            <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-brand)' }}>Recurring · {recurrence.label}</p>
+          )}
 
           {scheduledDate && <p className="text-sm font-semibold text-slate-900">{formatDateLabel(scheduledDate)}</p>}
           {scheduledTime && (
@@ -711,31 +743,26 @@ export default function ProMessageThreadView({
               disabled={working !== null}
               className="block mx-auto mt-3 text-xs text-slate-500 underline disabled:opacity-50"
             >
-              Cancel booking
+              {recurrence ? 'Cancel this visit' : 'Cancel booking'}
+            </button>
+          )}
+          {outcome === 'accepted' && recurrence?.mine && (isNotStarted || isOnTheWay) && !cancelWarning && (
+            <button
+              type="button"
+              onClick={handleCancelSeriesTapped}
+              disabled={working !== null}
+              className="block mx-auto mt-2 text-xs text-slate-500 underline disabled:opacity-50"
+            >
+              Cancel all recurring visits
             </button>
           )}
           {outcome === 'accepted' && cancelWarning && (
-            <div className="mt-3 rounded-xl border border-slate-200 p-3">
-              <p className="text-xs text-slate-600 text-center">{`Cancel this booking? ${cancelWarning}`}</p>
-              <div className="flex gap-3 mt-3">
-                <button
-                  type="button"
-                  onClick={() => setCancelWarning(null)}
-                  disabled={working !== null}
-                  className="flex-1 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
-                >
-                  Keep it
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCancelConfirmed}
-                  disabled={working !== null}
-                  className="flex-1 py-2 rounded-xl bg-red-600 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {working === 'cancel' ? 'Canceling…' : 'Yes, cancel'}
-                </button>
-              </div>
-            </div>
+            <CancelReasonSheet
+              reasons={CLEANER_CANCEL_REASONS}
+              warning={cancelWarning}
+              onConfirm={handleCancelConfirmed}
+              onClose={() => setCancelWarning(null)}
+            />
           )}
         </div>
 

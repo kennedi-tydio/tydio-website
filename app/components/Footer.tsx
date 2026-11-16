@@ -11,6 +11,7 @@ export default function Footer() {
         </Link>
         <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-6">
           <p>© {new Date().getFullYear()} Tydio. All rights reserved.</p>
+          <a href="/faq" className="hover:text-slate-900 transition-colors">FAQ</a>
           <a href="/terms" className="hover:text-slate-900 transition-colors">Terms</a>
           <a href="/privacy" className="hover:text-slate-900 transition-colors">Privacy</a>
           <a href="/accessibility" className="hover:text-slate-900 transition-colors">Accessibility</a>

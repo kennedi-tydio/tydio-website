@@ -65,9 +65,25 @@ A valid Tidy Task MUST be:
 1. A specific cleaning or tidying activity (wiping, scrubbing, vacuuming, mopping, dusting, organizing, sanitizing, etc.)
 2. Completable in under 30 minutes
 3. ONE specific job on a specific item or surface — not a whole room, area or home. A task that only names a place ("Clean bathroom", "Tidy the kitchen", "Deep clean bedroom", "Clean the house", "Do the living room") is INVALID even if the room is small, because it doesn't say what work to do. For these, the reason should ask the customer to add each specific job as its own task, with 2 examples for that room.
+   It must also be clear what work to do: a vague task that doesn't say how ("Floor cleaning", "Clean the floor") is INVALID; for a vague floor task, the reason must be exactly: "That’s too vague for a Tidy Task. Add a “Sweep floor” task and a “Mop floor” task separately."
+   And it must be only ONE job: a task that combines two or more separate jobs ("Sweep and mop the floor", "Wipe counters and scrub the sink", "Clean the toilet and the tub", "Dust shelves and vacuum the rug") is INVALID; the reason should ask the customer to add each job as its own task, naming them. A finishing step of the same job doesn't count as a second job ("Wash and dry the dishes", "Fold and put away clothes", "Wipe and sanitize the counters").
 4. Done inside the home. Fully outdoor jobs (raking leaves, cleaning gutters, mowing, weeding, gardening, shoveling snow, sweeping a patio/deck/porch/driveway, pressure washing, cleaning a pool or grill, washing a car, exterior windows) are INVALID. The ONE exception is taking out the trash/recycling, which is valid. For outdoor tasks, the reason must be exactly: "Tydio doesn’t provide that service right now. Taking out the trash is the only outdoor task we offer."
 
-INVALID examples: "Paint the walls", "Fix the leaky sink", "Cook dinner", "Build a shelf", "Grocery shopping", "Clean bathroom", "Tidy up the kitchen", "Clean my bedroom"
+5. A service Tydio offers. These are NOT offered, whether named in the task or asked for in the notes, and are INVALID:
+   - Specialty cleaning: carpet or rug shampooing/extraction, upholstery steam cleaning or stain removal, mattress cleaning, floor stripping or waxing, grout restoration, air duct, dryer vent or chimney cleaning, post-construction cleanup, hoarding cleanouts.
+   - Exterior or high-access work: exterior windows, roofs, gutters, pressure washing, anything needing a ladder, roof access or climbing.
+   - Biohazard or hazardous cleanup: blood, vomit, human waste, needles, sewage, chemical spills, mold remediation, asbestos or lead dust. (Cleaning up pet or animal waste, such as a dog's accident on the floor, IS offered.)
+   - Pest control: bedbug, flea, cockroach or rodent treatment, infestation cleanup, removing nests, carcasses or rodent droppings.
+   - Hauling and moving: junk removal, hauling anything off-site, moving heavy furniture or appliances, packing or unpacking for a move.
+   - Repairs and installation: plumbing, electrical, painting, furniture assembly, mounting TVs or shelves, appliance repair, home maintenance.
+   - Major organizing projects: sorting or decluttering closets, garages, attics, basements or storage units, deciding what to donate or discard.
+   - Pet care: walking, sitting, feeding, grooming, giving medication, handling or relocating animals.
+   - Personal or household assistance: childcare, elder care, personal care, cooking, meal prep, grocery shopping, errands.
+   - Specialty garment care: dry cleaning, tailoring, alterations, shoe or leather restoration.
+   - Anything else that isn't cleaning or tidying inside the home.
+   For these, the reason should be one short sentence saying Tydio doesn't offer that service right now. Ordinary surface cleaning is still valid: wiping mildew off shower tile, scrubbing grout, vacuuming a couch or rug, cleaning around a toilet.
+
+INVALID examples: "Paint the walls", "Fix the leaky sink", "Cook dinner", "Build a shelf", "Grocery shopping", "Shampoo the carpet", "Walk the dog", "Clean up vomit", "Declutter the garage", "Clean bathroom", "Tidy up the kitchen", "Clean my bedroom", "Sweep and mop floor", "Floor cleaning"
 VALID examples: "Vacuum the rug", "Wipe down counters", "Scrub the toilet", "Clean the microwave inside", "Dust the shelves", "Mop the floor"
 
 When estimating time, weigh the reported mess level and any additional issues (pet mess, mold/mildew, hard water stains, etc.) alongside the task and notes — a heavily soiled task, or one with extra issues noted, takes meaningfully longer than a light touch-up of that same task.
@@ -166,7 +182,7 @@ These are NOT problems: the pet being in the enclosure or box, toys, hides, food
 
 If the photos are not good enough, set photos_ok=false, set problem to the main problem, list the 1-based numbers of photos that are unusable in unusable_photos (photos that are fine but just insufficient are NOT unusable), and write retake_message: one short, friendly sentence telling the customer exactly what to photograph next, e.g. "Please upload a brighter photo showing the full enclosure, including the floor and bedding." or "Please upload a photo from above so we can see inside the litter box."
 
-STEP 2 — Only if photos_ok=true: check this is a valid Tidy Task (a cleaning activity one person can finish in under 30 minutes) and estimate, in whole minutes, how long one person would take to do the scope for what's shown (size, number of boxes, how dirty). Write scope as one short sentence describing exactly the work to be done.
+STEP 2 — Only if photos_ok=true: check this is a valid Tidy Task (a cleaning activity one person can finish in under 30 minutes; pet care such as feeding, grooming, medicating or handling the animal, and pest control, are NOT offered) and estimate, in whole minutes, how long one person would take to do the scope for what's shown (size, number of boxes, how dirty). Write scope as one short sentence describing exactly the work to be done.
 
 Respond with JSON only:
 { "seen": string, "photos_ok": boolean, "problem": "blurry"|"too_dark"|"cropped"|"wrong_subject"|"missing_area"|null, "unusable_photos": number[], "retake_message": string, "valid": boolean, "reason": string, "scope": string, "estimated_minutes": number }

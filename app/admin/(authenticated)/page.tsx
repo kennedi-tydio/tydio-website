@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isAvailableForBooking } from '@/lib/cleanerMatching'
-import { PUSH_REQUIRED, pushSubscribedIds, withPushStatus } from '@/lib/pushRequirement'
+import { NOTIFICATIONS_REQUIRED, meetsNotificationRequirement, withPushStatus } from '@/lib/pushRequirement'
 import { ACCEPTANCE_RATE_THRESHOLD, getAllAcceptanceStats, isAcceptanceRateLow } from '@/lib/acceptanceRate'
 
 // Approved Tidy Pros, and approved ones since paused, have been let into the app.
@@ -74,36 +74,37 @@ export default async function AdminOverviewPage() {
   // rules customer search uses (lib/cleanerMatching).
   const bookingAllowed = (await withPushStatus(admin, approvedPros ?? [])).filter(isAvailableForBooking).length
   // Customers who can book right now: let in, not suspended or banned, and (while it's
-  // required) push turned on.
+  // required) push, or texts once those count, turned on.
   const allowedCustomers = (customers ?? []).filter(
     u => u.booking_access_status === 'booking_allowed' && !u.suspended_at && !u.banned_at
   )
-  const customersWithPush = PUSH_REQUIRED ? await pushSubscribedIds(admin, allowedCustomers.map(u => u.id)) : null
-  const activeUsers = allowedCustomers.filter(u => !customersWithPush || customersWithPush.has(u.id)).length
+  const activeUsers = NOTIFICATIONS_REQUIRED
+    ? (await withPushStatus(admin, allowedCustomers)).filter(meetsNotificationRequirement).length
+    : allowedCustomers.length
 
   return (
     <div>
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Overview</h1>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <StatCard label="Total Customers" value={total} href="/admin/users?role=USER" />
-        <StatCard label="Total Waitlisted" value={totalWaitlisted} color="amber" href="/admin/users?status=all_waitlisted" />
-        <StatCard label="Active Users" value={activeUsers} color="teal" href="/admin/users?role=USER&status=booking_allowed" />
-        <StatCard label="Tidy Pros" value={tidyProCount ?? 0} href="/admin/users?role=TIDYPRO" />
+        <StatCard label="Total Customers" value={total} href="/admin/users?role=USER&state=" />
+        <StatCard label="Total Waitlisted" value={totalWaitlisted} color="amber" href="/admin/users?status=all_waitlisted&state=" />
+        <StatCard label="Active Users" value={activeUsers} color="teal" href="/admin/users?role=USER&status=booking_allowed&state=" />
+        <StatCard label="Tidy Pros" value={tidyProCount ?? 0} href="/admin/users?role=TIDYPRO&state=" />
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard label="Total Areas" value={(areas ?? []).length} href="/admin/service-areas" />
-        <StatCard label="New Users (7d)" value={recentCount ?? 0} color="teal" href={`/admin/users?role=USER`} />
-        <StatCard label="Tidy Pro Waitlist" value={tidyProWaitlist} color="amber" href="/admin/users?role=TIDYPRO&status=not_approved" />
-        <StatCard label="Tidy Pros Away" value={awayError ? null : awayCount ?? 0} color="amber" href="/admin/users?role=TIDYPRO&available=away" />
+        <StatCard label="New Users (7d)" value={recentCount ?? 0} color="teal" href={`/admin/users?role=USER&state=`} />
+        <StatCard label="Tidy Pro Waitlist" value={tidyProWaitlist} color="amber" href="/admin/users?role=TIDYPRO&status=not_approved&state=" />
+        <StatCard label="Tidy Pros Away" value={awayError ? null : awayCount ?? 0} color="amber" href="/admin/users?role=TIDYPRO&available=away&state=" />
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8 -mt-4">
-        <StatCard label="Booking Allowed" value={bookingAllowed} color="teal" href="/admin/users?role=TIDYPRO&available=yes" />
+        <StatCard label="Booking Allowed" value={bookingAllowed} color="teal" href="/admin/users?role=TIDYPRO&available=yes&state=" />
         <StatCard
           label={`Tidy Pros Below ${Math.round(ACCEPTANCE_RATE_THRESHOLD * 100)}% Acceptance`}
           value={lowAcceptanceCount}
           color="amber"
-          href="/admin/users?role=TIDYPRO&acceptance=low"
+          href="/admin/users?role=TIDYPRO&acceptance=low&state="
         />
       </div>
 
