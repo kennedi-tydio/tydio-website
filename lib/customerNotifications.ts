@@ -9,12 +9,14 @@ type Admin = ReturnType<typeof createAdminClient>
 // Every notification to a customer goes through here, so each one reaches them by text,
 // push, and email alike. A failure on one channel never stops the others, or the action
 // that triggered it. Text needs their opt-in. Email is on unless they've turned it off,
-// and is for booking updates, so chat messages pass `email: false`.
+// and is for booking updates, so chat messages pass `email: false`. Confirmations of
+// something the customer just did themselves (e.g. canceling) pass `sms: false`: only
+// the other side of a cancellation is texted.
 export async function notifyCustomer(
   admin: Admin,
   customerId: string,
   payload: NotificationPayload,
-  { email = true }: { email?: boolean } = {}
+  { email = true, sms = true }: { email?: boolean; sms?: boolean } = {}
 ): Promise<void> {
   const { data: customer } = await admin
     .from('profiles')
@@ -22,7 +24,7 @@ export async function notifyCustomer(
     .eq('id', customerId)
     .maybeSingle()
 
-  if (canSendSms(customer?.sms_consent ?? null, customer?.phone ?? null)) {
+  if (sms && canSendSms(customer?.sms_consent ?? null, customer?.phone ?? null)) {
     await sendSmsForPayload(customer!.phone!, payload).catch((err) => console.error('Customer SMS failed', err))
   }
 

@@ -11,7 +11,11 @@ export type MessageThreadSummary = {
   scheduledDate: string | null
   scheduledTime: string | null
   unread: boolean
-  lastMessage: { senderRole: string; body: string } | null
+  lastMessage: { senderRole: string; body: string; at: string } | null
+  // The latest added-task request: its status, and when it was sent or answered.
+  lastAddition: { status: string; at: string } | null
+  // When the booking was canceled or declined, if it was.
+  endedAt: string | null
 }
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
@@ -22,15 +26,40 @@ function formatDateLabel(iso: string): string {
   return `${WEEKDAYS_SHORT[d.getDay()]}, ${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`
 }
 
-function statusLabel(thread: MessageThreadSummary): string {
-  if (thread.lastMessage) {
-    const prefix = thread.lastMessage.senderRole === 'USER' ? 'You: ' : ''
-    return `${prefix}${thread.lastMessage.body}`
-  }
-  if (thread.status === 'cancelled') return 'Request cancelled'
-  if (thread.status === 'declined') return 'Request declined'
+// How the booking stands, said the way the thread's last bubble says it.
+function bookingStatusLabel(thread: MessageThreadSummary): string {
+  // Once the Tidy Pro had accepted, ending it is canceling the booking (by either side; a
+  // Tidy Pro canceling is stored as declined). Before that it was only a request.
+  const wasAccepted = thread.decisionStatus === 'accepted'
+  if (thread.status === 'cancelled') return wasAccepted ? 'Booking canceled' : 'Request canceled'
+  if (thread.status === 'declined') return wasAccepted ? 'Booking canceled' : 'Request declined'
   if (thread.decisionStatus === 'accepted') return 'Booking confirmed'
   return 'Awaiting response'
+}
+
+function additionLabel(status: string): string {
+  if (status === 'pending') return 'You asked to add tasks'
+  if (status === 'accepted') return 'Booking modification accepted'
+  if (status === 'declined') return 'Booking modification declined'
+  if (status === 'cancelled') return 'Booking modification canceled'
+  if (status === 'expired') return 'Booking modification expired'
+  return 'Booking modification removed'
+}
+
+// The most recent thing in the thread: a chat message, an added-task request (or its
+// answer), or the booking ending. With none of those, how the booking stands.
+function statusLabel(thread: MessageThreadSummary): string {
+  const candidates: { at: string; text: string }[] = []
+  if (thread.lastMessage) {
+    const prefix = thread.lastMessage.senderRole === 'USER' ? 'You: ' : ''
+    candidates.push({ at: thread.lastMessage.at, text: `${prefix}${thread.lastMessage.body}` })
+  }
+  if (thread.lastAddition) candidates.push({ at: thread.lastAddition.at, text: additionLabel(thread.lastAddition.status) })
+  if (thread.endedAt && (thread.status === 'cancelled' || thread.status === 'declined')) {
+    candidates.push({ at: thread.endedAt, text: bookingStatusLabel(thread) })
+  }
+  if (candidates.length === 0) return bookingStatusLabel(thread)
+  return candidates.reduce((latest, c) => (Date.parse(c.at) > Date.parse(latest.at) ? c : latest)).text
 }
 
 function IconHome() {

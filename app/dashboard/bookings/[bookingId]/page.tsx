@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { stripe } from '@/lib/stripe'
 import { grossUpForStripeFee, lateCancelRefund, netOfStripeFee, stripePercentageForCardCountry } from '@/lib/pricingRules'
 import { isAwaitingReplacements } from '@/lib/bookingRequestGroups'
-import { isLateCancellation, noShowReportableAt } from '@/lib/bookingTime'
+import { hasBookingStarted, isLateCancellation, noShowReportableAt } from '@/lib/bookingTime'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import { cancelBookingRequestAction } from '@/app/dashboard/messages/[bookingId]/actions'
 import { completeBookingPayout } from '@/lib/bookings'
@@ -15,38 +15,13 @@ import PastBookingDetailView from './PastBookingDetailView'
 import type { OrderLine } from './BookingSummary'
 import UpchargeDueView from './UpchargeDueView'
 import VisitPaymentDueView from './VisitPaymentDueView'
-import type { PayCard } from './CardPayForm'
 import { isUnpaidVisit } from '@/lib/recurringPayments'
 import { getPaidUpcharges, getPendingUpcharge, upchargeCustomerCharge } from '@/lib/bookingUpcharges'
-import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
+import { chargeableCards } from '@/lib/stripe/chargeableCards'
+import { getPendingTaskAddition, taskAdditionBlockedReason } from '@/lib/bookingTaskAdditions'
+import { bookedTaskName } from '@/lib/laundry'
 
 export const metadata: Metadata = { title: 'Booking Details — Tydio' }
-
-// The customer's saved cards, each with what it would be charged (its own Stripe fee
-// included), so the total shown is exactly what that card pays.
-async function chargeableCards(
-  admin: ReturnType<typeof createAdminClient>,
-  customerId: string,
-  chargeFor: (cardFeePercentage: number) => number
-): Promise<{ cards: PayCard[]; defaultCardId: string | null }> {
-  const { data: paymentMethods } = await admin
-    .from('payment_methods')
-    .select('id, stripe_payment_method_id, card_brand, card_last4, is_default')
-    .eq('user_id', customerId)
-    .order('is_default', { ascending: false })
-    .order('created_at', { ascending: true })
-  const cards = (
-    await Promise.all(
-      (paymentMethods ?? []).map(async (pm) => {
-        const percentage = await stripePercentageForPaymentMethod(pm.stripe_payment_method_id).catch(() => null)
-        if (percentage == null) return null
-        const brand = pm.card_brand ? pm.card_brand.charAt(0).toUpperCase() + pm.card_brand.slice(1) : 'Card'
-        return { id: pm.id, label: `${brand} •••• ${pm.card_last4}`, chargeCents: Math.round(chargeFor(percentage) * 100) }
-      })
-    )
-  ).filter((c): c is PayCard => c != null)
-  return { cards, defaultCardId: (paymentMethods ?? []).find((pm) => pm.is_default)?.id ?? null }
-}
 
 function slotLabel(date: string, time: string): string {
   const [h, m] = time.split(':').map(Number)
@@ -77,7 +52,7 @@ export default async function CurrentBookingPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, tidy_pro_id, tidy_pro_name, tidy_pro_photo_url, status, decision_status, progress_status, notes, pets, will_provide_supplies, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, total_customer_charge, cleaner_marked_complete_at, stripe_payment_intent_id, stripe_refund_id, request_group_id, cancelled_reason, time_zone, suspended_for_upcharge_at, amount_due, payment_due_at, payment_failed_at, payment_error, suspended_for_payment_at'
+      'id, tidy_pro_id, tidy_pro_name, tidy_pro_photo_url, status, tip, decision_status, progress_status, notes, pets, will_provide_supplies, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, total_customer_charge, cleaner_marked_complete_at, stripe_payment_intent_id, stripe_refund_id, request_group_id, cancelled_reason, time_zone, suspended_for_upcharge_at, amount_due, payment_due_at, payment_failed_at, payment_error, suspended_for_payment_at, recurring_booking_id, task_list'
     )
     .eq('id', bookingId)
     .eq('user_id', session.profileId)
@@ -152,12 +127,16 @@ export default async function CurrentBookingPage({
   const paidUpcharges = await getPaidUpcharges(admin, booking.id)
   const upchargeAmount = Math.round(paidUpcharges.reduce((sum, u) => sum + u.amount * 100, 0)) / 100
   const upchargeCharges = paidUpcharges.reduce((sum, u) => sum + u.charge, 0)
+  // Tasks the customer added (lib/bookingTaskAdditions) are shown apart from extra charges.
+  const addedTasksAmount = Math.round(paidUpcharges.filter((u) => u.taskAdditionId).reduce((sum, u) => sum + u.amount * 100, 0)) / 100
+  const extraChargeAmount = Math.round((upchargeAmount - addedTasksAmount) * 100) / 100
   // The total is stored with Stripe's fee already added on top (see
   // grossUpForStripeFee), so split it back out for the order summary.
   const bookingPrice = netOfStripeFee(Math.max(0, totalPrice - upchargeCharges), cardFeePercentage)
   const orderLines: OrderLine[] = [
     { label: 'Booking', amount: bookingPrice },
-    ...(upchargeAmount > 0 ? [{ label: 'Extra charge', amount: upchargeAmount }] : []),
+    ...(addedTasksAmount > 0 ? [{ label: 'Added tasks', amount: addedTasksAmount }] : []),
+    ...(extraChargeAmount > 0 ? [{ label: 'Extra charge', amount: extraChargeAmount }] : []),
     { label: 'Processing fee', amount: Math.round((totalPrice - bookingPrice - upchargeAmount) * 100) / 100 },
   ]
 
@@ -168,6 +147,11 @@ export default async function CurrentBookingPage({
       ? lateCancelRefund(totalPrice)
       : null
 
+  // Its recurring series, while still active: Cancel then asks this visit or the whole series.
+  const { data: activeSeries } = booking.recurring_booking_id
+    ? await admin.from('recurring_bookings').select('id').eq('id', booking.recurring_booking_id).eq('status', 'active').maybeSingle()
+    : { data: null }
+  const activeSeriesId = activeSeries?.id ?? null
   const noShowReportableAtMs = noShowReportableAt(booking.scheduled_date, booking.scheduled_time, booking.time_zone)?.getTime() ?? null
 
   const pastBookingProps = {
@@ -186,6 +170,7 @@ export default async function CurrentBookingPage({
     orderLines,
     totalPrice,
     alreadyReviewed,
+    canSendTip: booking.status === 'completed' && alreadyReviewed && !((booking.tip ?? 0) > 0),
   }
 
   if (booking.status === 'cancelled' || booking.status === 'declined') {
@@ -264,9 +249,20 @@ export default async function CurrentBookingPage({
   }
 
   if (booking.status === 'scheduled' && booking.progress_status == null) {
+    const pendingAddition = await getPendingTaskAddition(admin, booking.id)
+    const addBlocked = taskAdditionBlockedReason(booking)
     return (
       <UpcomingBookingDetailView
+        taskAddition={{
+          canAdd: !pendingAddition && addBlocked == null,
+          blockedReason: pendingAddition ? null : addBlocked,
+          pending: pendingAddition
+            ? { id: pendingAddition.id, tasks: pendingAddition.tasks, taskNames: pendingAddition.tasks.map((t) => bookedTaskName(t)), charge: pendingAddition.charge, applyToSeries: pendingAddition.applyToSeries }
+            : null,
+        }}
         bookingId={booking.id}
+        recurringSeriesId={activeSeriesId}
+        started={hasBookingStarted(booking.scheduled_date, booking.scheduled_time, new Date(), booking.time_zone)}
         cleanerName={booking.tidy_pro_name ?? 'your Tidy Pro'}
         scheduledDate={booking.scheduled_date}
         scheduledTime={booking.scheduled_time}

@@ -8,7 +8,7 @@ import { cancelBookingRequestAction } from '@/app/dashboard/messages/[bookingId]
 import { sendReplacementRequestsAction } from './actions'
 import CancelReasonSheet from '@/app/components/CancelReasonSheet'
 import { CUSTOMER_CANCEL_REASONS, type Cancellation } from '@/lib/cancellationReasons'
-import { VerifiedCheck } from '@/app/components/VerifiedCheck'
+import TidyProPickList, { usePersistedPicks } from '@/app/components/TidyProPickList'
 
 const MAX_CHOICES = 3
 
@@ -25,14 +25,6 @@ function formatSchedule(date: string | null, time: string | null): string {
   return `${dateLabel} at ${h12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
 }
 
-function IconStar() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="#f5a623" stroke="#f5a623" strokeWidth="1">
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  )
-}
-
 export default function ReplacementPickerView({
   bookingId,
   scheduledDate,
@@ -45,22 +37,18 @@ export default function ReplacementPickerView({
   options: CleanerMatch[]
 }) {
   const router = useRouter()
-  const [selected, setSelected] = useState<string[]>([])
+  // Kept while they look over profiles (TidyProPickList links to each one).
+  const { picks: selected, toggle, clear: clearPicks } = usePersistedPicks(`booking:${bookingId}`, options.map((o) => o.id), MAX_CHOICES)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [askingReason, setAskingReason] = useState(false)
-  const atLimit = selected.length >= MAX_CHOICES
 
   async function handleCancelBooking(cancellation: Cancellation): Promise<string | null> {
     const result = await cancelBookingRequestAction(bookingId, cancellation)
     if ('error' in result) return result.error
     router.push(`/dashboard/messages/${bookingId}`)
     return null
-  }
-
-  function toggle(id: string) {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < MAX_CHOICES ? [...prev, id] : prev))
   }
 
   async function handleSend() {
@@ -72,6 +60,7 @@ export default function ReplacementPickerView({
       setError(result.error)
       return
     }
+    clearPicks()
     router.push('/dashboard/messages')
   }
 
@@ -90,7 +79,8 @@ export default function ReplacementPickerView({
 
         <h1 className="text-2xl font-bold text-slate-900 mb-1">Choose other Tidy Pros</h1>
         <p className="text-sm text-slate-500 leading-relaxed mb-1">
-          Pick up to {MAX_CHOICES} Tidy Pros. The first to accept gets your booking, and the other requests are canceled.
+          Check off up to {MAX_CHOICES} available Tidy Pros. If fewer are listed, those are everyone free at that time, and you can pick just one. Tap one to see
+          their profile first. The first to accept gets your booking, and the other requests are canceled.
         </p>
         <p className="text-sm font-semibold text-slate-900 mb-5">{formatSchedule(scheduledDate, scheduledTime)}</p>
 
@@ -101,46 +91,7 @@ export default function ReplacementPickerView({
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {options.map((cleaner) => {
-              const isSelected = selected.includes(cleaner.id)
-              return (
-                <button
-                  key={cleaner.id}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={isSelected}
-                  onClick={() => toggle(cleaner.id)}
-                  disabled={sending || (atLimit && !isSelected)}
-                  className="w-full rounded-2xl border px-4 py-3.5 flex items-center gap-3 text-left shadow-sm transition-colors disabled:opacity-50"
-                  style={{ borderColor: isSelected ? 'var(--color-brand)' : '#f1f5f9', backgroundColor: isSelected ? '#e8f9fa' : 'white' }}
-                >
-                  <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-200 flex-shrink-0">
-                    {cleaner.photoUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={cleaner.photoUrl} alt="" className="w-full h-full object-cover" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-900 flex items-center gap-1 min-w-0">
-                      <span className="truncate">{cleaner.name}</span>
-                      {cleaner.isVerified && <VerifiedCheck size={14} />}
-                    </p>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <IconStar />
-                      <span className="text-xs text-slate-600">{cleaner.rating.toFixed(1)}</span>
-                      <span className="text-xs text-slate-400">· {cleaner.distanceMiles} miles</span>
-                    </div>
-                    {cleaner.isTopTidyPro && (
-                      <span className="text-[10px] font-semibold" style={{ color: 'var(--color-brand)' }}>
-                        Top Tidy Pro
-                      </span>
-                    )}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
+          <TidyProPickList options={options} picks={selected} onToggle={toggle} max={MAX_CHOICES} disabled={sending} />
         )}
 
         {options.length > 0 && (

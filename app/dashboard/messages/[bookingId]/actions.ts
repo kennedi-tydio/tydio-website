@@ -24,6 +24,8 @@ import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import {
   notifyBookingCancelledConfirmation,
+  notifyCleanerAskedCancel,
+  notifyCleanerAskedCancelConfirmation,
   notifyCustomerCancelled,
   notifyCustomerCancelledLate,
   notifyLateCancelConfirmation,
@@ -32,8 +34,10 @@ import {
 } from '@/lib/notifications'
 import { notifyCustomer } from '@/lib/customerNotifications'
 import { userFacingError } from '@/lib/userFacingError'
-import { dropPendingUpcharges } from '@/lib/bookingUpcharges'
+import { dropPendingUpcharges, refundUpchargesOfUnpaidVisit } from '@/lib/bookingUpcharges'
 import { CUSTOMER_CANCEL_REASONS, parseCancellation, type Cancellation } from '@/lib/cancellationReasons'
+import { withdrawTaskAddition } from '@/lib/bookingTaskAdditions'
+import { reportBookingIncident } from '@/lib/bookingIncidents'
 
 async function notifyTidyPro(
   admin: ReturnType<typeof createAdminClient>,
@@ -117,7 +121,8 @@ export async function cancelBookingRequestAction(
     // Only requests without a reason yet: a cleaner who canceled one keeps theirs.
     await admin.from('bookings').update(reasonFields).eq('request_group_id', booking.request_group_id).is('cancellation_reason', null)
     await Promise.all(result.tidyProIds.map((id) => notifyTidyPro(admin, id, cancelledPayload)))
-    await notifyCustomer(admin, session.profileId, notifyBookingCancelledConfirmation())
+    // The customer canceled, so only the Tidy Pros are texted.
+    await notifyCustomer(admin, session.profileId, notifyBookingCancelledConfirmation(), { sms: false })
 
     revalidatePath('/dashboard/messages')
     revalidatePath('/dashboard')
@@ -139,6 +144,33 @@ export async function cancelBookingRequestAction(
     booking.status === 'pending' ||
     (booking.status === 'scheduled' && (booking.progress_status == null || booking.progress_status === 'on_the_way'))
   if (!cancellable) return { error: 'This booking can no longer be cancelled.' }
+
+  // "The cleaner asked me to cancel" on an accepted, paid booking: canceled now, but the
+  // refund waits for the admin, who checks with both sides and settles it from
+  // /admin/incidents (refund, the cleaner's pay, a possible pause).
+  if (chosen.reason === 'cleaner_asked' && booking.status === 'scheduled' && booking.stripe_payment_intent_id && booking.tidy_pro_id) {
+    const reported = await reportBookingIncident(
+      admin,
+      { id: booking.id, user_id: session.profileId, tidy_pro_id: booking.tidy_pro_id },
+      'cleaner_asked_cancel',
+      session.profileId,
+      new Date(),
+      { details: chosen.note }
+    )
+    if ('error' in reported) return reported
+    await admin.from('bookings').update(reasonFields).eq('id', bookingId)
+    await restoreBookingTasks(admin, session.profileId, (booking.task_list as TidyTask[] | null) ?? [])
+    // The customer canceled, so only the Tidy Pro is texted.
+    await notifyTidyPro(admin, booking.tidy_pro_id, notifyCleanerAskedCancel(customer?.first_name ?? 'The customer', bookingId))
+    await notifyCustomer(admin, session.profileId, notifyCleanerAskedCancelConfirmation(), { sms: false })
+
+    revalidatePath(`/pro/messages/${bookingId}`)
+    revalidatePath(`/dashboard/messages/${bookingId}`)
+    revalidatePath(`/dashboard/bookings/${bookingId}`)
+    revalidatePath('/dashboard/messages')
+    revalidatePath('/dashboard')
+    return { success: true }
+  }
 
   // Only an accepted booking: until a cleaner has committed to it, nobody has held the time.
   // A recurring visit that was never paid has nothing to keep, so canceling it is free.
@@ -175,6 +207,8 @@ export async function cancelBookingRequestAction(
   if (error) return { error: userFacingError(error) }
 
   await dropPendingUpcharges(admin, bookingId)
+  // A recurring visit not charged yet is free to cancel, but tasks added to it were paid for.
+  if (booking.status === 'scheduled' && !booking.stripe_payment_intent_id) await refundUpchargesOfUnpaidVisit(admin, bookingId)
 
   // Pays the cleaner their share now. If the transfer fails, the scheduled job retries it.
   if (isLate) {
@@ -190,7 +224,10 @@ export async function cancelBookingRequestAction(
     const firstName = customer?.first_name ?? 'The customer'
     await notifyTidyPro(admin, booking.tidy_pro_id, isLate ? notifyCustomerCancelledLate(firstName, lateCancelCleanerPay(booking.cleaner_pay ?? 0), bookingId) : cancelledPayload)
   }
-  await notifyCustomer(admin, session.profileId, isLate ? notifyLateCancelConfirmation(lateCancelRefund(total)) : notifyBookingCancelledConfirmation())
+  // The customer canceled, so only the Tidy Pro is texted.
+  await notifyCustomer(admin, session.profileId, isLate ? notifyLateCancelConfirmation(lateCancelRefund(total)) : notifyBookingCancelledConfirmation(), {
+    sms: false,
+  })
 
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath(`/dashboard/messages/${bookingId}`)
@@ -316,4 +353,21 @@ export async function startCallAction(bookingId: string): Promise<{ success: tru
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
   return startMaskedCall(createAdminClient(), bookingId, { role: 'USER', profileId: session.profileId })
+}
+
+// The customer canceling their added tasks request from the chat while it's still waiting
+// on the Tidy Pro: refunded in full, tasks back on the dashboard (lib/bookingTaskAdditions).
+export async function cancelTaskAdditionAction(additionId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const result = await withdrawTaskAddition(createAdminClient(), { additionId, customerId: session.profileId })
+  if ('error' in result) return result
+
+  revalidatePath(`/dashboard/messages/${result.bookingId}`)
+  revalidatePath(`/dashboard/bookings/${result.bookingId}`)
+  revalidatePath('/dashboard')
+  revalidatePath(`/pro/messages/${result.bookingId}`)
+  revalidatePath('/pro/messages')
+  return { success: true }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isRecurrenceFrequency, isVisitDue, nextVisitDate, recurrenceLabel, recurringPaymentDueAt, shouldSuspendUnpaidVisit, unpaidVisitAction } from './recurrence'
+import { isRecurrenceFrequency, isVisitDue, nextVisitDate, recurrenceLabel, recurrenceScheduleLabel, recurringPaymentDueAt, shouldSuspendUnpaidVisit, unpaidVisitAction } from './recurrence'
 
 describe('nextVisitDate', () => {
   it('keeps the same weekday', () => {
@@ -34,6 +34,19 @@ describe('isRecurrenceFrequency', () => {
 describe('recurrenceLabel', () => {
   it('reads naturally', () => {
     expect(recurrenceLabel('biweekly')).toBe('Every 2 weeks')
+  })
+})
+
+describe('recurrenceScheduleLabel', () => {
+  it('names the weekday and time of the first visit', () => {
+    // 2026-11-15 is a Sunday.
+    expect(recurrenceScheduleLabel('weekly', '2026-11-15', '09:00')).toBe('Every Sunday at 9:00 AM')
+    expect(recurrenceScheduleLabel('biweekly', '2026-11-15', '13:30')).toBe('Every other Sunday at 1:30 PM')
+    expect(recurrenceScheduleLabel('every_4_weeks', '2026-11-15', '00:15')).toBe('Every 4 weeks on Sunday at 12:15 AM')
+  })
+
+  it('falls back to the plain label without a date or time', () => {
+    expect(recurrenceScheduleLabel('weekly', null, '09:00')).toBe('Every week')
   })
 })
 

@@ -1,4 +1,4 @@
-// The green checkmark shown beside a Tidy Pro an admin has verified
+// The Tydio-teal checkmark shown beside a Tidy Pro an admin has verified
 // (tidypro_profiles.is_verified). Not the same as Top Tidy Pro, which is
 // earned from ratings and bookings.
 export function VerifiedCheck({ size = 16, className = '' }: { size?: number; className?: string }) {
@@ -7,7 +7,7 @@ export function VerifiedCheck({ size = 16, className = '' }: { size?: number; cl
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="#22c55e"
+      fill="var(--color-brand)"
       stroke="white"
       strokeWidth="1.5"
       role="img"

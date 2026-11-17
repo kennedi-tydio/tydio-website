@@ -7,6 +7,7 @@ import {
   TIER_MINUTE_MIDPOINTS,
   calculatePrice,
   tierFromEstimatedMinutes,
+  visitMinutes,
 } from '@/lib/pricingRules'
 import { estimateTaskDuration } from '@/lib/aiTaskEstimate'
 import { isSquareFootage, type SquareFootage } from '@/lib/squareFootage'
@@ -15,15 +16,18 @@ import {
   FULL_CYCLE_MINUTES_PER_LOAD,
   IRON_MINUTES_PER_ITEM,
   IRON_PRICE_PER_ITEM,
+  PAIRED_LOAD_MINUTES_PER_LOAD,
   START_LOAD_MINUTES_PER_LOAD,
   isLaundromatPartialCycle,
   isLaundryService,
   isValidBasketCount,
   isValidIronItemCount,
+  laundromatMinutes,
   machineLaundryPrice,
   machineLoadsFor,
   needsMachineLoads,
-  pairedMachineLoads,
+  sameLaundryPartner,
+  usesLaundromat,
 } from '@/lib/laundry'
 import { ENTIRE_HOME_ROOM, entireHomeTier, isEntireHomeRoom, isFloorSweepOrMopTask } from '@/lib/entireHome'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
@@ -98,17 +102,19 @@ function laundryServiceTaskToValidatedTasks(task: TidyTask): ValidatedTask[] {
   const loads = machineLoadsFor(task)
   if (needsMachineLoads(service) && loads == null) throw new UnpriceableTaskError(task)
   switch (service) {
-    // Washing and drying are charged by the hour (machineLaundryPrice), not
-    // the state rate.
+    // Starting a load and leaving is charged by the hour (machineLaundryPrice),
+    // not the state rate.
     case 'wash':
     case 'dry': {
       const minutes = loads! * START_LOAD_MINUTES_PER_LOAD
       return item(`Laundry (${service}, start the load)`, 'Tiny', minutes, machineLaundryPrice(minutes))
     }
-    case 'washDry': {
-      const minutes = loads! * FULL_CYCLE_MINUTES_PER_LOAD
-      return item('Laundry (wash & dry, full cycle)', 'Full cycle', minutes, machineLaundryPrice(minutes))
-    }
+    // The full cycle is task time at the state rate, 2 hours a load. At a
+    // laundromat, 2 hours for every 3 loads, run side by side.
+    case 'washDry':
+      return usesLaundromat(task)
+        ? item('Laundry (laundromat trip, wash & dry)', 'Laundromat', laundromatMinutes(loads!))
+        : item('Laundry (wash & dry, full cycle)', 'Full cycle', loads! * FULL_CYCLE_MINUTES_PER_LOAD)
     // Folding is priced like any other task, from its estimated time.
     case 'fold':
       return item('Laundry (fold)', 'Standard', baskets * FOLD_MINUTES_PER_BASKET)
@@ -141,6 +147,8 @@ function entireHomeTaskToValidatedTask(task: TidyTask): ValidatedTask {
     cleaning_type_surcharge: CLEANING_TYPE_SURCHARGE[dirtLevel],
     additional_issue_surcharge: task.unusual.length * ADDITIONAL_ISSUE_SURCHARGE_PER_ITEM,
     scales_with_home_size: true,
+    // A bigger home takes longer, too.
+    scales_time_with_home_size: true,
     unusual_notes: [...task.unusual, task.notes].filter(Boolean).join('; ') || undefined,
   }
 }
@@ -175,43 +183,88 @@ export function taskToValidatedTasks(task: TidyTask): ValidatedTask[] {
   return [regularTaskToValidatedTask(task)]
 }
 
-// Every task's line items. The Tidy Pro does the booking's non-laundry tasks
-// while a Wash & dry (full cycle) runs, so the cycle's minutes are reduced by
-// those tasks' minutes, down to zero, and only the cycle's remaining minutes
-// are charged at the hourly laundry rate. The booking's time is therefore the
-// longer of the cycle and the other tasks. The
-// square footage multiplier still applies only to the non-laundry tasks'
-// price, and only for Entire home and floor sweep/mop tasks. With several Wash & dry tasks the other
-// tasks' time is only taken off once.
+// A linked Wash + Dry pair (the same laundry): the Tidy Pro washes the load and
+// moves it to the dryer, 1 hour a load at the state rate. The Wash task carries
+// one line item for the loads both washed and dried, in place of the two
+// start-the-load items, and the Dry task adds none of its own. Like a Wash &
+// dry task, it covers the time of the booking's household tasks. Each task is
+// still checked as usual first.
+function fullCycleItemsForPair(task: TidyTask, items: ValidatedTask[], tasks: TidyTask[]): ValidatedTask[] | null {
+  if (task.laundryService !== 'wash' && task.laundryService !== 'dry') return null
+  const partner = sameLaundryPartner(task, tasks)
+  if (!partner) return null
+  if (task.laundryService === 'dry') return []
+  const loads = Math.min(machineLoadsFor(task) ?? 0, machineLoadsFor(partner) ?? 0)
+  if (loads <= 0) return null
+  const { flat_price: _startLoadPrice, ...rest } = items[0]
+  void _startLoadPrice
+  return [
+    {
+      ...rest,
+      normalized_task_name: 'Laundry (wash, moved to the dryer)',
+      tier: 'Wash & dry, left in dryer',
+      estimated_minutes: loads * PAIRED_LOAD_MINUTES_PER_LOAD,
+    },
+  ]
+}
+
+type TaskItems = { task: TidyTask; items: ValidatedTask[]; fullCycle: boolean }
+
+function itemsPerTask(tasks: TidyTask[]): TaskItems[] {
+  return tasks.map((task) => {
+    const items = taskToValidatedTasks(task)
+    const pairItems = fullCycleItemsForPair(task, items, tasks)
+    // Laundry run at home while the Tidy Pro does the other tasks. A laundromat
+    // trip isn't: they're away for it, so it adds to the visit and covers nothing.
+    const fullCycle = (task.laundryService === 'washDry' && !usesLaundromat(task)) || (pairItems != null && pairItems.length > 0)
+    return { task, items: pairItems ?? items, fullCycle }
+  })
+}
+
+// Every task's line items. A Wash & dry task (2 hours a load) or a linked
+// Wash + Dry pair (1 hour a load) is charged at the state rate, and the
+// booking's household tasks are done while it runs, so their time is covered by
+// it: only household time beyond the laundry's is charged (priced_minutes).
+// Their surcharges and home-size multiplier are still charged in full. In
+// Atlanta ($53 an hour), 1 Wash & dry load with 3 hours of other tasks is
+// $106 + $53 = $159, plus those tasks' surcharges and multiplier. Other laundry
+// (fold, iron, start a load) is charged on top as before.
 export function buildValidatedTaskPool(tasks: TidyTask[]): ValidatedTask[] {
-  const perTask = tasks.map((task) => ({ task, items: taskToValidatedTasks(task) }))
-
-  let overlap = perTask
-    .filter(({ task }) => !task.laundryService && !task.laundryLoads)
+  const perTask = itemsPerTask(tasks)
+  let coverMinutes = perTask
+    .filter(({ fullCycle }) => fullCycle)
     .reduce((sum, { items }) => sum + items.reduce((s, i) => s + i.estimated_minutes, 0), 0)
-
   return perTask.flatMap(({ task, items }) => {
-    if (task.laundryService !== 'washDry' || overlap <= 0) return items
+    if (coverMinutes <= 0 || !isHouseholdTask(task)) return items
     return items.map((item) => {
-      const minutes = Math.max(0, item.estimated_minutes - overlap)
-      overlap -= item.estimated_minutes - minutes
-      return { ...item, estimated_minutes: minutes, flat_price: machineLaundryPrice(minutes) }
+      if (item.flat_price != null) return item
+      const covered = Math.min(coverMinutes, item.estimated_minutes)
+      coverMinutes -= covered
+      return covered > 0 ? { ...item, priced_minutes: item.estimated_minutes - covered } : item
     })
   })
 }
 
-// How long the visit is reserved for: every task's minutes, except that a
-// load both washed and dried (a linked Wash + Dry pair) reserves the full
-// 2-hour cycle once, in place of its two start-the-load times. The Tidy Pro
-// stays on site through the cycle and can do the booking's other tasks
-// meanwhile. Unpaired loads keep the Wash-only / Dry-only time.
-//
-// Pricing is unaffected: each task is still priced from its own line item.
-// Throws UnpriceableTaskError like buildValidatedTaskPool.
-export function visitDurationMinutes(tasks: TidyTask[], pool: ValidatedTask[] = buildValidatedTaskPool(tasks)): number {
-  const taskMinutes = pool.reduce((sum, t) => sum + t.estimated_minutes, 0)
-  const paired = pairedMachineLoads(tasks)
-  return taskMinutes - paired * 2 * START_LOAD_MINUTES_PER_LOAD + paired * FULL_CYCLE_MINUTES_PER_LOAD
+const isHouseholdTask = (task: TidyTask) => !task.laundryService && !task.laundryLoads
+
+// How long the visit is reserved for. The Tidy Pro does the booking's
+// household (non-laundry) tasks while a full wash & dry cycle runs, so those
+// overlap: the visit lasts the longer of the cycles and the household tasks
+// (other tasks under 2 hours → 2 hours; over 2 hours → their own time), plus
+// any other laundry tasks. Time only: the price is unaffected (see
+// buildValidatedTaskPool). Entire home tasks are scaled by the home's square
+// footage (visitMinutes). Throws UnpriceableTaskError like buildValidatedTaskPool.
+export function visitDurationMinutes(tasks: TidyTask[], squareFootage: SquareFootage | null = null): number {
+  let cycles = 0
+  let household = 0
+  let otherLaundry = 0
+  for (const { task, items, fullCycle } of itemsPerTask(tasks)) {
+    const minutes = items.reduce((sum, i) => sum + visitMinutes(i, squareFootage), 0)
+    if (fullCycle) cycles += minutes
+    else if (isHouseholdTask(task)) household += minutes
+    else otherLaundry += minutes
+  }
+  return Math.max(cycles, household) + otherLaundry
 }
 
 // Self-healing backfill for tasks that ended up saved without a tier/estimate
@@ -279,7 +332,7 @@ export function priceTaskListForState(
   // total_task_minutes is the booking's length (availability checks and the
   // stored estimated_duration_minutes): the visit duration, which reserves
   // the full cycle for linked Wash + Dry loads. The price above is unchanged.
-  return { ...breakdown, total_task_minutes: visitDurationMinutes(tasks, pool) }
+  return { ...breakdown, total_task_minutes: visitDurationMinutes(tasks, squareFootage) }
 }
 
 // The square footage that prices a booking, read from the customer's own

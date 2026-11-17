@@ -19,6 +19,7 @@ import ReviewForm from '../ReviewForm'
 import ReviewTabs from '../ReviewTabs'
 import { BanAccountButton } from '../users/AccountActions'
 import SeveritySelect from './SeveritySelect'
+import { DeleteReportButton } from './DeleteReportButton'
 
 const TH = 'px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide'
 
@@ -32,6 +33,18 @@ const REPORT_TYPES: Record<string, { label: string; categories: readonly ReportC
   cleaner_complaint: {
     label: 'Tidy Pro reported customer',
     categories: CUSTOMER_REPORT_CATEGORIES,
+  },
+  // Filed from "My Tidy Pro didn't show up" or Report Tidy Pro once the no-show window
+  // opens (lib/bookingIncidents). The refund itself is settled on /admin/incidents.
+  cleaner_no_show: {
+    label: 'Customer reported Tidy Pro no-show',
+    categories: TIDY_PRO_REPORT_CATEGORIES,
+  },
+  // A customer canceling because the Tidy Pro asked them to (lib/bookingIncidents); the
+  // refund is settled on /admin/incidents.
+  cleaner_asked_cancel: {
+    label: 'Customer says Tidy Pro asked them to cancel',
+    categories: TIDY_PRO_REPORT_CATEGORIES,
   },
 }
 
@@ -66,6 +79,9 @@ function reportSummary(eventType: string, metadata: Record<string, unknown>, des
       details: typeof metadata.note === 'string' ? metadata.note : null,
     }
   }
+  // No-show incidents carry no category; their description already says what happened.
+  if (eventType === 'cleaner_no_show') return { label: 'Cleaner didn’t show up', details: description }
+  if (eventType === 'cleaner_asked_cancel') return { label: 'The cleaner asked the customer to cancel', details: description }
   const category = typeof metadata.category === 'string' ? metadata.category.replaceAll('_', ' ') : 'Report'
   return {
     label: category.charAt(0).toUpperCase() + category.slice(1),
@@ -444,6 +460,7 @@ export default async function AdminReportsPage({ searchParams }: { searchParams:
                         resolved={!!r.resolved_at}
                         note={r.resolution_notes ?? ''}
                       />
+                      <DeleteReportButton reportId={r.id} label={`the report about ${fullName(reported)}`} />
                     </td>
                   </tr>
                 )

@@ -23,6 +23,7 @@ import {
   type NotificationPayload,
 } from '@/lib/notifications'
 import { userFacingError } from '@/lib/userFacingError'
+import { dropPendingUpcharges, getPaidUpcharges, refundUpchargesOfUnpaidVisit } from '@/lib/bookingUpcharges'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -213,11 +214,13 @@ export async function payForVisit(
     return { error: userFacingError(err, 'Payment failed. Please try again.') }
   }
 
+  const addOnCharges = (await getPaidUpcharges(admin, visit.id)).reduce((sum, u) => sum + u.charge, 0)
   const { data: paid } = await admin
     .from('bookings')
     .update({
       stripe_payment_intent_id: paymentIntentId,
-      total_customer_charge: charge,
+      // Tasks added to the visit were charged separately and are part of its total.
+      total_customer_charge: Math.round((charge + addOnCharges) * 100) / 100,
       amount_due: null,
       payment_due_at: null,
       payment_failed_at: null,
@@ -271,6 +274,10 @@ export async function cancelUnpaidVisit(admin: Admin, visit: UnpaidVisit): Promi
     .is('stripe_payment_intent_id', null)
     .select('id')
   if (!cancelled?.length) return false
+
+  // Tasks added to it were paid for separately, so those are refunded.
+  await dropPendingUpcharges(admin, visit.id)
+  await refundUpchargesOfUnpaidVisit(admin, visit.id)
 
   const date = visit.scheduled_date ?? ''
   await notifyCustomer(admin, visit.user_id, notifyRecurringVisitCancelledUnpaid('USER', date))

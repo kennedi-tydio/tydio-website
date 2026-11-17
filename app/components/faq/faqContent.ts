@@ -384,12 +384,38 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: 'cancel-booking',
         question: 'How do I cancel a booking?',
-        keywords: 'cancel refund cancellation policy late fee',
+        keywords: 'cancel refund cancellation policy late fee where button home bookings tab today upcoming messages pending',
         answer: [
           {
             type: 'p',
-            text: 'Go to the Bookings tab, open the booking, and tap Cancel booking. You’ll be asked for a reason.',
+            text: 'Once a Tidy Pro has accepted your booking, cancel it from the Bookings tab or the Home tab:',
           },
+          {
+            type: 'steps',
+            items: [
+              'Open the Bookings tab and choose Today or Upcoming. Or, on the Home tab, find the booking under your upcoming bookings.',
+              'Tap the booking to open it.',
+              'Tap Cancel booking.',
+              'Choose a reason, then confirm.',
+            ],
+          },
+          {
+            type: 'note',
+            text: 'An accepted booking can’t be canceled from Messages.',
+          },
+          {
+            type: 'p',
+            text: 'If your request is still waiting for a Tidy Pro to accept, it isn’t in your bookings yet. Cancel it from Messages instead:',
+          },
+          {
+            type: 'steps',
+            items: [
+              'Open the Messages tab and tap the thread with that Tidy Pro.',
+              'Under your Booking Request, tap Cancel.',
+              'Choose a reason, then confirm.',
+            ],
+          },
+          { type: 'link', before: 'More on', target: 'cancel-booking-request', label: 'canceling a booking request' },
           {
             type: 'list',
             items: [
@@ -407,6 +433,38 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
             text: 'Refunds go back to your original payment method and can take 5 to 10 business days to appear.',
           },
           { type: 'link', before: 'See the full', target: 'refund-policy', label: 'refund policy' },
+        ],
+      },
+      {
+        id: 'cancel-booking-request',
+        question: 'How do I cancel a booking request?',
+        keywords: 'cancel request pending waiting not accepted yet messages declined replacement refund',
+        answer: [
+          {
+            type: 'p',
+            text: 'A booking request is one no Tidy Pro has accepted yet. It stays in Messages until it’s accepted, so cancel it from there:',
+          },
+          {
+            type: 'steps',
+            items: [
+              'Open the Messages tab and tap the thread with the Tidy Pro you requested.',
+              'Under your Booking Request, tap Cancel.',
+              'Choose a reason, then confirm.',
+            ],
+          },
+          {
+            type: 'p',
+            text: 'If your Tidy Pro declined and you haven’t chosen a replacement, open the same thread and tap Cancel booking and get a refund.',
+          },
+          {
+            type: 'p',
+            text: 'Canceling a request refunds everything except the card processing fee. Refunds go back to your original payment method and can take 5 to 10 business days to appear.',
+          },
+          {
+            type: 'note',
+            text: 'Once a Tidy Pro accepts, the request becomes a booking and the Cancel button leaves Messages. Cancel it from the Bookings or Home tab instead.',
+          },
+          { type: 'link', before: 'See', target: 'cancel-booking', label: 'How do I cancel a booking?' },
         ],
       },
       {
@@ -472,11 +530,11 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         answer: [
           {
             type: 'p',
-            text: 'If your Tidy Pro hasn’t arrived 20 minutes after the start time, you can report a no-show from the booking. The booking is canceled and you’re refunded right away, except for the card processing fee. Refunds can take 5 to 10 business days to appear.',
+            text: 'If your Tidy Pro hasn’t arrived 10 minutes after the start time, you can report a no-show from the booking. The booking is canceled, and our team contacts you and your Tidy Pro to review what happened. We’ll email you about any refund. Refunds can take 5 to 10 business days to appear.',
           },
           {
             type: 'p',
-            text: 'Once your Tidy Pro has tapped “I’ve arrived”, you can’t report a no-show. If something’s wrong after that, use Report Tidy Pro instead.',
+            text: 'If your Tidy Pro has tapped “I’ve arrived” but isn’t actually there, tap Report Tidy Pro and choose “Cleaner didn’t show up”. It’s handled the same way.',
           },
         ],
       },
@@ -549,7 +607,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
               'No Tidy Pro accepts in time (at least an hour before the start): we cancel it and refund everything except the processing fee.',
               'Your Tidy Pro declines or cancels and you don’t choose a replacement: everything except the processing fee.',
               'Your Tidy Pro cancels less than an hour before the start: everything, including the processing fee.',
-              'Your Tidy Pro doesn’t show up and you report it 20 minutes after the start: everything except the processing fee, right away.',
+              'Your Tidy Pro doesn’t show up and you report it 10 minutes after the start: everything except the processing fee, right away.',
               'Your Tidy Pro can’t get into your home: our team reviews it and refunds all, half, or none of it.',
               'You’re charged in error, or charged but your booking wasn’t created: everything, including the processing fee.',
             ],
@@ -579,11 +637,15 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: 'tips',
         question: 'Can I tip my Tidy Pro?',
-        keywords: 'tip gratuity thank',
+        keywords: 'tip gratuity thank send tip later again failed',
         answer: [
           {
             type: 'p',
             text: 'Yes. After your booking is complete, you can add a tip of 10%, 15%, or a custom amount when you leave a review. Your Tidy Pro receives 100% of the tip.',
+          },
+          {
+            type: 'p',
+            text: 'Didn’t tip then, or your tip didn’t go through? Open the booking from your past bookings and tap Send a tip. You can tip once per booking.',
           },
         ],
       },
@@ -711,6 +773,29 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         ],
       },
       {
+        id: 'tidy-pro-track-payouts',
+        question: 'How do I track my payouts?',
+        keywords: 'payout status deposit bank transfer stripe dashboard express when paid pending earnings history missing money',
+        answer: [
+          {
+            type: 'steps',
+            items: [
+              'Go to Profile.',
+              'Under Overall earnings, tap View Stripe dashboard.',
+              'Stripe opens and shows your balance, each payout, and when it’s expected to reach your bank.',
+            ],
+          },
+          {
+            type: 'p',
+            text: 'Pending earnings on your profile is money from completed jobs that hasn’t reached your bank yet. Overall earnings is everything you’ve earned on Tydio.',
+          },
+          {
+            type: 'note',
+            text: 'Don’t see the button? Set up your payouts first in Profile → Payout methods. Your Stripe dashboard is ready once that’s done.',
+          },
+        ],
+      },
+      {
         id: 'tidy-pro-availability',
         question: 'How do I set my hours or take time off?',
         keywords: 'availability schedule calendar vacation days off hours',
@@ -753,13 +838,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
             type: 'steps',
             items: [
               'Start booking appears one hour before the start time. Tap I’m on the way when you head out, and check the customer’s entry instructions.',
-              'When you get there, tap I’ve arrived. (Once you have, the customer can’t report a no-show.)',
+              'When you get there, tap I’ve arrived. Only tap it once you’re actually at the home. If a customer reports that you weren’t there, our team will contact you both to review it.',
               'Check off each task as you finish it by taking its after photo. An after photo is required for every task. A photo of the whole area you cleaned is fine.',
             ],
           },
           {
             type: 'p',
-            text: 'Want to show off your work? Before you start a task, you can also take a before photo. Before and after pairs can be added to your profile for future customers to see. Before photos are optional.',
+            text: 'Want to show off your work? Before you start a task, you can also take a before photo. Before and after pairs can be added to your profile for future customers to see. Before photos are optional. You can also add your own before and after photos, or remove any pair, under Profile → Edit profile → Cleaning Photos. Your profile keeps your 12 newest pairs, so the oldest drop off as you add more.',
           },
           {
             type: 'p',
@@ -786,6 +871,21 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           {
             type: 'p',
             text: 'Yes. You have 24 hours after completing a job to review the customer. You’ll see their review of you once you’ve left yours, or once the 24 hours are up.',
+          },
+        ],
+      },
+      {
+        id: 'tidy-pro-see-reviews',
+        question: 'How do I see my reviews?',
+        keywords: 'my reviews rating stars average feedback customer comments dashboard',
+        answer: [
+          {
+            type: 'p',
+            text: 'On your Home dashboard, tap the Average Rating card. You’ll see your average rating and every review customers have left you.',
+          },
+          {
+            type: 'note',
+            text: 'A new review shows up once you’ve reviewed that customer, or 24 hours after the job, whichever comes first. Until then it isn’t counted in the rating you see.',
           },
         ],
       },

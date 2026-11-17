@@ -5,6 +5,7 @@ import EmergencyButton from '@/app/components/EmergencyButton'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
+import LaundromatNotice from '@/app/components/LaundromatNotice'
 import Link from 'next/link'
 import { markBookingDoneAction } from '@/app/pro/messages/[bookingId]/actions'
 import PhotoCaptureModal from './PhotoCaptureModal'
@@ -94,6 +95,8 @@ type Props = {
   tasks: ProBookingTaskRow[]
   // Pet enclosure / litter box details and signed photo URLs.
   petTasks?: TidyTask[]
+  // Laundromat trips on this booking (see LaundromatNotice).
+  laundromatTasks?: TidyTask[]
   photoUrls?: Record<string, string>
   // They said yes to before photos when they arrived.
   wantsBeforePhotos?: boolean
@@ -113,6 +116,7 @@ export default function TaskListView({
   notes,
   tasks: initialTasks,
   petTasks = [],
+  laundromatTasks = [],
   photoUrls = {},
   wantsBeforePhotos = false,
   arrivedAtMs = null,
@@ -233,6 +237,8 @@ export default function TaskListView({
             </p>
           </div>
         )}
+
+        <LaundromatNotice tasks={laundromatTasks} className="mb-4" />
 
         <p className="text-sm font-bold" style={{ color: 'var(--color-brand)' }}>
           Tasks

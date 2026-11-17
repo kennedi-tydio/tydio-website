@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/stripe', () => ({ stripe: {} }))
 
-import { bookingIdFromUrl, linksToBookingList, textBody } from './manualTextEmail'
+import { bookingIdFromUrl, linksToBookingList, recipientRoleFromUrl, textBody } from './manualTextEmail'
 
 const ID = '3f2b8c1e-4d5a-4b6c-9e7f-0a1b2c3d4e5f'
 
@@ -37,4 +37,18 @@ describe('linksToBookingList', () => {
 
 it('builds the same text Twilio would send', () => {
   expect(textBody({ title: 'T', body: 'Hello.', url: 'https://x.co/a' })).toBe('Tydio: Hello. https://x.co/a')
+})
+
+describe('recipientRoleFromUrl', () => {
+  it('reads who a text is for from its link', () => {
+    expect(recipientRoleFromUrl(`https://tydioapp.com/pro/messages/${ID}`)).toBe('TIDYPRO')
+    expect(recipientRoleFromUrl('https://tydioapp.com/pro')).toBe('TIDYPRO')
+    expect(recipientRoleFromUrl(`https://tydioapp.com/dashboard/bookings/${ID}`)).toBe('USER')
+    expect(recipientRoleFromUrl('https://tydioapp.com/dashboard')).toBe('USER')
+  })
+
+  it('does not guess for other pages or look-alike paths', () => {
+    expect(recipientRoleFromUrl('https://tydioapp.com/profile')).toBeNull()
+    expect(recipientRoleFromUrl('https://tydioapp.com/products')).toBeNull()
+  })
 })

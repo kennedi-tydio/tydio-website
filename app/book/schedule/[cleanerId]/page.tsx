@@ -10,9 +10,13 @@ export const metadata: Metadata = { title: 'Tidy Pro — Tydio' }
 
 export default async function CleanerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ cleanerId: string }>
+  // pick=1: opened from a list of Tidy Pros to check off (see TidyProPickList).
+  searchParams: Promise<{ pick?: string }>
 }) {
+  const { pick } = await searchParams
   const session = await getSession()
   if (!session || session.role !== 'USER') redirect('/login')
 
@@ -53,6 +57,7 @@ export default async function CleanerDetailPage({
       allergies={allergies}
       reviewsHref={`/book/schedule/${cleanerId}/reviews`}
       portfolio={portfolio}
+      fromPickList={pick === '1'}
     />
   )
 }

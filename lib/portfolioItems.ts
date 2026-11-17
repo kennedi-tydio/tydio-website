@@ -5,14 +5,16 @@
 // step with COMPLETION_PHOTOS_BUCKET in lib/taskPhotoRetention.ts.
 const TASK_PHOTOS_BUCKET = 'task-photos'
 
-// How many items the customer-facing profile shows.
-export const PORTFOLIO_DISPLAY_LIMIT = 12
+// The most before/after pairs a Tidy Pro keeps on their profile. Adding one
+// past this (an upload or a booking's pair) pushes the oldest out
+// (pruneOldPortfolioItems in lib/tidyProPortfolio.ts).
+export const PORTFOLIO_MAX_ITEMS = 12
+
+// How many items the customer-facing profile shows: all of them.
+export const PORTFOLIO_DISPLAY_LIMIT = PORTFOLIO_MAX_ITEMS
 
 // Caption a Tidy Pro types for a photo they upload themselves.
 export const PORTFOLIO_CAPTION_MAX_LENGTH = 60
-
-// Uploads are refused once a Tidy Pro has this many items on their profile.
-export const PORTFOLIO_MAX_ITEMS = 100
 
 export type PortfolioItem = {
   id: string

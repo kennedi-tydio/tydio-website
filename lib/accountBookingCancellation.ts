@@ -124,7 +124,8 @@ async function endForTidyPro(admin: Admin, tidyProId: string, cause: Cause): Pro
   return endAll(admin, (data ?? []) as OpenBooking[], 'released', (booking) =>
     booking.status === 'pending'
       ? declineRequestForTidyPro(admin, { bookingId: booking.id, tidyProId })
-      : cancelBookingForTidyPro(admin, { bookingId: booking.id, tidyProId, reason })
+      : // The admin suspended or banned them, so no cancel email back to the admin.
+        cancelBookingForTidyPro(admin, { bookingId: booking.id, tidyProId, reason, alertAdmin: false })
   )
 }
 

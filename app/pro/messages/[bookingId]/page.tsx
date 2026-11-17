@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { isRecurrenceFrequency, recurrenceLabel } from '@/lib/recurrence'
+import { isRecurrenceFrequency, recurrenceScheduleLabel } from '@/lib/recurrence'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CLEANER_CANCELLED_REASON, cleanerCancelledNote } from '@/lib/bookingRequestGroups'
@@ -11,6 +11,7 @@ import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
 import ProMessageThreadView, { type ChatMessage } from './ProMessageThreadView'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
+import { getPendingTaskAddition, listTaskAdditions } from '@/lib/bookingTaskAdditions'
 
 export const metadata: Metadata = { title: 'Messages — Tydio' }
 
@@ -92,14 +93,36 @@ export default async function ProMessageThreadPage({
   const recurrence =
     series && isRecurrenceFrequency(series.frequency)
       ? {
-          label: recurrenceLabel(series.frequency),
+          label: recurrenceScheduleLabel(series.frequency, booking.scheduled_date, booking.scheduled_time),
           mine: series.status === 'active' && series.tidy_pro_id === session.profileId,
           unpaid: booking.payment_due_at != null,
         }
       : null
 
+  // The customer asking to add tasks to this booking (see lib/bookingTaskAdditions).
+  const pendingAddition = booking.status === 'scheduled' ? await getPendingTaskAddition(admin, booking.id) : null
+
   return (
     <ProMessageThreadView
+      taskAddition={
+        pendingAddition
+          ? {
+              id: pendingAddition.id,
+              tasks: pendingAddition.tasks,
+              extraPay: pendingAddition.cleanerPay,
+              newDurationMinutes: pendingAddition.newDurationMinutes,
+              applyToSeries: pendingAddition.applyToSeries,
+            }
+          : null
+      }
+      taskAdditionPhotoUrls={pendingAddition ? await signedTaskPhotoUrls(admin, pendingAddition.tasks) : {}}
+      taskAdditionHistory={(await listTaskAdditions(admin, booking.id)).map((r) => ({
+        id: r.id,
+        tasks: r.tasks,
+        status: r.status,
+        amount: r.cleanerPay,
+        applyToSeries: r.applyToSeries,
+      }))}
       bookingId={booking.id}
       customerName={customerName}
       customerPhotoUrl={customerProfile?.photo_url ?? null}

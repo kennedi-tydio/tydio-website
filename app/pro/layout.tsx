@@ -2,7 +2,9 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import TimeZoneSync from '@/app/components/TimeZoneSync'
-import { saveTimeZoneAction } from './actions'
+import { getUnseenTipsAction, markTipsSeenAction, saveTimeZoneAction } from './actions'
+import { loadUnseenTips } from '@/lib/unseenTips'
+import TipCelebrationModal from './TipCelebrationModal'
 import NotificationConsentModal from '@/app/components/NotificationConsentModal'
 import NotificationConsentBanner from '@/app/components/NotificationConsentBanner'
 import AccountNotice from '@/app/components/AccountNotice'
@@ -22,7 +24,7 @@ export default async function ProLayout({ children }: { children: React.ReactNod
   if (!account) redirect('/account-removed')
   if (account.booking_access_status === 'waitlisted' || account.booking_access_status === 'denied') redirect('/waitlist')
 
-  const [{ data: profile }, { data: denial }] = await Promise.all([
+  const [{ data: profile }, { data: denial }, unseenTips] = await Promise.all([
     admin.from('tidypro_profiles').select('phone, sms_consent, push_consent, time_zone').eq('id', session.profileId).maybeSingle(),
     admin
       .from('background_checks')
@@ -30,6 +32,7 @@ export default async function ProLayout({ children }: { children: React.ReactNod
       .eq('pro_id', session.profileId)
       .not('denied_at', 'is', null)
       .maybeSingle(),
+    loadUnseenTips(admin, session.profileId),
   ])
 
   return (
@@ -61,6 +64,7 @@ export default async function ProLayout({ children }: { children: React.ReactNod
         pushConsent={profile?.push_consent ?? null}
         notificationsHref="/pro/profile/notifications"
       />
+      <TipCelebrationModal initial={unseenTips} loadUnseen={getUnseenTipsAction} onSeen={markTipsSeenAction} />
       {children}
     </>
   )

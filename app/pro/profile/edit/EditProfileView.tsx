@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { updateProfileAction, updateProfilePhotoAction } from '../actions'
+import type { PortfolioItem } from '@/lib/portfolioItems'
+import CleaningPhotosSection from './CleaningPhotosSection'
 
 function IconHome() {
   return (
@@ -53,10 +55,17 @@ type Props = {
   photoUrl: string | null
   allergies: string[]
   usesOrganicProducts: boolean
+  cleaningPhotos: PortfolioItem[]
   unreadMessageCount: number
 }
 
-export default function EditProfileView({ location, unreadMessageCount, photoUrl: initialPhotoUrl, ...initial }: Props) {
+export default function EditProfileView({
+  location,
+  unreadMessageCount,
+  cleaningPhotos,
+  photoUrl: initialPhotoUrl,
+  ...initial
+}: Props) {
   const router = useRouter()
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [firstName, setFirstName] = useState(initial.firstName)
@@ -268,6 +277,9 @@ export default function EditProfileView({ location, unreadMessageCount, photoUrl
           <span className={LABEL_CLASS}>Phone number</span>
           <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={INPUT_CLASS} />
         </label>
+
+        {/* Saved as soon as a pair is added or removed, not by the Save button. */}
+        <CleaningPhotosSection initialItems={cleaningPhotos} />
 
         <h2 className="text-sm font-bold text-slate-900 mb-2">Special Needs</h2>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3.5">

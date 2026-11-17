@@ -13,7 +13,7 @@ import {
   restoreBookingTasks,
 } from '@/lib/bookingRequestGroups'
 import { NO_ACCESS_WAIT_MINUTES, canReportNoAccess, hasAcceptanceWindowClosed } from '@/lib/bookingTime'
-import { sendUnableToAccessEscalation } from '@/lib/bookingIncidentEmail'
+import { startNoAccessCountdown, revalidateNoAccessPaths } from '@/lib/noAccessCountdown'
 import { reportBookingIncident } from '@/lib/bookingIncidents'
 import { canChangeStartTime, proposedTimeInBookingZone, withdrawPendingProposals } from '@/lib/bookingTimeProposals'
 import { notifyCustomer } from '@/lib/customerNotifications'
@@ -34,9 +34,19 @@ import { UNPAID_HOLD_MESSAGE } from '@/lib/recurringPayments'
 import { CLEANER_CANCEL_REASONS, parseCancellation, type Cancellation } from '@/lib/cancellationReasons'
 import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
 import { checkAcceptanceRate } from '@/lib/acceptanceRate'
+import { acceptTaskAddition, declineTaskAddition } from '@/lib/bookingTaskAdditions'
+import { pendingAmendment } from '@/lib/legal/agreementAmendments'
 
 const NO_ACCESS_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 const NO_ACCESS_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+// Booking requests still reach a Tidy Pro with an unsigned ICA amendment (the
+// /pro layouts send them to sign it as soon as they open the app), but they
+// can't respond until they've signed, even from a page opened before then.
+const UNSIGNED_AMENDMENT_ERROR = 'Please sign the update to your contractor agreement before responding. Reload the page to sign it.'
+async function blockedByUnsignedAmendment(admin: ReturnType<typeof createAdminClient>, profileId: string): Promise<string | null> {
+  return (await pendingAmendment(admin, profileId)) ? UNSIGNED_AMENDMENT_ERROR : null
+}
 
 export async function sendMessageAction(bookingId: string, body: string): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
@@ -81,6 +91,8 @@ export async function acceptBookingRequestAction(bookingId: string): Promise<{ s
   const admin = createAdminClient()
   const suspended = await bookingBlockedBySuspension(admin, session.profileId)
   if (suspended) return { error: suspended }
+  const unsigned = await blockedByUnsignedAmendment(admin, session.profileId)
+  if (unsigned) return { error: unsigned }
 
   const booking = await loadOwnedPendingBooking(admin, bookingId, session.profileId)
   if (!booking) return { error: 'Booking not found.' }
@@ -127,6 +139,8 @@ export async function proposeStartTimeAction(bookingId: string, time: string): P
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return { error: 'Please choose a start time.' }
 
   const admin = createAdminClient()
+  const unsigned = await blockedByUnsignedAmendment(admin, session.profileId)
+  if (unsigned) return { error: unsigned }
 
   const { data: booking } = await admin
     .from('bookings')
@@ -241,56 +255,15 @@ export async function markArrivedAction(bookingId: string): Promise<{ success: t
 }
 
 // "Unable to access location": pressed at the door (on the way) or from the task list
-// before any task is done. Puts the booking in 'arrived' (the no-access countdown screen)
-// and starts the countdown. The admin is emailed the first time only.
+// before any task is done. See startNoAccessCountdown.
 export async function reportUnableToAccessAction(bookingId: string): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
 
-  const admin = createAdminClient()
-  const { data: booking } = await admin
-    .from('bookings')
-    .select('id, status, progress_status, arrived_at, no_access_reported_at')
-    .eq('id', bookingId)
-    .eq('tidy_pro_id', session.profileId)
-    .maybeSingle()
+  const result = await startNoAccessCountdown(createAdminClient(), bookingId, session.profileId)
+  if ('error' in result) return result
 
-  if (!booking) return { error: 'Booking not found.' }
-  if (booking.status !== 'scheduled' || !['on_the_way', 'arrived', 'cleaning'].includes(booking.progress_status ?? '')) {
-    return { error: 'This booking is not in progress.' }
-  }
-
-  if (booking.progress_status === 'cleaning') {
-    const { count } = await admin
-      .from('booking_tasks')
-      .select('id', { count: 'exact', head: true })
-      .eq('booking_id', bookingId)
-      .eq('is_completed', true)
-    if ((count ?? 0) > 0) return { error: 'You’ve already finished a task, so you can’t report no access now.' }
-  }
-
-  const now = new Date()
-  const { error } = await admin
-    .from('bookings')
-    .update({
-      progress_status: 'arrived',
-      arrived_at: booking.arrived_at ?? now.toISOString(),
-      // Pressing it again while already waiting keeps the countdown where it is.
-      no_access_reported_at: booking.progress_status === 'arrived' && booking.no_access_reported_at ? booking.no_access_reported_at : now.toISOString(),
-    })
-    .eq('id', bookingId)
-  if (error) return { error: userFacingError(error) }
-
-  if (!booking.no_access_reported_at) {
-    await sendUnableToAccessEscalation(admin, bookingId, now).catch((err) =>
-      console.error('[Tydio] Unable to access admin email failed:', bookingId, err)
-    )
-  }
-
-  revalidatePath(`/pro/bookings/${bookingId}`)
-  revalidatePath(`/pro/messages/${bookingId}`)
-  revalidatePath('/dashboard')
-  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidateNoAccessPaths(bookingId)
   return { success: true }
 }
 
@@ -373,6 +346,8 @@ export async function declineBookingRequestAction(bookingId: string): Promise<{ 
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
 
   const admin = createAdminClient()
+  const unsigned = await blockedByUnsignedAmendment(admin, session.profileId)
+  if (unsigned) return { error: unsigned }
   const result = await declineRequestForTidyPro(admin, { bookingId, tidyProId: session.profileId })
   if ('error' in result) return result
   await checkAcceptanceRate(admin, session.profileId)
@@ -535,4 +510,42 @@ export async function startCallAction(bookingId: string): Promise<{ success: tru
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
   return startMaskedCall(createAdminClient(), bookingId, { role: 'TIDYPRO', profileId: session.profileId })
+}
+
+function revalidateTaskAddition(bookingId: string) {
+  revalidatePath(`/pro/messages/${bookingId}`)
+  revalidatePath('/pro/messages')
+  revalidatePath(`/pro/bookings/${bookingId}`)
+  revalidatePath('/pro/dashboard')
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  // The customer's chat: its request card and Booking Summary banner (tasks, time, total).
+  revalidatePath(`/dashboard/messages/${bookingId}`)
+  revalidatePath('/dashboard')
+}
+
+// Accepting a customer's additional task request: the tasks join the booking and its pay
+// (see lib/bookingTaskAdditions).
+export async function acceptTaskAdditionAction(additionId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+  const suspended = await bookingBlockedBySuspension(admin, session.profileId)
+  if (suspended) return { error: suspended }
+
+  const result = await acceptTaskAddition(admin, { additionId, tidyProId: session.profileId })
+  if ('error' in result) return result
+  revalidateTaskAddition(result.bookingId)
+  return { success: true }
+}
+
+// Declining one: the customer is refunded in full and the tasks go back on their dashboard.
+export async function declineTaskAdditionAction(additionId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
+
+  const result = await declineTaskAddition(createAdminClient(), { additionId, tidyProId: session.profileId })
+  if ('error' in result) return result
+  revalidateTaskAddition(result.bookingId)
+  return { success: true }
 }

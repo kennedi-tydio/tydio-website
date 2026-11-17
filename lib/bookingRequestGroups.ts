@@ -22,7 +22,7 @@ import { sendPushForPayload } from '@/lib/push'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
 import { userFacingError } from '@/lib/userFacingError'
-import { addToBookingTotals, dropPendingUpcharges, getPaidUpcharges, markUpchargesRefunded } from '@/lib/bookingUpcharges'
+import { addToBookingTotals, dropPendingUpcharges, getPaidUpcharges, markUpchargesRefunded, refundUpchargesOfUnpaidVisit } from '@/lib/bookingUpcharges'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -61,6 +61,8 @@ export const LATE_CANCEL_REASON = 'late_cancel'
 // Reported incidents the admin settles (see lib/bookingIncidents).
 export const NO_ACCESS_REASON = 'no_access'
 export const CLEANER_NO_SHOW_REASON = 'cleaner_no_show'
+// The customer canceled, saying the Tidy Pro asked them to: refund held for the admin.
+export const CLEANER_ASKED_CANCEL_REASON = 'cleaner_asked_cancel'
 export const ADMIN_CANCELLED_REASON = 'admin_cancelled'
 
 export function cleanerCancelledNote(reason: string | null): string | null {
@@ -69,6 +71,7 @@ export function cleanerCancelledNote(reason: string | null): string | null {
   if (reason === LATE_CANCEL_REASON) return 'The customer canceled less than 2 hours before the booking, so you’ll still be paid 50% of your pay for it'
   if (reason === NO_ACCESS_REASON) return 'You reported that you couldn’t get in. Our team will review it and email you about your pay'
   if (reason === CLEANER_NO_SHOW_REASON) return 'The customer reported that you didn’t arrive. Our team will review it and email you'
+  if (reason === CLEANER_ASKED_CANCEL_REASON) return 'The customer canceled and said you asked them to. Our team will review it and email you'
   if (reason === ADMIN_CANCELLED_REASON) return 'The Tydio team canceled this booking'
   return null
 }
@@ -79,6 +82,7 @@ export function customerCancelledNote(reason: string | null): string | null {
   if (reason === CLEANER_CANCELLED_REASON) return 'Your Tidy Pro canceled less than an hour before the booking, so your payment has been refunded in full.'
   if (reason === NO_ACCESS_REASON) return 'Your Tidy Pro couldn’t get into your home, so the booking was canceled. Our team will review it and email you about any refund.'
   if (reason === CLEANER_NO_SHOW_REASON) return 'You reported that your Tidy Pro didn’t arrive, so the booking was canceled. Our team will review it and email you about your refund.'
+  if (reason === CLEANER_ASKED_CANCEL_REASON) return 'You canceled because your Tidy Pro asked you to. Our team will check with them and email you about your refund.'
   if (reason === ADMIN_CANCELLED_REASON) return 'The Tydio team canceled this booking. We’ve let you know about any refund by email.'
   return null
 }
@@ -505,6 +509,14 @@ export async function refundUpchargesForReplacement(admin: Admin, bookingId: str
       cleanerPay: -upcharges.reduce((sum, u) => sum + u.cleanerPay, 0),
     })
   }
+
+  // Tasks the customer added for this cleaner come off the booking as well, back to the
+  // dashboard, so whoever replaces them isn't asked to do them unpaid.
+  if (upcharges.some((u) => u.taskAdditionId)) {
+    // Imported here: lib/bookingTaskAdditions imports this module.
+    const { removeAcceptedTaskAdditions } = await import('@/lib/bookingTaskAdditions')
+    await removeAcceptedTaskAdditions(admin, bookingId)
+  }
 }
 
 export function isAdminRefund(value: string): value is AdminRefund {
@@ -655,6 +667,7 @@ export async function cancelBookingAsAdmin(
 
   await withdrawPendingProposals(admin, bookingId)
   await dropPendingUpcharges(admin, bookingId)
+  if (booking.status === 'scheduled' && !booking.stripe_payment_intent_id && refund !== 'none') await refundUpchargesOfUnpaidVisit(admin, bookingId)
   await restoreBookingTasks(admin, booking.user_id, (booking.task_list as TidyTask[] | null) ?? [])
   await tellCustomer(booking.user_id)
   // The cleaner who declined has already moved on, so they don't need to hear about it.

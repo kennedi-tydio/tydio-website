@@ -114,6 +114,8 @@ describe('cancelBookingsForAccounts', () => {
       bookingId: 'b3',
       tidyProId: 'p1',
       reason: { cancellation_reason: 'no_longer_available', cancellation_note: 'Account banned' },
+      // The admin banned them, so the admin isn't emailed about each cancel.
+      alertAdmin: false,
     })
     expect(cancelBookingAsAdmin).not.toHaveBeenCalled()
     expect(dropSeriesForTidyPro).toHaveBeenCalledWith(admin, 's1', 'p1')

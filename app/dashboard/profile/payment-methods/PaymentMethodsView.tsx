@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from '@/app/components/NavigationSpinner'
-import { removePaymentMethodAction, selectPaymentMethodForDraftAction, type SavedPaymentMethod } from './actions'
+import { removePaymentMethodAction, selectPaymentMethodForDraftAction, setDefaultPaymentMethodAction, type SavedPaymentMethod } from './actions'
 import AddCardSheet from './AddCardSheet'
 import { useRefreshOnReturn } from '@/app/components/useRefreshOnReturn'
 
@@ -84,6 +84,8 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
   const [showAddCard, setShowAddCard] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [defaultingId, setDefaultingId] = useState<string | null>(null)
+  const [defaultError, setDefaultError] = useState<string | null>(null)
   const declinedCard = paymentMethods.find((pm) => pm.id === declinedId) ?? null
   const otherCardCount = paymentMethods.filter((pm) => pm.id !== declinedId).length
 
@@ -99,6 +101,18 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
     setPaymentMethods((prev) => [...prev, pm])
     setSelectedId(pm.id)
     setShowAddCard(false)
+  }
+
+  async function handleSetDefault(id: string) {
+    setDefaultingId(id)
+    setDefaultError(null)
+    const result = await setDefaultPaymentMethodAction(id)
+    setDefaultingId(null)
+    if ('error' in result) {
+      setDefaultError(result.error)
+      return
+    }
+    setPaymentMethods((prev) => prev.map((pm) => ({ ...pm, is_default: pm.id === id })))
   }
 
   async function handleRemove(id: string) {
@@ -117,7 +131,8 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
           <IconBack />
         </button>
 
-        <h1 className="text-3xl font-bold text-slate-900 mb-5">Payment Methods</h1>
+        <h1 className="text-3xl font-bold text-slate-900 mb-1">Payment Methods</h1>
+        <p className="text-xs text-slate-500 mb-5">Your default card is selected for you when you book. The first card you book with becomes your default.</p>
 
         {declinedCard && (
           <div role="alert" className="rounded-2xl px-4 py-3.5 mb-4 bg-red-50 border border-red-100">
@@ -144,10 +159,8 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
             {paymentMethods.map((pm) => {
               const isSelected = pm.id === selectedId
               return (
-                <div
-                  key={pm.id}
-                  className="w-full rounded-2xl border border-slate-100 shadow-sm px-4 py-3.5 flex items-center gap-3"
-                >
+                <div key={pm.id} className="w-full rounded-2xl border border-slate-100 shadow-sm px-4 py-3.5">
+                <div className="flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setSelectedId(pm.id)}
@@ -177,8 +190,22 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
                     {removingId === pm.id ? '…' : 'Remove'}
                   </button>
                 </div>
+                <label className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-slate-100 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pm.is_default}
+                    disabled={pm.is_default || defaultingId != null}
+                    onChange={() => handleSetDefault(pm.id)}
+                    className="w-4 h-4 accent-brand"
+                  />
+                  <span className="text-xs text-slate-600">
+                    {defaultingId === pm.id ? 'Saving…' : 'Default payment method'}
+                  </span>
+                </label>
+                </div>
               )
             })}
+            {defaultError && <p role="alert" className="text-xs text-red-600 px-1">{defaultError}</p>}
             <button
               type="button"
               onClick={() => setShowAddCard(true)}

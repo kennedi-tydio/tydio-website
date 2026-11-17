@@ -105,7 +105,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
           <div className="mb-1">
             <VerifiedToggle proId={proId} name={name} initialVerified={tidyPro.is_verified} />
           </div>
-          <p className="text-xs text-slate-400 mb-4">Verified Tidy Pros show customers a green verified checkmark.</p>
+          <p className="text-xs text-slate-400 mb-4">Verified Tidy Pros show customers a teal verified checkmark.</p>
 
           <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Contractor agreement</h3>
           <div className="mb-4">

@@ -86,6 +86,9 @@ export type BookingRow = {
   recurring: boolean
   // Suspended until the customer pays an upcharge.
   needsAttention: boolean
+  // The Tidy Pro canceled or declined it; the payment is held until the customer chooses
+  // other Tidy Pros or cancels (in the chat). Once they cancel, it's gone from upcoming.
+  droppedByTidyPro: 'cancelled' | 'declined' | null
 }
 
 type Tab = 'today' | 'upcoming' | 'past'
@@ -106,19 +109,28 @@ function BookingRowCard({ booking }: { booking: BookingRow }) {
   }
 
   return (
-    <Link href={`/dashboard/bookings/${booking.id}`} className="flex items-start justify-between gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors">
+    <Link
+      href={booking.droppedByTidyPro ? `/dashboard/messages/${booking.id}` : `/dashboard/bookings/${booking.id}`}
+      className={`flex items-start justify-between gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors ${booking.droppedByTidyPro ? 'ring-2 ring-inset ring-red-500 rounded-2xl' : ''}`}
+    >
       <div className="flex-shrink-0 w-20">
         <p className="text-xs font-semibold text-slate-500">{dayLabel}</p>
         <p className="text-sm font-bold text-slate-900 mt-0.5">{startLabel}</p>
         {endLabel && <p className="text-xs text-slate-400">{endLabel}</p>}
       </div>
       <div className="flex-1 min-w-0">
+        {booking.droppedByTidyPro && (
+          <p className="inline-block text-[11px] font-semibold text-red-700 bg-red-50 rounded-full px-2 py-0.5 mb-1">
+            {booking.droppedByTidyPro === 'cancelled' ? 'Booking canceled by Tidy Pro' : 'Booking declined by Tidy Pro'}
+          </p>
+        )}
         {booking.needsAttention && (
           <p className="inline-block text-[11px] font-semibold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5 mb-1">Needs attention</p>
         )}
         <p className="text-sm font-bold text-slate-900 truncate">{booking.cleanerName}</p>
         {booking.address && <p className="text-xs text-slate-400 truncate">{booking.address}</p>}
         {booking.recurring && <p className="text-[11px] font-semibold mt-0.5" style={{ color: 'var(--color-brand)' }}>Recurring</p>}
+        {booking.droppedByTidyPro && <p className="text-xs text-slate-500 mt-1">Tap to choose up to 3 available Tidy Pros, or cancel for a refund</p>}
       </div>
       <span className="flex-shrink-0 mt-0.5">
         <IconChevronRight />

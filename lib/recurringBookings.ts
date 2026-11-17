@@ -54,10 +54,12 @@ export type RecurringSeries = {
   will_provide_supplies: boolean
   payment_method_id: string | null
   tidy_pro_accepted_at: string | null
+  // Dates canceled before they were booked (lib/recurringOccurrences); never booked.
+  skipped_dates?: string[] | null
 }
 
 const SERIES_COLUMNS =
-  'id, user_id, tidy_pro_id, frequency, next_date, scheduled_time, time_zone, scheduled_location, task_list, notes, entry_instructions, will_provide_supplies, payment_method_id, tidy_pro_accepted_at'
+  'id, user_id, tidy_pro_id, frequency, next_date, scheduled_time, time_zone, scheduled_location, task_list, notes, entry_instructions, will_provide_supplies, payment_method_id, tidy_pro_accepted_at, skipped_dates'
 
 // Started when the first visit is booked. That visit's requests are linked to it.
 export async function startRecurringSeries(
@@ -138,6 +140,18 @@ export async function bookDueRecurringVisits(admin: Admin, now: Date = new Date(
       .eq('next_date', visitDate)
       .select('id')
     if (!claimed || claimed.length === 0) continue
+
+    // Canceled ahead of time by the customer or the Tidy Pro: not booked, and the date is
+    // dropped from the list now that it's been passed over.
+    const skipped = series.skipped_dates ?? []
+    if (skipped.includes(visitDate)) {
+      await admin
+        .from('recurring_bookings')
+        .update({ skipped_dates: skipped.filter((d) => d !== visitDate) })
+        .eq('id', series.id)
+      result.skipped += 1
+      continue
+    }
 
     // Too late to be accepted (the job didn't run in time): skipped without a charge.
     if (hasAcceptanceWindowClosed(visitDate, series.scheduled_time, now, timeZone)) {

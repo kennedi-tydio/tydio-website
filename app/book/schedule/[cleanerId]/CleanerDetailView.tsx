@@ -83,6 +83,9 @@ type Props = {
   previewBackHref?: string
   // Shown inside another page's <main> (the admin console), so it can't be one itself.
   embedded?: boolean
+  // Opened from a list where the customer checks off extra or replacement Tidy Pros:
+  // they're looking the profile over, so Book becomes a way back to that list.
+  fromPickList?: boolean
 }
 
 export default function CleanerDetailView({
@@ -104,6 +107,7 @@ export default function CleanerDetailView({
   portfolio = [],
   previewBackHref,
   embedded = false,
+  fromPickList = false,
 }: Props) {
   const Root = embedded ? 'div' : 'main'
   const router = useRouter()
@@ -235,7 +239,16 @@ export default function CleanerDetailView({
             </div>
           </div>
 
-          {previewBackHref ? (
+          {fromPickList ? (
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="block w-full py-3.5 rounded-2xl text-white font-semibold text-sm text-center mb-5"
+              style={{ backgroundColor: 'var(--color-brand)' }}
+            >
+              Back to choosing Tidy Pros
+            </button>
+          ) : previewBackHref ? (
             <button
               type="button"
               className="block w-full py-3.5 rounded-2xl text-white font-semibold text-sm text-center mb-5"

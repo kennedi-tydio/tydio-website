@@ -1,12 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
 import { bookedTaskName } from '@/lib/laundry'
-import { cancelBookingRequestAction, respondToTimeProposalAction, sendMessageAction, startCallAction } from './actions'
+import { cancelBookingRequestAction, cancelTaskAdditionAction, respondToTimeProposalAction, sendMessageAction, startCallAction } from './actions'
 import CancelReasonSheet from '@/app/components/CancelReasonSheet'
+import ReportTidyProSheet from '@/app/dashboard/bookings/[bookingId]/ReportTidyProSheet'
+import TaskAdditionRecordCard, { TaskAdditionOutcomeBubble, type TaskAdditionRecordView } from '@/app/components/TaskAdditionRecordCard'
+import UpdatedBookingRequestCard from '@/app/components/UpdatedBookingRequestCard'
 import { CUSTOMER_CANCEL_REASONS, type Cancellation } from '@/lib/cancellationReasons'
 
 export type ChatMessage = {
@@ -52,6 +55,15 @@ function IconBack() {
   return (
     <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
       <path d="M10 12L6 8l4-4" stroke="#1a2332" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconFlag() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1a2332" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 22V4" />
+      <path d="M4 4h13l-2.5 4L17 12H4" />
     </svg>
   )
 }
@@ -109,43 +121,18 @@ function IconChevron({ open }: { open: boolean }) {
   )
 }
 
+// Customers only see what they booked. Location, pets and notes are left out
+// on purpose: they matter to the Tidy Pro, not to the customer who entered them.
 function BookingDetails({
-  isAccepted,
-  distanceMiles,
-  addressLabel,
-  addressLine,
   tasks,
   suppliesProvided,
-  pets,
-  notes,
 }: {
-  isAccepted: boolean
-  distanceMiles: number | null
-  addressLabel: string | null
-  addressLine: string | null
   tasks: TidyTask[]
   suppliesProvided: boolean
-  pets: string | null
-  notes: string | null
 }) {
   return (
     <>
-      <p className="text-sm font-bold text-slate-900 mt-2">Location</p>
-      {isAccepted ? (
-        <>
-          <p className="text-sm text-slate-600">{addressLabel ?? 'Address on file'}</p>
-          {addressLine && <p className="text-xs text-slate-400">{addressLine}</p>}
-        </>
-      ) : (
-        <>
-          <p className="text-sm text-slate-600">
-            {distanceMiles != null ? `${distanceMiles.toFixed(1)} miles away` : 'Nearby'}
-          </p>
-          <p className="text-xs text-slate-400">Address will be revealed if the booking is accepted</p>
-        </>
-      )}
-
-      <p className="text-sm font-bold text-slate-900 mt-3">Tasks</p>
+      <p className="text-sm font-bold text-slate-900 mt-2">Tasks</p>
       {tasks.map((task) => (
         <p key={task.id} className="text-sm text-slate-600">
           {bookedTaskName(task)}
@@ -154,20 +141,6 @@ function BookingDetails({
       <p className="text-xs text-slate-400">
         {suppliesProvided ? "You'll provide the cleaning supplies" : 'Cleaning supplies will be provided'}
       </p>
-
-      {pets && (
-        <>
-          <p className="text-sm font-bold text-slate-900 mt-3">Pets</p>
-          <p className="text-sm text-slate-600 whitespace-pre-line">{pets}</p>
-        </>
-      )}
-
-      {notes && (
-        <>
-          <p className="text-sm font-bold text-slate-900 mt-3">Notes</p>
-          <p className="text-sm text-slate-600">{notes}</p>
-        </>
-      )}
     </>
   )
 }
@@ -181,12 +154,7 @@ type Props = {
   scheduledDate: string | null
   scheduledTime: string | null
   durationMinutes: number
-  distanceMiles: number | null
-  addressLabel: string | null
-  addressLine: string | null
   tasks: TidyTask[]
-  pets: string | null
-  notes: string | null
   suppliesProvided: boolean
   totalPrice: number
   canChooseReplacements: boolean
@@ -197,6 +165,15 @@ type Props = {
   decisionStatus: string
   progressStatus: string | null
   messages: ChatMessage[]
+  // Where the back button goes: the Tidy Tasks home right after a booking
+  // request, otherwise the messages list.
+  backHref: string
+  // When "Cleaner didn't show up" can be reported (see noShowReportableAt).
+  noShowReportableAtMs: number | null
+  // A recurring booking: when it repeats, e.g. "Every Sunday at 9:00 AM".
+  recurrence: string | null
+  // Requests to add tasks to this booking (lib/bookingTaskAdditions), oldest first.
+  taskAdditions: TaskAdditionRecordView[]
 }
 
 export default function MessageThreadView({
@@ -207,12 +184,7 @@ export default function MessageThreadView({
   scheduledDate,
   scheduledTime,
   durationMinutes,
-  distanceMiles,
-  addressLabel,
-  addressLine,
   tasks,
-  pets,
-  notes,
   suppliesProvided,
   totalPrice,
   canChooseReplacements,
@@ -222,6 +194,10 @@ export default function MessageThreadView({
   decisionStatus,
   progressStatus,
   messages: initialMessages,
+  backHref,
+  noShowReportableAtMs,
+  recurrence,
+  taskAdditions,
 }: Props) {
   const router = useRouter()
   const [status, setStatus] = useState(initialStatus)
@@ -232,13 +208,19 @@ export default function MessageThreadView({
   const [pendingMessages, setPendingMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // Why the last message didn't send (e.g. it had a phone number or email in it).
+  const [sendError, setSendError] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const scrollEndRef = useRef<HTMLDivElement>(null)
+  const [showReport, setShowReport] = useState(false)
+  const threadRef = useRef<HTMLDivElement>(null)
   const firstName = cleanerName.split(' ')[0]
   const messages = [...initialMessages, ...pendingMessages]
 
+  // Scroll only the message list. scrollIntoView also scrolled the window on
+  // phones, which pushed the header (and its back button) off screen.
   useEffect(() => {
-    scrollEndRef.current?.scrollIntoView({ block: 'end' })
+    const thread = threadRef.current
+    if (thread) thread.scrollTop = thread.scrollHeight
   }, [messages.length])
 
   // Picks up the cleaner's replies without the customer needing to reload —
@@ -269,6 +251,7 @@ export default function MessageThreadView({
     const body = draft.trim()
     if (!body || sending) return
     setSending(true)
+    setSendError(null)
     const optimisticId = `optimistic-${Date.now()}`
     setPendingMessages((prev) => [...prev, { id: optimisticId, senderRole: 'USER', body, createdAt: new Date().toISOString() }])
     setDraft('')
@@ -277,6 +260,7 @@ export default function MessageThreadView({
     if ('error' in result) {
       setPendingMessages((prev) => prev.filter((m) => m.id !== optimisticId))
       setDraft(body)
+      setSendError(result.error)
       return
     }
     setPendingMessages((prev) => prev.filter((m) => m.id !== optimisticId))
@@ -288,7 +272,6 @@ export default function MessageThreadView({
   // renders whichever outcome the booking row ends up in.
   const outcome: 'pending' | 'cancelled' | 'declined' | 'accepted' =
     status === 'cancelled' ? 'cancelled' : status === 'declined' ? 'declined' : decisionStatus === 'accepted' ? 'accepted' : 'pending'
-  const isAccepted = outcome === 'accepted'
   const canChangeTime = status === 'pending' || (status === 'scheduled' && progressStatus == null)
   const pendingProposal = messages.find((m) => m.proposal?.status === 'pending')?.proposal ?? null
   const statusLabel =
@@ -325,14 +308,15 @@ export default function MessageThreadView({
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="h-dvh bg-white flex flex-col overflow-hidden">
       <h1 className="sr-only">Messages</h1>
-      {/* Header and booking summary stay pinned while the chat scrolls */}
-      <div className="sticky top-0 z-20 bg-white shadow-sm">
+      {showReport && <ReportTidyProSheet bookingId={bookingId} noShowReportableAtMs={noShowReportableAtMs} onClose={() => setShowReport(false)} />}
+      {/* Full-height shell: header and composer never scroll; only the thread does */}
+      <div className="flex-shrink-0 z-20 bg-white shadow-sm safe-area-inset-top">
       <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
         <button
           type="button"
-          onClick={() => router.push('/dashboard/messages')}
+          onClick={() => router.push(backHref)}
           aria-label="Back"
           className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2"
         >
@@ -340,6 +324,17 @@ export default function MessageThreadView({
         </button>
         <Avatar name={cleanerName} photoUrl={cleanerPhotoUrl} />
         <p className="font-semibold text-slate-900 flex-1 truncate">{cleanerName}</p>
+        {/* Once accepted there's a real booking to report about (no-shows included). */}
+        {decisionStatus === 'accepted' && (
+          <button
+            type="button"
+            onClick={() => setShowReport(true)}
+            aria-label={`Report ${cleanerName}`}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100"
+          >
+            <IconFlag />
+          </button>
+        )}
         {canCall && (
           <button
             type="button"
@@ -399,14 +394,8 @@ export default function MessageThreadView({
           {detailsOpen && (
             <div className="mt-2 max-h-[45vh] overflow-y-auto">
               <BookingDetails
-                isAccepted={isAccepted}
-                distanceMiles={distanceMiles}
-                addressLabel={addressLabel}
-                addressLine={addressLine}
                 tasks={tasks}
                 suppliesProvided={suppliesProvided}
-                pets={pets}
-                notes={notes}
               />
             </div>
           )}
@@ -415,7 +404,7 @@ export default function MessageThreadView({
       </div>
 
       {/* Thread */}
-      <div className="flex-1 overflow-y-auto px-5 py-6 max-w-sm mx-auto w-full">
+      <div ref={threadRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-6 max-w-sm mx-auto w-full">
         <div
           className="rounded-2xl rounded-br-sm px-4 py-3 mb-4 ml-auto max-w-[85%] text-sm leading-relaxed text-white"
           style={{ backgroundColor: 'var(--color-brand)' }}
@@ -432,16 +421,18 @@ export default function MessageThreadView({
           {scheduledTime && (
             <p className="text-sm text-slate-500 mb-3">{formatTimeRange(scheduledTime, durationMinutes)}</p>
           )}
+          {recurrence && (
+            <div className="-mt-1 mb-3">
+              <p className="text-xs font-semibold" style={{ color: 'var(--color-brand)' }}>
+                Recurring · {recurrence}
+              </p>
+              <p className="text-xs text-slate-500">Each visit after this one is on the same day and time.</p>
+            </div>
+          )}
 
           <BookingDetails
-            isAccepted={isAccepted}
-            distanceMiles={distanceMiles}
-            addressLabel={addressLabel}
-            addressLine={addressLine}
             tasks={tasks}
             suppliesProvided={suppliesProvided}
-            pets={pets}
-            notes={notes}
           />
 
           <div className="flex items-center justify-between border-t border-slate-200 mt-4 pt-3">
@@ -483,50 +474,48 @@ export default function MessageThreadView({
           )}
         </div>
 
-        {outcome === 'cancelled' && (
-          <div
-            className={`rounded-2xl px-4 py-3 mt-4 max-w-[85%] text-sm leading-relaxed text-white ${cancelledNote ? 'rounded-bl-sm mr-auto' : 'rounded-br-sm ml-auto'}`}
-            style={{ backgroundColor: cancelledNote ? '#1a2332' : 'var(--color-brand)' }}
-          >
-            {cancelledNote ?? 'You canceled your booking'}
-          </div>
-        )}
-        {outcome === 'declined' && (
-          <div
-            className="rounded-2xl rounded-bl-sm px-4 py-3 mt-4 mr-auto max-w-[85%] text-sm leading-relaxed text-white"
-            style={{ backgroundColor: '#1a2332' }}
-          >
-            {cleanerCancelled ? `${firstName} canceled your booking` : `${firstName} declined your booking request`}
-          </div>
-        )}
-        {outcome === 'declined' && canChooseReplacements && (
-          <Link
-            href={`/dashboard/bookings/${bookingId}/replace`}
-            className="block w-full mt-4 py-3 rounded-2xl text-center text-sm font-semibold text-white"
-            style={{ backgroundColor: 'var(--color-brand)' }}
-          >
-            Choose other Tidy Pros
-          </Link>
-        )}
-        {outcome === 'declined' && canChooseReplacements && (
-          <>
-            <p className="text-xs text-slate-500 text-center leading-relaxed mt-2">You won&apos;t be charged again. Your payment is held for your booking. If you cancel, you&apos;re refunded minus the nonrefundable Stripe fee.</p>
-            <button
-              type="button"
-              onClick={() => setAskingReason(true)}
-              className="w-full mt-3 py-3 rounded-2xl bg-white border border-slate-200 text-sm font-semibold text-slate-600"
-            >
-              Cancel booking and get a refund
-            </button>
-          </>
-        )}
-        {outcome === 'accepted' && (
+        {/* The Tidy Pro accepted it, even if it was canceled later (that comes at the end). */}
+        {decisionStatus === 'accepted' && (
           <div
             className="rounded-2xl rounded-bl-sm px-4 py-3 mt-4 mr-auto max-w-[85%] text-sm leading-relaxed text-white"
             style={{ backgroundColor: '#1a2332' }}
           >
             {`${firstName} accepted your booking request`}
           </div>
+        )}
+
+        {/* Requests to add tasks come after the original request and its answer. An open one
+            is the full updated booking request (the same card the Tidy Pro answers), with
+            Cancel; an answered one is a short record with its own answer under it. */}
+        {taskAdditions.map((record) =>
+          record.status === 'pending' ? (
+            <UpdatedBookingRequestCard
+              key={record.id}
+              viewer="customer"
+              otherFirstName={firstName}
+              request={{
+                tasks: record.tasks,
+                extraAmount: record.amount,
+                newDurationMinutes: record.newDurationMinutes ?? durationMinutes,
+                applyToSeries: record.applyToSeries,
+              }}
+              currentTasks={tasks}
+              currentAmount={totalPrice}
+              currentDurationMinutes={durationMinutes}
+              scheduledDate={scheduledDate}
+              scheduledTime={scheduledTime}
+              onCancel={async () => {
+                const result = await cancelTaskAdditionAction(record.id)
+                if ('success' in result) router.refresh()
+                return result
+              }}
+            />
+          ) : (
+            <Fragment key={record.id}>
+              <TaskAdditionRecordCard record={record} viewer="customer" otherFirstName={firstName} />
+              <TaskAdditionOutcomeBubble status={record.status} viewer="customer" otherFirstName={firstName} />
+            </Fragment>
+          )
         )}
 
         {messages.map((message) =>
@@ -539,6 +528,9 @@ export default function MessageThreadView({
               <p className="text-sm text-slate-500">{formatTimeRange(message.proposal.time, durationMinutes)}</p>
               {scheduledTime && message.proposal.status === 'pending' && (
                 <p className="text-xs text-slate-400 mt-1">{`Currently ${formatTimeRange(scheduledTime, durationMinutes)}`}</p>
+              )}
+              {recurrence && message.proposal.status === 'pending' && (
+                <p className="text-xs text-slate-500 mt-1">Only this visit changes. Your other recurring visits keep their time.</p>
               )}
 
               {message.proposal.status === 'pending' && canChangeTime ? (
@@ -603,16 +595,67 @@ export default function MessageThreadView({
             </div>
           )
         )}
-        <div ref={scrollEndRef} />
+
+        {/* How the booking ended is the latest thing that happened, so it goes last, under
+            any added-task requests and messages, with what the customer can do next. */}
+        {outcome === 'cancelled' && (
+          <div
+            className={`rounded-2xl px-4 py-3 mt-4 max-w-[85%] text-sm leading-relaxed text-white ${cancelledNote ? 'rounded-bl-sm mr-auto' : 'rounded-br-sm ml-auto'}`}
+            style={{ backgroundColor: cancelledNote ? '#1a2332' : 'var(--color-brand)' }}
+          >
+            {cancelledNote ?? 'You canceled your booking'}
+          </div>
+        )}
+        {outcome === 'declined' && (
+          <div
+            className="rounded-2xl rounded-bl-sm px-4 py-3 mt-4 mr-auto max-w-[85%] text-sm leading-relaxed text-white"
+            style={{ backgroundColor: '#1a2332' }}
+          >
+            {cleanerCancelled ? `${firstName} canceled your booking` : `${firstName} declined your booking request`}
+          </div>
+        )}
+        {outcome === 'declined' && canChooseReplacements && (
+          <>
+            <Link
+              href={`/dashboard/bookings/${bookingId}/replace`}
+              className="block w-full mt-4 py-3 rounded-2xl text-center text-sm font-semibold text-white"
+              style={{ backgroundColor: 'var(--color-brand)' }}
+            >
+              Choose up to 3 available Tidy Pros
+            </Link>
+            <p className="text-xs text-slate-500 text-center leading-relaxed mt-2">You won&apos;t be charged again. Your payment is held for your booking. If you cancel, you&apos;re refunded minus the nonrefundable Stripe fee.</p>
+            <button
+              type="button"
+              onClick={() => setAskingReason(true)}
+              className="w-full mt-3 py-3 rounded-2xl bg-white border border-slate-200 text-sm font-semibold text-slate-600"
+            >
+              Cancel booking and get a refund
+            </button>
+          </>
+        )}
       </div>
 
-      <div className="px-5 py-4 border-t border-slate-100 safe-area-inset-bottom">
+      <div className="flex-shrink-0 px-5 py-4 border-t border-slate-100 safe-area-inset-bottom">
+        {sendError && (
+          <p
+            id="message-send-error"
+            role="alert"
+            className="max-w-sm mx-auto w-full mb-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 leading-relaxed"
+          >
+            Your message wasn&apos;t sent. {sendError}
+          </p>
+        )}
         <div className="flex items-center gap-2 max-w-sm mx-auto w-full">
           <input
             aria-label="Message"
+            aria-invalid={sendError ? true : undefined}
+            aria-describedby={sendError ? 'message-send-error' : undefined}
             type="text"
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              if (sendError) setSendError(null)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()

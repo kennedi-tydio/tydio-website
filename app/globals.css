@@ -90,6 +90,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* viewportFit: 'cover' draws pages under the iPhone status bar and notch, so a
+   header pinned to the very top needs this to stay tappable. */
+.safe-area-inset-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 /* Room for the iPhone home indicator, on bars and sheets pinned to the bottom
    of the screen. A transparent border is painted with the element's own
    background, so this adds the space without overriding each element's

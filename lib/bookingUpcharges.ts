@@ -287,12 +287,13 @@ export async function addToBookingTotals(
   console.error('Could not update booking totals for upcharge', booking.id, delta)
 }
 
-export type PaidUpcharge = { id: string; paymentIntentId: string; amount: number; charge: number; cleanerPay: number }
+// taskAdditionId: tasks the customer added and the Tidy Pro accepted (lib/bookingTaskAdditions).
+export type PaidUpcharge = { id: string; paymentIntentId: string; amount: number; charge: number; cleanerPay: number; taskAdditionId: string | null }
 
 export async function getPaidUpcharges(admin: Admin, bookingId: string): Promise<PaidUpcharge[]> {
   const { data } = await admin
     .from('booking_upcharges')
-    .select('id, stripe_payment_intent_id, amount, customer_charge, cleaner_pay')
+    .select('id, stripe_payment_intent_id, amount, customer_charge, cleaner_pay, task_addition_id')
     .eq('booking_id', bookingId)
     .eq('status', 'paid')
     .order('paid_at', { ascending: true })
@@ -304,7 +305,24 @@ export async function getPaidUpcharges(admin: Admin, bookingId: string): Promise
       amount: Number(u.amount),
       charge: Number(u.customer_charge ?? u.amount),
       cleanerPay: Number(u.cleaner_pay),
+      taskAdditionId: u.task_addition_id ?? null,
     }))
+}
+
+// A recurring visit canceled before it was ever charged costs nothing, but tasks added
+// to it were paid for up front. Those come back in full.
+export async function refundUpchargesOfUnpaidVisit(admin: Admin, bookingId: string): Promise<void> {
+  const upcharges = await getPaidUpcharges(admin, bookingId)
+  const refunds: { upchargeId: string; refundId: string | null }[] = []
+  for (const u of upcharges) {
+    try {
+      const refund = await stripe.refunds.create({ payment_intent: u.paymentIntentId }, { idempotencyKey: `refund-booking-full-${u.paymentIntentId}` })
+      refunds.push({ upchargeId: u.id, refundId: refund.id })
+    } catch (err) {
+      console.error('Could not refund upcharge of canceled unpaid visit', u.id, err)
+    }
+  }
+  await markUpchargesRefunded(admin, refunds)
 }
 
 // After a refund of the booking's total, records which part of it came off each upcharge.
@@ -317,8 +335,12 @@ export async function markUpchargesRefunded(admin: Admin, refunds: { upchargeId:
   )
 }
 
-// Once a booking is canceled, an upcharge it was still waiting on is no longer owed.
+// Once a booking is canceled, an upcharge it was still waiting on is no longer owed, and
+// added tasks still waiting on the Tidy Pro are refunded and go back on the dashboard.
 export async function dropPendingUpcharges(admin: Admin, bookingId: string): Promise<void> {
+  // Imported here: lib/bookingTaskAdditions imports this module.
+  const { endPendingTaskAdditions } = await import('@/lib/bookingTaskAdditions')
+  await endPendingTaskAdditions(admin, bookingId).catch((err) => console.error('Ending pending task additions failed', bookingId, err))
   await admin
     .from('booking_upcharges')
     .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })

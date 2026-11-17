@@ -1379,6 +1379,21 @@ export async function saveReportReviewAction(
   return { message: 'Saved' }
 }
 
+// Removes a report the admin found invalid, so it no longer counts against the person it
+// was about. It's gone for good, so the page confirms first. A no-show's booking incident
+// (/admin/incidents) is separate and stays as it is.
+export async function deleteReportAction(reportId: string): Promise<{ success: true } | { error: string }> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const admin = createAdminClient()
+  const { data: deleted, error } = await admin.from('risk_events').delete().eq('id', reportId).select('id')
+  if (error) return { error: `Couldn't delete the report: ${error.message}` }
+  if (!deleted?.length) return { error: 'Report not found. It may already have been deleted.' }
+
+  revalidatePath('/admin/reports')
+  return { success: true }
+}
+
 // The admin's call on how serious a report is: low, mid or high. Reports are saved with
 // the level their reason implies; "Something else" starts low until someone reads it.
 export async function setReportSeverityAction(reportId: string, formData: FormData): Promise<void> {

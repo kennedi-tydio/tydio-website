@@ -3,9 +3,9 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 import { COMPLETION_PHOTOS_BUCKET } from './taskPhotoRetention'
 import { extensionForType } from './uploadExtension'
 import { readPhotoLocation, type PhotoLocation } from './photoLocation'
-import { PORTFOLIO_DISPLAY_LIMIT, taskPhotoPathFromUrl, type PortfolioItem } from './portfolioItems'
+import { PORTFOLIO_DISPLAY_LIMIT, PORTFOLIO_MAX_ITEMS, taskPhotoPathFromUrl, type PortfolioItem } from './portfolioItems'
 
-export { PORTFOLIO_DISPLAY_LIMIT, taskPhotoPathFromUrl, type PortfolioItem }
+export { PORTFOLIO_DISPLAY_LIMIT, PORTFOLIO_MAX_ITEMS, taskPhotoPathFromUrl, type PortfolioItem }
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -41,6 +41,7 @@ export async function loadPortfolio(admin: Admin, tidyProId: string, limit = POR
     .select('id, task_name, before_photo_path, after_photo_path')
     .eq('tidypro_id', tidyProId)
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(limit)
   if (error) {
     // The profile still works without its photos.
@@ -70,14 +71,14 @@ async function copyToPortfolio(admin: Admin, tidyProId: string, sourcePath: stri
 
 export type UploadedPortfolioPhoto = { body: Buffer; contentType: 'image/jpeg' | 'image/png' | 'image/webp' }
 
-// Adds photos the Tidy Pro uploaded from their device: one photo of the
-// finished work, or a before/after pair. These can be photos of anyone's
-// home, so their metadata (including any GPS location) comes off first.
+// Adds a before/after pair the Tidy Pro uploaded from their device. These can
+// be photos of anyone's home, so their metadata (including any GPS location)
+// comes off first. Pushes the oldest pair out past PORTFOLIO_MAX_ITEMS.
 export async function addUploadedPortfolioItem(
   admin: Admin,
   tidyProId: string,
   caption: string,
-  photos: { before: UploadedPortfolioPhoto | null; after: UploadedPortfolioPhoto }
+  photos: { before: UploadedPortfolioPhoto; after: UploadedPortfolioPhoto }
 ): Promise<PortfolioItem> {
   const uploaded: string[] = []
   async function store(photo: UploadedPortfolioPhoto): Promise<string> {
@@ -90,7 +91,7 @@ export async function addUploadedPortfolioItem(
   }
 
   try {
-    const beforePath = photos.before ? await store(photos.before) : null
+    const beforePath = await store(photos.before)
     const afterPath = await store(photos.after)
     const { data, error } = await admin
       .from('tidypro_portfolio_items')
@@ -99,12 +100,14 @@ export async function addUploadedPortfolioItem(
       .single()
     if (error || !data) throw new Error(error?.message ?? 'Insert returned no row')
     const bucket = admin.storage.from(PORTFOLIO_PHOTOS_BUCKET)
-    return {
+    const item = {
       id: data.id,
       taskName: caption,
-      beforeUrl: beforePath ? bucket.getPublicUrl(beforePath).data.publicUrl : null,
+      beforeUrl: bucket.getPublicUrl(beforePath).data.publicUrl,
       afterUrl: bucket.getPublicUrl(afterPath).data.publicUrl,
     }
+    await pruneOldPortfolioItems(admin, tidyProId)
+    return item
   } catch (err) {
     if (uploaded.length) await admin.storage.from(PORTFOLIO_PHOTOS_BUCKET).remove(uploaded)
     throw err
@@ -142,6 +145,30 @@ export async function addTaskToPortfolio(admin: Admin, tidyProId: string, task: 
   } catch (err) {
     if (copied.length) await admin.storage.from(PORTFOLIO_PHOTOS_BUCKET).remove(copied)
     throw err
+  }
+  await pruneOldPortfolioItems(admin, tidyProId)
+}
+
+// Keeps the Tidy Pro's PORTFOLIO_MAX_ITEMS newest pairs and removes the rest,
+// oldest first, so adding a new pair pushes the oldest off their profile. The
+// new pair is already saved, so a failure here is only logged: the extras go
+// on the next add, and the profile only ever shows the newest anyway.
+export async function pruneOldPortfolioItems(admin: Admin, tidyProId: string): Promise<void> {
+  const { data, error } = await admin
+    .from('tidypro_portfolio_items')
+    .select('id, before_photo_path, after_photo_path')
+    .eq('tidypro_id', tidyProId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(PORTFOLIO_MAX_ITEMS, PORTFOLIO_MAX_ITEMS + 999)
+  if (error) {
+    console.error('[Tydio] Loading old portfolio items failed:', error)
+    return
+  }
+  try {
+    await removePortfolioItems(admin, data ?? [])
+  } catch (err) {
+    console.error('[Tydio] Removing old portfolio items failed:', err)
   }
 }
 

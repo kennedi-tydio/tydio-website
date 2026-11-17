@@ -1,17 +1,7 @@
-import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { getSession } from '@/lib/auth/session'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { loadPortfolio } from '@/lib/tidyProPortfolio'
-import PortfolioView from './PortfolioView'
 
-export const metadata: Metadata = { title: 'My Work Photos — Tydio' }
-
-export default async function ProPortfolioPage() {
-  const session = await getSession()
-  if (!session || session.role !== 'TIDYPRO') redirect('/login')
-
-  // Everything, not just the pairs the public profile shows.
-  const items = await loadPortfolio(createAdminClient(), session.profileId, 200)
-  return <PortfolioView initialItems={items} />
+// Work photos are managed on the Edit Profile page now. Kept so old links and
+// bookmarks still land in the right place.
+export default function ProPortfolioPage() {
+  redirect('/pro/profile/edit#cleaning-photos')
 }

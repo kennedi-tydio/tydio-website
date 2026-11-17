@@ -117,11 +117,22 @@ export type UpcomingBooking = {
   scheduledTime: string | null
   durationMinutes: number
   // needs_attention: suspended until the customer pays an upcharge.
-  kind: 'upcoming' | 'tracking' | 'review_prompt' | 'needs_attention'
+  // pending: a request no Tidy Pro has accepted yet. Once accepted it becomes 'upcoming'.
+  // active: its start time has come, but the Tidy Pro hasn't tapped "I'm on the way" yet
+  // (after that it's 'tracking').
+  // tidy_pro_dropped: the Tidy Pro canceled (or declined) it and the payment is held until
+  // the customer chooses other Tidy Pros or cancels.
+  kind: 'upcoming' | 'active' | 'pending' | 'tracking' | 'review_prompt' | 'needs_attention' | 'tidy_pro_dropped'
+  // tidy_pro_dropped only: canceled after accepting, rather than declined.
+  cleanerCancelled?: boolean
+  // pending only: the request went to more than one Tidy Pro.
+  sentToSeveral?: boolean
+  // needs_attention only: an unpaid upcharge, or a recurring visit's failed charge.
+  attentionReason?: 'upcharge' | 'payment'
   progressStatus: 'on_the_way' | 'arrived' | 'cleaning' | null
 }
 
-function BookingAvatar({ name, photoUrl }: { name: string; photoUrl: string | null }) {
+function BookingAvatar({ name, photoUrl, confirmed = true }: { name: string; photoUrl: string | null; confirmed?: boolean }) {
   return (
     <div className="relative flex-shrink-0">
       {photoUrl ? (
@@ -132,37 +143,78 @@ function BookingAvatar({ name, photoUrl }: { name: string; photoUrl: string | nu
           {name.charAt(0).toUpperCase()}
         </div>
       )}
-      <span
-        className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white"
-        style={{ backgroundColor: 'var(--color-brand)' }}
-      >
-        <IconBadgeCheck />
-      </span>
+      {confirmed && (
+        <span
+          className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white"
+          style={{ backgroundColor: 'var(--color-brand)' }}
+        >
+          <IconBadgeCheck />
+        </span>
+      )}
     </div>
   )
 }
 
 function BookingCard({ booking }: { booking: UpcomingBooking }) {
   const firstName = booking.cleanerName.split(' ')[0]
-  const href = booking.kind === 'upcoming' ? `/dashboard/messages/${booking.id}` : `/dashboard/bookings/${booking.id}`
+  // A pending request opens its message thread, the place to follow it and
+  // cancel it. Accepted bookings open the booking page.
+  // A dropped booking opens its chat too, where the customer chooses other Tidy Pros or cancels.
+  const href =
+    booking.kind === 'pending' || booking.kind === 'tidy_pro_dropped' ? `/dashboard/messages/${booking.id}` : `/dashboard/bookings/${booking.id}`
+  const dropped = booking.kind === 'tidy_pro_dropped'
 
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white shadow-sm px-4 py-3.5"
+      className={`flex items-center gap-3 rounded-2xl bg-white shadow-sm px-4 py-3.5 ${dropped ? 'border-2 border-red-500' : 'border border-slate-100'}`}
     >
-      <BookingAvatar name={booking.cleanerName} photoUrl={booking.cleanerPhotoUrl} />
+      <BookingAvatar name={booking.cleanerName} photoUrl={booking.cleanerPhotoUrl} confirmed={booking.kind !== 'pending' && !dropped} />
       <div className="min-w-0 flex-1">
-        {booking.kind === 'needs_attention' ? (
+        {dropped ? (
+          <>
+            <p className="inline-block text-[11px] font-semibold text-red-700 bg-red-50 rounded-full px-2 py-0.5 mb-0.5">
+              {booking.cleanerCancelled ? 'Booking canceled by Tidy Pro' : 'Booking declined by Tidy Pro'}
+            </p>
+            <p className="text-sm font-bold text-slate-900 truncate">
+              {firstName} {booking.cleanerCancelled ? 'canceled' : 'declined'}
+              {booking.scheduledTime ? ` your ${formatTimeRange(booking.scheduledTime, booking.durationMinutes)} booking` : ' your booking'}
+            </p>
+            <p className="text-xs text-slate-500">Tap to choose up to 3 available Tidy Pros, or cancel for a refund</p>
+          </>
+        ) : booking.kind === 'pending' ? (
+          <>
+            <p className="inline-block text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2 py-0.5 mb-0.5">Awaiting response</p>
+            <p className="text-sm font-bold text-slate-900 truncate">
+              {booking.sentToSeveral ? 'Pending booking request' : `Pending booking with ${firstName}`}
+            </p>
+            <p className="text-xs text-slate-400 truncate">
+              {booking.scheduledTime ? `${formatTimeRange(booking.scheduledTime, booking.durationMinutes)} · ` : ''}
+              {booking.sentToSeveral ? 'Waiting for a Tidy Pro to accept' : `Waiting for ${firstName} to accept`}
+            </p>
+          </>
+        ) : booking.kind === 'needs_attention' ? (
           <>
             <p className="inline-block text-[11px] font-semibold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5 mb-0.5">Needs attention</p>
-            <p className="text-sm font-bold text-slate-900 truncate">Your booking with {firstName} is on hold</p>
-            <p className="text-xs text-slate-400">Tap to pay the extra charge</p>
+            <p className="text-sm font-bold text-slate-900 truncate">
+              {booking.attentionReason === 'payment' ? `Payment needed for your visit with ${firstName}` : `Your booking with ${firstName} is on hold`}
+            </p>
+            <p className="text-xs text-slate-400">
+              {booking.attentionReason === 'payment' ? 'Your card was declined. Tap to pay for this visit' : 'Tap to pay the extra charge'}
+            </p>
           </>
         ) : booking.kind === 'review_prompt' ? (
           <>
             <p className="text-sm font-bold text-slate-900 truncate">Rate your cleaning with {firstName}</p>
             <p className="text-xs text-slate-400">Let us know how it went</p>
+          </>
+        ) : booking.kind === 'active' ? (
+          <>
+            <p className="inline-block text-[11px] font-semibold text-white bg-brand rounded-full px-2 py-0.5 mb-0.5">Active</p>
+            <p className="text-sm font-bold text-slate-900 truncate">Active booking with {firstName}</p>
+            {booking.scheduledTime && (
+              <p className="text-xs text-slate-400">{formatTimeRange(booking.scheduledTime, booking.durationMinutes)}</p>
+            )}
           </>
         ) : booking.kind === 'tracking' ? (
           <>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import ModalShell from '@/app/components/ModalShell'
+import { PORTFOLIO_MAX_ITEMS } from '@/lib/portfolioItems'
 import { addPhotosToProfileAction } from './actions'
 
 export type PhotoPair = { taskId: string; taskName: string; beforeUrl: string; afterUrl: string }
@@ -108,8 +109,9 @@ export default function AddToProfileModal({ bookingId, pairs, onFinish, onClose 
       </fieldset>
 
       <p className="text-xs text-slate-400 mb-4">
-        Only the photos and task name are shown — never the customer&apos;s name or address. You can remove them any time
-        from Profile → My work photos.
+        Only the photos and task name are shown — never the customer&apos;s name or address. Your profile keeps your{' '}
+        {PORTFOLIO_MAX_ITEMS} newest pairs, so older ones drop off as you add more. You can remove them any time from
+        Profile → Cleaning photos.
       </p>
 
       {error && <p role="alert" className="text-xs text-red-600 mb-3">{error}</p>}

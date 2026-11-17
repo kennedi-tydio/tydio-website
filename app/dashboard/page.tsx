@@ -2,10 +2,11 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { shiftDateISO, todayInZone } from '@/lib/bookingTime'
+import { hasBookingStarted, shiftDateISO, todayInZone } from '@/lib/bookingTime'
 import DashboardHome, { type UpcomingBooking } from './DashboardHome'
 import type { TidyTask } from './types'
 import { completeBookingPayout, getUnreadMessageCountForUser } from '@/lib/bookings'
+import { CLEANER_CANCELLED_REASON, isAwaitingReplacements } from '@/lib/bookingRequestGroups'
 
 export const metadata: Metadata = { title: 'Home — Tydio' }
 
@@ -94,11 +95,95 @@ export default async function DashboardPage({
       scheduledDate: b.scheduled_date,
       scheduledTime: b.scheduled_time,
       durationMinutes: b.estimated_duration_minutes ?? 30,
-      kind: b.suspended_for_upcharge_at || (b.payment_due_at && (b.payment_failed_at || b.suspended_for_payment_at)) ? 'needs_attention' : b.progress_status ? 'tracking' : 'upcoming',
+      kind:
+        b.suspended_for_upcharge_at || (b.payment_due_at && (b.payment_failed_at || b.suspended_for_payment_at))
+          ? 'needs_attention'
+          : b.progress_status
+            ? 'tracking'
+            : hasBookingStarted(b.scheduled_date, b.scheduled_time, new Date(), b.time_zone)
+              ? 'active'
+              : 'upcoming',
       progressStatus: (b.progress_status as 'on_the_way' | 'arrived' | 'cleaning' | null) ?? null,
+      // Why it needs attention: an upcharge to pay, or a recurring visit whose charge failed.
+      attentionReason: b.suspended_for_upcharge_at ? 'upcharge' : 'payment',
     }))
-    // An upcharge to pay comes before anything else.
-    .sort((a, b) => Number(b.kind === 'needs_attention') - Number(a.kind === 'needs_attention'))
+
+  // Requests still waiting on a Tidy Pro show alongside upcoming bookings; once
+  // accepted, status turns 'scheduled' and the row above picks it up instead.
+  // A request sent to several Tidy Pros (or a set of replacement requests) is
+  // one card, opening the customer's own booking for that group.
+  const { data: pendingRows } = await admin
+    .from('bookings')
+    .select('id, tidy_pro_name, tidy_pro_photo_url, scheduled_date, scheduled_time, estimated_duration_minutes, time_zone, request_group_id')
+    .eq('user_id', session.profileId)
+    .eq('status', 'pending')
+    .gte('scheduled_date', serverDateDaysAgo(1))
+    .order('created_at', { ascending: true })
+
+  const pendingGroupIds = [...new Set((pendingRows ?? []).map((b) => b.request_group_id).filter((id): id is string => id != null))]
+  const { data: pendingGroups } = pendingGroupIds.length
+    ? await admin.from('booking_request_groups').select('id, original_booking_id, primary_booking_id').in('id', pendingGroupIds)
+    : { data: [] }
+  const customerBookingOfGroup = new Map((pendingGroups ?? []).map((g) => [g.id, g.original_booking_id ?? g.primary_booking_id]))
+
+  const pendingByCard = new Map<string, NonNullable<typeof pendingRows>>()
+  for (const b of pendingRows ?? []) {
+    if (b.scheduled_date == null || b.scheduled_date < todayInZone(b.time_zone)) continue
+    const key = b.request_group_id ? `group:${b.request_group_id}` : b.id
+    pendingByCard.set(key, [...(pendingByCard.get(key) ?? []), b])
+  }
+  for (const [key, rows] of pendingByCard) {
+    const first = rows[0]
+    const groupId = key.startsWith('group:') ? first.request_group_id : null
+    upcomingBookings.push({
+      id: (groupId && customerBookingOfGroup.get(groupId)) || first.id,
+      cleanerName: first.tidy_pro_name ?? 'your Tidy Pro',
+      cleanerPhotoUrl: first.tidy_pro_photo_url,
+      scheduledDate: first.scheduled_date,
+      scheduledTime: first.scheduled_time,
+      durationMinutes: first.estimated_duration_minutes ?? 30,
+      kind: 'pending',
+      progressStatus: null,
+      sentToSeveral: rows.length > 1,
+    })
+  }
+
+  // Canceled (or declined) by the Tidy Pro, with the payment still held: it stays among
+  // upcoming bookings, flagged, until the customer chooses other Tidy Pros or cancels.
+  const { data: droppedRows } = await admin
+    .from('bookings')
+    .select('id, tidy_pro_name, tidy_pro_photo_url, scheduled_date, scheduled_time, estimated_duration_minutes, time_zone, status, request_group_id, cancelled_reason, stripe_refund_id')
+    .eq('user_id', session.profileId)
+    .eq('status', 'declined')
+    .is('stripe_refund_id', null)
+    .gte('scheduled_date', serverDateDaysAgo(1))
+  const awaiting = (droppedRows ?? []).filter(
+    (b) => isAwaitingReplacements(b) && b.scheduled_date != null && b.scheduled_date >= todayInZone(b.time_zone)
+  )
+  const { data: replacedGroups } = awaiting.length
+    ? await admin.from('booking_request_groups').select('original_booking_id').in('original_booking_id', awaiting.map((b) => b.id))
+    : { data: [] }
+  const alreadyReplacing = new Set((replacedGroups ?? []).map((g) => g.original_booking_id))
+  for (const b of awaiting.filter((row) => !alreadyReplacing.has(row.id))) {
+    upcomingBookings.push({
+      id: b.id,
+      cleanerName: b.tidy_pro_name ?? 'your Tidy Pro',
+      cleanerPhotoUrl: b.tidy_pro_photo_url,
+      scheduledDate: b.scheduled_date,
+      scheduledTime: b.scheduled_time,
+      durationMinutes: b.estimated_duration_minutes ?? 30,
+      kind: 'tidy_pro_dropped',
+      progressStatus: null,
+      cleanerCancelled: b.cancelled_reason === CLEANER_CANCELLED_REASON,
+    })
+  }
+
+  upcomingBookings.sort(
+    (a, b) =>
+      // An upcharge to pay comes before anything else, then by date and time.
+      Number(b.kind === 'needs_attention') - Number(a.kind === 'needs_attention') ||
+      `${a.scheduledDate ?? ''} ${a.scheduledTime ?? ''}`.localeCompare(`${b.scheduledDate ?? ''} ${b.scheduledTime ?? ''}`)
+  )
 
   // A completed-but-unreviewed booking keeps prompting for a review for 24
   // hours after completion, or until the customer books another cleaning —

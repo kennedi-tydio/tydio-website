@@ -21,6 +21,33 @@ export function recurrenceLabel(frequency: RecurrenceFrequency): string {
   return frequency === 'weekly' ? 'Every week' : frequency === 'biweekly' ? 'Every 2 weeks' : 'Every 4 weeks'
 }
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+// Every visit lands on the same weekday and time as the first, e.g. "Every Sunday at
+// 9:00 AM". Falls back to recurrenceLabel when the first visit's date or time is unknown.
+export function recurrenceScheduleLabel(frequency: RecurrenceFrequency, date: string | null, time: string | null): string {
+  if (!date || !time) return recurrenceLabel(frequency)
+  const [y, m, d] = date.split('-').map(Number)
+  const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
+  const [hour, minute] = time.split(':').map(Number)
+  const clock = `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')} ${hour >= 12 ? 'PM' : 'AM'}`
+  if (frequency === 'weekly') return `Every ${weekday} at ${clock}`
+  if (frequency === 'biweekly') return `Every other ${weekday} at ${clock}`
+  return `Every 4 weeks on ${weekday} at ${clock}`
+}
+
+// One visit, e.g. "Sun, Nov 29 · 9:00 AM".
+const SHORT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+export function occurrenceLabel(date: string, time: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const day = new Date(Date.UTC(y, m - 1, d))
+  const [hour, minute] = time.split(':').map(Number)
+  const clock = `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')} ${hour >= 12 ? 'PM' : 'AM'}`
+  return `${SHORT_WEEKDAYS[day.getUTCDay()]}, ${SHORT_MONTHS[day.getUTCMonth()]} ${day.getUTCDate()} · ${clock}`
+}
+
 export function nextVisitDate(date: string, frequency: RecurrenceFrequency): string {
   return shiftDateISO(date, recurrenceIntervalDays(frequency))
 }

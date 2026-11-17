@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import Link from 'next/link'
 import type { TidyTask } from '@/app/dashboard/types'
@@ -20,6 +20,10 @@ import {
   startCallAction,
 } from './actions'
 import CancelReasonSheet from '@/app/components/CancelReasonSheet'
+import CancelScopeSheet from '@/app/components/CancelScopeSheet'
+import { occurrenceLabel } from '@/lib/recurrence'
+import TaskAdditionRequestCard, { type TaskAdditionRequest } from './TaskAdditionRequestCard'
+import TaskAdditionRecordCard, { TaskAdditionOutcomeBubble, type TaskAdditionRecordView } from '@/app/components/TaskAdditionRecordCard'
 import { CLEANER_CANCEL_REASONS, type Cancellation } from '@/lib/cancellationReasons'
 
 export type ChatMessage = {
@@ -226,6 +230,11 @@ type Props = {
   // A visit of a recurring booking: how often it repeats, whether this Tidy Pro still has
   // the series, and whether this visit is paid yet (see lib/recurringPayments).
   recurrence: { label: string; mine: boolean; unpaid: boolean } | null
+  // The customer asking to add tasks, waiting on this Tidy Pro (lib/bookingTaskAdditions).
+  taskAddition?: TaskAdditionRequest | null
+  taskAdditionPhotoUrls?: Record<string, string>
+  // Every request to add tasks, for the record under the booking request.
+  taskAdditionHistory?: TaskAdditionRecordView[]
 }
 
 export default function ProMessageThreadView({
@@ -254,6 +263,9 @@ export default function ProMessageThreadView({
   progressStatus: initialProgressStatus,
   messages: initialMessages,
   recurrence,
+  taskAddition = null,
+  taskAdditionPhotoUrls = {},
+  taskAdditionHistory = [],
 }: Props) {
   const router = useRouter()
   const [status, setStatus] = useState(initialStatus)
@@ -265,6 +277,7 @@ export default function ProMessageThreadView({
   const [cancelWarning, setCancelWarning] = useState<string | null>(null)
   // Canceling just this visit, or every visit of the recurring booking.
   const [cancelScope, setCancelScope] = useState<'visit' | 'series'>('visit')
+  const [choosingScope, setChoosingScope] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [editingTime, setEditingTime] = useState(false)
   const [newTime, setNewTime] = useState(scheduledTime?.slice(0, 5) ?? '09:00')
@@ -276,6 +289,8 @@ export default function ProMessageThreadView({
   const [pendingMessages, setPendingMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // Why the last message didn't send (e.g. it had a phone number or email in it).
+  const [sendError, setSendError] = useState<string | null>(null)
   const scrollEndRef = useRef<HTMLDivElement>(null)
   const firstName = customerName.split(' ')[0]
   const messages = [...initialMessages, ...pendingMessages]
@@ -312,6 +327,7 @@ export default function ProMessageThreadView({
     const body = draft.trim()
     if (!body || sending) return
     setSending(true)
+    setSendError(null)
     const optimisticId = `optimistic-${Date.now()}`
     setPendingMessages((prev) => [...prev, { id: optimisticId, senderRole: 'TIDYPRO', body, createdAt: new Date().toISOString() }])
     setDraft('')
@@ -320,6 +336,7 @@ export default function ProMessageThreadView({
     if ('error' in result) {
       setPendingMessages((prev) => prev.filter((m) => m.id !== optimisticId))
       setDraft(body)
+      setSendError(result.error)
       return
     }
     setPendingMessages((prev) => prev.filter((m) => m.id !== optimisticId))
@@ -459,7 +476,7 @@ export default function ProMessageThreadView({
     <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <h1 className="sr-only">Messages</h1>
       {/* Header, booking summary and status banners stay pinned while the chat scrolls */}
-      <div className="sticky top-0 z-20 bg-white shadow-sm">
+      <div className="sticky top-0 z-20 bg-white shadow-sm safe-area-inset-top">
       <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
         <button
           type="button"
@@ -739,22 +756,24 @@ export default function ProMessageThreadView({
           {outcome === 'accepted' && (isNotStarted || isOnTheWay) && !cancelWarning && (
             <button
               type="button"
-              onClick={handleCancelTapped}
+              // A visit of their recurring booking asks first: just this visit, or the series.
+              onClick={() => (recurrence?.mine ? setChoosingScope(true) : handleCancelTapped())}
               disabled={working !== null}
               className="block mx-auto mt-3 text-xs text-slate-500 underline disabled:opacity-50"
             >
-              {recurrence ? 'Cancel this visit' : 'Cancel booking'}
+              {recurrence?.mine ? 'Cancel' : recurrence ? 'Cancel this visit' : 'Cancel booking'}
             </button>
           )}
-          {outcome === 'accepted' && recurrence?.mine && (isNotStarted || isOnTheWay) && !cancelWarning && (
-            <button
-              type="button"
-              onClick={handleCancelSeriesTapped}
-              disabled={working !== null}
-              className="block mx-auto mt-2 text-xs text-slate-500 underline disabled:opacity-50"
-            >
-              Cancel all recurring visits
-            </button>
+          {choosingScope && (
+            <CancelScopeSheet
+              visitLabel={scheduledDate && scheduledTime ? occurrenceLabel(scheduledDate, scheduledTime.slice(0, 5)) : null}
+              onChoose={(scope) => {
+                setChoosingScope(false)
+                if (scope === 'series') handleCancelSeriesTapped()
+                else handleCancelTapped()
+              }}
+              onClose={() => setChoosingScope(false)}
+            />
           )}
           {outcome === 'accepted' && cancelWarning && (
             <CancelReasonSheet
@@ -797,6 +816,30 @@ export default function ProMessageThreadView({
           >
             {`${firstName} will be notified when you are on your way`}
           </div>
+        )}
+
+        {/* Requests to add tasks come after the original request and its answer: answered
+            ones as a record with their own answer under them, an open one as the full
+            updated request to accept or decline. */}
+        {taskAdditionHistory
+          .filter((r) => r.status !== 'pending')
+          .map((record) => (
+            <Fragment key={record.id}>
+              <TaskAdditionRecordCard record={record} viewer="tidypro" otherFirstName={firstName} />
+              <TaskAdditionOutcomeBubble status={record.status} viewer="tidypro" otherFirstName={firstName} />
+            </Fragment>
+          ))}
+        {taskAddition && (
+          <TaskAdditionRequestCard
+            request={taskAddition}
+            customerFirstName={firstName}
+            photoUrls={taskAdditionPhotoUrls}
+            currentTasks={tasks}
+            currentPayout={payout}
+            currentDurationMinutes={durationMinutes}
+            scheduledDate={scheduledDate}
+            scheduledTime={scheduledTime}
+          />
         )}
 
         {messages.map((message) =>
@@ -844,12 +887,26 @@ export default function ProMessageThreadView({
       </div>
 
       <div className="px-5 py-4 border-t border-slate-100 safe-area-inset-bottom">
+        {sendError && (
+          <p
+            id="message-send-error"
+            role="alert"
+            className="max-w-sm mx-auto w-full mb-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 leading-relaxed"
+          >
+            Your message wasn&apos;t sent. {sendError}
+          </p>
+        )}
         <div className="flex items-center gap-2 max-w-sm mx-auto w-full">
           <input
             aria-label="Message"
+            aria-invalid={sendError ? true : undefined}
+            aria-describedby={sendError ? 'message-send-error' : undefined}
             type="text"
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              if (sendError) setSendError(null)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()

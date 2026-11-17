@@ -6,6 +6,7 @@ import DownloadAppCard from '@/app/components/DownloadAppCard'
 import { usePostHog } from 'posthog-js/react'
 import { logoutAction, deleteAccountAction } from '../actions'
 import ModalShell from '@/app/components/ModalShell'
+import StripeDashboardButton from './StripeDashboardButton'
 
 function IconHome() {
   return (
@@ -98,6 +99,8 @@ type Props = {
   bio: string
   pendingEarnings: number | null
   overallEarnings: number
+  // Stripe payouts set up, so there's an Express Dashboard to open.
+  payoutsReady: boolean
   unreadMessageCount: number
 }
 
@@ -122,6 +125,7 @@ export default function ProfileView({
   bio,
   pendingEarnings,
   overallEarnings,
+  payoutsReady,
   unreadMessageCount,
 }: Props) {
   const initials = `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase()
@@ -180,6 +184,7 @@ export default function ProfileView({
             <span>Overall earnings</span>
             <span className="font-semibold" style={{ color: 'var(--color-brand)' }}>${overallEarnings.toFixed(2)}</span>
           </div>
+          <StripeDashboardButton payoutsReady={payoutsReady} />
         </div>
 
         <h2 className="text-xl font-bold text-slate-900 mb-3">Availability &amp; Pricing</h2>
@@ -189,7 +194,7 @@ export default function ProfileView({
         <h2 className="text-xl font-bold text-slate-900 mt-6 mb-3">Service Area</h2>
         <MenuLink label="Travel distance" href="/pro/profile/travel-distance" />
         <MenuLink label="Services provided" href="/pro/profile/services" />
-        <MenuLink label="My work photos" href="/pro/profile/portfolio" />
+        <MenuLink label="Cleaning photos" href="/pro/profile/edit#cleaning-photos" />
 
         <h2 className="text-xl font-bold text-slate-900 mt-6 mb-3">Settings</h2>
         <MenuLink label="Preferences" href="/pro/profile/notifications" />

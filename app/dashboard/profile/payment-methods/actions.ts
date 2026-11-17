@@ -87,11 +87,8 @@ export async function savePaymentMethodAction(
   const card = paymentMethod.card as Stripe.PaymentMethod.Card | undefined
   if (!card) return { error: 'Only card payment methods are supported.' }
 
-  const { count } = await admin
-    .from('payment_methods')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', session.profileId)
-
+  // Not made the default here: the first card used to book becomes it (see
+  // makeDefaultIfNone), or the customer picks one with setDefaultPaymentMethodAction.
   const { data, error } = await admin
     .from('payment_methods')
     .insert({
@@ -101,7 +98,7 @@ export async function savePaymentMethodAction(
       card_last4: card.last4,
       card_exp_month: card.exp_month,
       card_exp_year: card.exp_year,
-      is_default: (count ?? 0) === 0,
+      is_default: false,
     })
     .select('id, brand:card_brand, last4:card_last4, exp_month:card_exp_month, exp_year:card_exp_year, is_default')
     .single()
@@ -122,7 +119,7 @@ export async function removePaymentMethodAction(
 
   const { data: pm } = await admin
     .from('payment_methods')
-    .select('id, stripe_payment_method_id, is_default')
+    .select('id, stripe_payment_method_id')
     .eq('id', paymentMethodId)
     .eq('user_id', session.profileId)
     .single()
@@ -140,21 +137,39 @@ export async function removePaymentMethodAction(
   const { error } = await admin.from('payment_methods').delete().eq('id', pm.id)
   if (error) return { error: userFacingError(error) }
 
-  if (pm.is_default) {
-    const { data: next } = await admin
-      .from('payment_methods')
-      .select('id')
-      .eq('user_id', session.profileId)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
+  // Removing the default leaves none: the next card they book with becomes it, or they pick one.
+  revalidatePath('/dashboard/profile/payment-methods')
+  return { success: true }
+}
 
-    if (next) {
-      await admin.from('payment_methods').update({ is_default: true }).eq('id', next.id)
-    }
-  }
+// The card the customer checked off as their default: preselected when they book or pay.
+export async function setDefaultPaymentMethodAction(
+  paymentMethodId: string
+): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+  const { data: pm } = await admin
+    .from('payment_methods')
+    .select('id')
+    .eq('id', paymentMethodId)
+    .eq('user_id', session.profileId)
+    .maybeSingle()
+  if (!pm) return { error: 'Payment method not found.' }
+
+  const { error: clearError } = await admin
+    .from('payment_methods')
+    .update({ is_default: false })
+    .eq('user_id', session.profileId)
+    .neq('id', pm.id)
+  if (clearError) return { error: userFacingError(clearError) }
+
+  const { error } = await admin.from('payment_methods').update({ is_default: true }).eq('id', pm.id)
+  if (error) return { error: userFacingError(error) }
 
   revalidatePath('/dashboard/profile/payment-methods')
+  revalidatePath('/book/review')
   return { success: true }
 }
 

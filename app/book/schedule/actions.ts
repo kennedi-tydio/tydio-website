@@ -7,7 +7,10 @@ import { findAvailableCleaners, type CleanerMatch } from '@/lib/cleanerMatching'
 import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
 import { servicePriceForCleaner } from '@/lib/pricingRules'
 import { closeUnmetSearch, recordUnmetSearch } from '@/lib/unmetBookingSearches'
+import { recordPricingView, taskLabel } from '@/lib/pricingQuotes'
 import { normalizeScheduleRange } from '@/lib/bookingSlots'
+import { serviceTimeZone } from '@/lib/serviceTimeZone'
+import { DEFAULT_BOOKING_TIME_ZONE } from '@/lib/bookingTime'
 import type { TidyTask } from '@/app/dashboard/types'
 import { isRecurrenceFrequency, type RecurrenceFrequency } from '@/lib/recurrence'
 
@@ -89,7 +92,7 @@ const EMPTY_RESULT: CleanerSearchResult = { cleaners: [] }
 export async function searchAvailableCleaners(
   draftId: string,
   input: Schedule,
-  // The customer's browser zone, saved with a search nobody matched.
+  // The customer's browser zone: the fallback for a search nobody matched when the home's state isn't known.
   timeZone?: string
 ): Promise<CleanerSearchResult> {
   const session = await getSession()
@@ -172,7 +175,7 @@ export async function searchAvailableCleaners(
       endDate: schedule.endDate,
       time: schedule.time,
       endTime: schedule.endTime,
-      timeZone: timeZone ?? null,
+      timeZone: await serviceTimeZone(admin, session.profileId, schedule.location, timeZone, DEFAULT_BOOKING_TIME_ZONE),
       durationMinutes,
       requiredServices: requiredServicesForTasks(tasks),
       tasks: tasks.map((t) => ({ name: t.name, room: t.room })),
@@ -190,6 +193,19 @@ export async function searchAvailableCleaners(
     ...cleaner,
     price: servicePriceForCleaner(basePrice, cleaner),
   }))
+
+  // For abandoned-cart tracking: what they were just quoted.
+  await recordPricingView(admin, {
+    customerId: session.profileId,
+    draftId,
+    stage: 'cleaners',
+    taskNames: tasks.map(taskLabel),
+    durationMinutes,
+    date: schedule.date,
+    time: schedule.time,
+    locationLabel: schedule.location.type === 'address' ? `${schedule.location.label} · ${schedule.location.line}` : null,
+    cleanerPrices: pricedCleaners.map((c) => c.price),
+  })
 
   return { cleaners: pricedCleaners }
 }

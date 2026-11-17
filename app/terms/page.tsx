@@ -460,10 +460,11 @@ export default function TermsPage() {
                 the outcome.
               </p>
               <p>
-                <strong>If your Tidy Pro doesn&rsquo;t show up.</strong> If your Tidy Pro has not arrived 20 minutes after
-                the scheduled start time, and has not marked themselves as arrived, you may report a no-show in the app.
-                The booking is canceled and you are refunded the amount you paid less the Stripe processing fee. We review
-                each report and may suspend the Tidy Pro&rsquo;s account.
+                <strong>If your Tidy Pro doesn&rsquo;t show up.</strong> If your Tidy Pro has not arrived 10 minutes after
+                the scheduled start time, you may report a no-show in the app, including when the Tidy Pro has marked
+                themselves as arrived but is not there. The booking is then canceled. We review each report, which may
+                include contacting you and the Tidy Pro, and may refund the full amount, 50% of it, or nothing, and will
+                email you the outcome. We may also suspend the Tidy Pro&rsquo;s account.
               </p>
               <p>
                 Once your Tidy Pro has arrived, the booking can no longer be canceled. If there is a problem with a booking

@@ -1,6 +1,6 @@
 import type { SquareFootage } from './squareFootage'
 
-export const PRICING_VERSION = 'v9-laundry-hourly-rate'
+export const PRICING_VERSION = 'v10-laundry-covers-tasks'
 
 export const CLEANER_PAYOUT_RATE = 0.80
 export const PLATFORM_FEE_RATE = 0.20
@@ -147,7 +147,26 @@ export interface ValidatedTask {
   // home tasks and floor sweeping/mopping. Defaults to false, so every other
   // task is priced without the square footage multiplier.
   scales_with_home_size?: boolean
+  // True for Entire home tasks: a bigger home takes longer, so the task's
+  // time on site is also scaled by the square footage multiplier (see
+  // visitMinutes). `estimated_minutes` stays the unscaled base.
+  scales_time_with_home_size?: boolean
+  // Minutes charged at the state rate, when not all of estimated_minutes is: a
+  // household task done while laundry runs is covered by the laundry's time (see
+  // buildValidatedTaskPool), so only what runs past it is charged. The home-size
+  // multiplier and the surcharges still apply to the task in full.
+  priced_minutes?: number
   unusual_notes?: string
+}
+
+// A task's time on site at this home: its base minutes, scaled by the square
+// footage multiplier for tasks whose time grows with the size of the home.
+export function visitMinutes(
+  task: Pick<ValidatedTask, 'estimated_minutes' | 'scales_time_with_home_size'>,
+  squareFootage: SquareFootage | null | undefined
+): number {
+  if (task.scales_time_with_home_size !== true) return task.estimated_minutes
+  return Math.round(task.estimated_minutes * squareFootageMultiplier(squareFootage))
 }
 
 export interface TaskLineItem {
@@ -159,6 +178,8 @@ export interface TaskLineItem {
   additional_issue_surcharge: number
   flat_price?: number
   scales_with_home_size?: boolean
+  // Set when only part of the task's time is charged (see ValidatedTask).
+  priced_minutes?: number
   unusual_notes?: string
 }
 
@@ -220,6 +241,9 @@ export function calculatePrice(
     throw new Error('At least one task is required')
   }
 
+  // Line items are priced from their base minutes; the square footage
+  // multiplier below covers the extra time a bigger home takes. Their
+  // estimated_minutes are then set to the time on site (visitMinutes).
   const taskLineItems: TaskLineItem[] = tasks.map((task) => ({
     name: task.normalized_task_name,
     tier: task.tier,
@@ -229,28 +253,39 @@ export function calculatePrice(
     additional_issue_surcharge: task.additional_issue_surcharge,
     ...(task.flat_price != null ? { flat_price: task.flat_price } : {}),
     ...(task.scales_with_home_size === true ? { scales_with_home_size: true } : {}),
+    ...(task.priced_minutes != null ? { priced_minutes: task.priced_minutes } : {}),
     unusual_notes: task.unusual_notes,
   }))
 
   // Every task's minutes make up the booking's length; only tasks without a
-  // fixed price are charged by the minute.
-  const minutePrice = (t: TaskLineItem) =>
+  // fixed price are charged by the minute. ownMinutePrice is what the task's
+  // whole time is worth; minutePrice is what's charged for it, less any time
+  // covered by laundry (priced_minutes).
+  const ownMinutePrice = (t: TaskLineItem) =>
     t.flat_price != null ? 0 : (t.estimated_minutes / BASE_PRICE_DIVISOR_MINUTES) * medianFourHourPrice
+  const minutePrice = (t: TaskLineItem) =>
+    t.flat_price != null ? 0 : ((t.priced_minutes ?? t.estimated_minutes) / BASE_PRICE_DIVISOR_MINUTES) * medianFourHourPrice
   const scales = (t: TaskLineItem) => t.flat_price == null && t.scales_with_home_size === true
   const subtotal = (t: TaskLineItem) => minutePrice(t) + t.cleaning_type_surcharge + t.additional_issue_surcharge
+  // The multiplier is worked out on the task's whole time, covered or not.
+  const ownSubtotal = (t: TaskLineItem) => ownMinutePrice(t) + t.cleaning_type_surcharge + t.additional_issue_surcharge
 
-  const totalTaskMinutes = taskLineItems.reduce((sum, t) => sum + t.estimated_minutes, 0)
+  const onSiteMinutes = tasks.map((task) => visitMinutes(task, squareFootage))
+  const totalTaskMinutes = onSiteMinutes.reduce((sum, m) => sum + m, 0)
   const cleaningTypeSurcharge = taskLineItems.reduce((sum, t) => sum + t.cleaning_type_surcharge, 0)
   const additionalIssueSurcharge = taskLineItems.reduce((sum, t) => sum + t.additional_issue_surcharge, 0)
   const flatPriceTotal = round2(taskLineItems.reduce((sum, t) => sum + (t.flat_price ?? 0), 0))
   const basePrice = taskLineItems.reduce((sum, t) => sum + minutePrice(t), 0)
 
   const multiplier = squareFootageMultiplier(squareFootage)
-  const scaledSubtotal = taskLineItems.reduce((sum, t) => sum + (scales(t) ? subtotal(t) : 0), 0)
+  const scaledSubtotal = taskLineItems.reduce((sum, t) => sum + (scales(t) ? ownSubtotal(t) : 0), 0)
   const unscaledSubtotal = taskLineItems.reduce((sum, t) => sum + (scales(t) ? 0 : subtotal(t)), 0)
   const scaledCharge = round2(scaledSubtotal * multiplier)
   const squareFootageAdjustment = round2(scaledCharge - scaledSubtotal)
-  const totalCustomerCharge = round2(scaledCharge + unscaledSubtotal + flatPriceTotal)
+  // A scaling task's time covered by laundry isn't charged again; its share of
+  // the multiplier (in squareFootageAdjustment) still is.
+  const coveredScaledTime = taskLineItems.reduce((sum, t) => sum + (scales(t) ? ownMinutePrice(t) - minutePrice(t) : 0), 0)
+  const totalCustomerCharge = round2(scaledCharge - coveredScaledTime + unscaledSubtotal + flatPriceTotal)
 
   const cleanerPayout = round2(totalCustomerCharge * CLEANER_PAYOUT_RATE)
   const platformFee = round2(totalCustomerCharge * PLATFORM_FEE_RATE)
@@ -270,7 +305,7 @@ export function calculatePrice(
     total_customer_charge: totalCustomerCharge,
     cleaner_payout: cleanerPayout,
     platform_fee: platformFee,
-    task_list: taskLineItems,
+    task_list: taskLineItems.map((t, i) => ({ ...t, estimated_minutes: onSiteMinutes[i] })),
     calculated_at: new Date().toISOString(),
   }
 }

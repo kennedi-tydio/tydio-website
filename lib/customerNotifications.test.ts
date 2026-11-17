@@ -72,6 +72,13 @@ describe('notifyCustomer', () => {
     expect(email).toHaveBeenCalledOnce()
   })
 
+  it('skips the text for confirmations of the customer’s own cancel, but still pushes and emails', async () => {
+    await notifyCustomer(adminWith(customer), 'c1', payload, { sms: false })
+    expect(sms).not.toHaveBeenCalled()
+    expect(push).toHaveBeenCalledOnce()
+    expect(email).toHaveBeenCalledOnce()
+  })
+
   it('skips email for chat messages, but still sends the text and push', async () => {
     await notifyCustomer(adminWith(customer), 'c1', payload, { email: false })
     expect(email).not.toHaveBeenCalled()

@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveStatePricing, priceTaskListForState, ensurePriceableTasks, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
-import { computeIsTopTidyPro, haversineDistanceMiles } from '@/lib/cleanerMatching'
+import { computeIsTopTidyPro, haversineDistanceMiles, type CleanerMatch } from '@/lib/cleanerMatching'
 import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
 import { grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
 import type { TidyTask } from '@/app/dashboard/types'
@@ -14,6 +14,7 @@ import { dropUnmatchedLaundryLinks } from '@/lib/laundry'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 import { getReplacementOptions } from '@/lib/bookingRequestGroups'
 import { savedEntryInstructionsForLocation } from '@/lib/entryInstructionsData'
+import { recordPricingView, taskLabel } from '@/lib/pricingQuotes'
 
 export const metadata: Metadata = { title: 'Review Your Request — Tydio' }
 
@@ -50,7 +51,7 @@ export default async function ReviewPage() {
     admin.from('profiles').select('first_name, service_area_id, city, state, booking_access_status').eq('id', session.profileId).single(),
     admin
       .from('tidypro_profiles')
-      .select('rating, total_accepted_bookings, latitude, longitude')
+      .select('rating, review_count, is_verified, profile_photo_url, total_accepted_bookings, latitude, longitude')
       .eq('id', draft.selected_tidy_pro_id)
       .maybeSingle(),
     admin.from('profiles').select('first_name, last_name').eq('id', draft.selected_tidy_pro_id).maybeSingle(),
@@ -99,9 +100,13 @@ export default async function ReviewPage() {
       : null
   const servicePrice = servicePriceForCleaner(breakdown.total_customer_charge, { isTopTidyPro, distanceMiles })
 
+  // The card picked for this booking, or else their default, which confirmBookingAction
+  // falls back to the same way.
+  const selectedPaymentMethodId = draft.selected_payment_method_id ?? (paymentMethods ?? []).find((pm) => pm.is_default)?.id ?? null
+
   // The fee depends on the card, so it's worked out for the one they've actually chosen.
-  const { data: selectedCard } = draft.selected_payment_method_id
-    ? await admin.from('payment_methods').select('stripe_payment_method_id').eq('id', draft.selected_payment_method_id).eq('user_id', session.profileId).maybeSingle()
+  const { data: selectedCard } = selectedPaymentMethodId
+    ? await admin.from('payment_methods').select('stripe_payment_method_id').eq('id', selectedPaymentMethodId).eq('user_id', session.profileId).maybeSingle()
     : { data: null }
   const cardPercentage = selectedCard?.stripe_payment_method_id
     ? await stripePercentageForPaymentMethod(selectedCard.stripe_payment_method_id).catch(() => undefined)
@@ -109,6 +114,19 @@ export default async function ReviewPage() {
 
   const totalPrice = grossUpForStripeFee(servicePrice, cardPercentage)
   const processingFee = Math.round((totalPrice - servicePrice) * 100) / 100
+
+  // For abandoned-cart tracking: the final price they were just shown.
+  await recordPricingView(admin, {
+    customerId: session.profileId,
+    draftId: draft.id,
+    stage: 'review',
+    taskNames: tasks.map(taskLabel),
+    durationMinutes: breakdown.total_task_minutes,
+    date: draft.scheduled_date,
+    time: draft.scheduled_time,
+    locationLabel: location?.type === 'address' ? `${location.label} · ${location.line}` : null,
+    review: { tidyProId: draft.selected_tidy_pro_id, servicePrice, totalPrice },
+  })
 
   // Others free at the same time who can do everything, offered as optional extras.
   const extraCleanerOptions = await getReplacementOptions(admin, {
@@ -121,6 +139,16 @@ export default async function ReviewPage() {
   })
 
   const cleanerName = [tidyProIdentity?.first_name, tidyProIdentity?.last_name].filter(Boolean).join(' ') || 'your Tidy Pro'
+  const selectedCleaner: CleanerMatch = {
+    id: draft.selected_tidy_pro_id,
+    name: [tidyProIdentity?.first_name, tidyProIdentity?.last_name].filter(Boolean).join(' ') || 'Tidy Pro',
+    photoUrl: tidyProStats?.profile_photo_url ?? null,
+    rating: tidyProStats?.rating ?? 0,
+    reviewCount: tidyProStats?.review_count ?? 0,
+    isVerified: tidyProStats?.is_verified ?? false,
+    isTopTidyPro,
+    distanceMiles: distanceMiles == null ? 0 : Math.round(distanceMiles * 10) / 10,
+  }
 
   return (
     <ReviewRequestView
@@ -134,6 +162,7 @@ export default async function ReviewPage() {
       addressName={addressName}
       addressLine={addressLine}
       cleanerName={cleanerName}
+      selectedCleaner={selectedCleaner}
       extraCleanerOptions={extraCleanerOptions}
       pets={(await customerPetsSummary(admin, session.profileId)) ?? ''}
       notes={draft.notes ?? ''}
@@ -146,7 +175,7 @@ export default async function ReviewPage() {
       processingFee={processingFee}
       totalPrice={totalPrice}
       paymentMethods={paymentMethods ?? []}
-      selectedPaymentMethodId={draft.selected_payment_method_id}
+      selectedPaymentMethodId={selectedPaymentMethodId}
     />
   )
 }

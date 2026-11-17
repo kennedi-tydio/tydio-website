@@ -114,7 +114,7 @@ export function formatMachineLoads(n: number): string {
 // A Wash-only or Dry-only task is the Tidy Pro putting a load in and leaving
 // it, priced as such. The customer confirms that's all they want; if they
 // want the laundry taken out, it's a Wash & dry task (FULL_CYCLE_MINUTES_PER_LOAD
-// at MACHINE_LAUNDRY_HOURLY_RATE) instead.
+// at the state rate) instead.
 
 // `linked`: the task is the same laundry as the customer's other Wash/Dry task.
 export function startOnlyQuestion(service: 'wash' | 'dry', linked: boolean): string {
@@ -130,7 +130,7 @@ export const START_ONLY_NO = 'No, take it out too'
 // so the laundry is one Wash & dry task, not two.
 export function switchedToWashDryMessage(partner: { label: string; name: string } | null): string {
   const replaces = partner ? ` It replaces your ${partner.label} task (${partner.name}), so it’s all one task.` : ''
-  return `This is now a Wash & dry task: your Tidy Pro stays for the full cycle, at $50 a load.${replaces} Please fill in the booking details.`
+  return `This is now a Wash & dry task: your Tidy Pro stays for the full cycle, charged as 2 hours of work a load. Your other tasks are done while it runs.${replaces} Please fill in the booking details.`
 }
 
 // A task name that only names washing or drying ("Wash towels") is renamed
@@ -160,8 +160,8 @@ export function machineLoadsFor(task: LaundryFields): number | null {
 //
 // Wash and Dry stay separate tasks. A customer can mark one as the same
 // laundry as the other (sameLaundryAsTaskId on whichever was added second).
-// Loads both washed and dried in the same visit keep the Tidy Pro on site for
-// the full cycle, so each reserves FULL_CYCLE_MINUTES_PER_LOAD of the visit.
+// Loads both washed and dried in the same visit keep the Tidy Pro on site
+// through the wash, so each reserves PAIRED_LOAD_MINUTES_PER_LOAD of the visit.
 
 type PairableTask = LaundryFields & { id: string }
 
@@ -268,6 +268,24 @@ export function usesLaundromat(task: LaundryFields): boolean {
 
 export const LAUNDROMAT_LABEL = 'At a laundromat'
 
+// A laundromat has several washers and dryers, so the Tidy Pro runs loads
+// side by side: every 3 loads (or part of 3) is charged as one 2-hour cycle.
+// 1-3 loads is 2 hours, 4-6 is 4 hours, 7-9 is 6 hours. They stay at the
+// laundromat the whole time, so it doesn't overlap the booking's other tasks.
+export const LAUNDROMAT_LOADS_PER_CYCLE = 3
+
+export function laundromatMinutes(loads: number): number {
+  return Math.ceil(loads / LAUNDROMAT_LOADS_PER_CYCLE) * FULL_CYCLE_MINUTES_PER_LOAD
+}
+
+// Shown to the Tidy Pro on the request and throughout the active booking.
+export const LAUNDROMAT_STAY_NOTE =
+  'Stay at the laundromat for the entire wash and dry cycle, so nothing gets stolen. Wash and dry several loads at a time (at least 2–3) to save time. If it’s too busy to do that, go to a different laundromat.'
+
+// Shown to the customer when they review a booking with a laundromat trip.
+export const LAUNDROMAT_CUSTOMER_NOTE =
+  'Your Tidy Pro will stay at the laundromat for the full wash and dry cycle. They run several loads at once, so it’s charged as 2 hours for every 3 loads, and that time is in addition to your other tasks.'
+
 // A laundromat trip is only booked as a full wash & dry cycle: the Tidy Pro
 // can't start a load there and leave. True for a Wash-only or Dry-only task
 // without a washer and dryer, which can't be booked.
@@ -326,10 +344,15 @@ export function bookedTaskName(
 
 // ── Pricing ──────────────────────────────────────────────────────────────────
 //
-// Washing and drying (Wash, Dry, Wash & dry) are charged at a flat hourly
-// rate for their minutes, the same in every state. Folding is charged like any
-// other task (minutes / 240 × the state's 4-hour rate). Ironing is a flat
-// price per item. Laundry never gets the home-size multiplier.
+// A full cycle (Wash & dry) and a linked Wash + Dry pair are charged like any
+// other task time, at the state's rate (minutes / 240 × its 4-hour price): 2
+// hours a load for Wash & dry, 1 hour a load for a pair. The booking's other
+// household tasks are done while it runs, so their time is covered by it; only
+// time beyond it is charged, plus their surcharges and home-size multiplier
+// (see buildValidatedTaskPool). Wash or Dry on its own (start the load and
+// leave) is a flat hourly rate, the same in every state. Folding is charged
+// like any other task. Ironing is a flat price per item. Laundry never gets
+// the home-size multiplier.
 //
 // One basket counts as one load. Starting a load, or running a full cycle,
 // takes the same time whatever the size of the load, so part-baskets round up
@@ -338,13 +361,16 @@ export function bookedTaskName(
 // Wash or Dry only: the Tidy Pro starts the load and leaves it running.
 export const START_LOAD_MINUTES_PER_LOAD = 7
 
-// Wash & dry: the Tidy Pro stays for the full cycle, 2 hours a load. Also
-// what a linked Wash + Dry pair (one load) reserves of the visit (not its
-// price: those tasks are still priced as a load started each).
+// Wash & dry: the Tidy Pro stays for the full cycle and takes the laundry out
+// of the dryer, 2 hours a load.
 export const FULL_CYCLE_MINUTES_PER_LOAD = 120
 
-// Washing and drying: $25 an hour everywhere, so one full wash & dry cycle
-// (2 hours) is $50 a load. Not adjusted for state or home size.
+// A linked Wash + Dry pair: the Tidy Pro washes the load, moves it to the
+// dryer and leaves it there, 1 hour a load.
+export const PAIRED_LOAD_MINUTES_PER_LOAD = 60
+
+// Wash or Dry on its own (start the load and leave): $25 an hour everywhere.
+// Not adjusted for state or home size.
 export const MACHINE_LAUNDRY_HOURLY_RATE = 25
 
 export function machineLaundryPrice(minutes: number): number {

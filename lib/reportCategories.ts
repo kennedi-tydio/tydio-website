@@ -15,6 +15,10 @@ export type ReportReason = { id: string; label: string; severity: ReportSeverity
 // sets the real level once they've read what happened.
 export type ReportCategory = { id: string; label: string; reasons: readonly ReportReason[]; severity?: ReportSeverity }
 
+// A Tidy Pro's "I can't enter the property" report: during the job it also starts the
+// "Unable to access location" countdown (see reportCustomerAction).
+export const NO_ACCESS_REPORT_REASON = 'cannot_enter'
+
 // Shown to customers reporting their Tidy Pro.
 export const TIDY_PRO_REPORT_CATEGORIES: readonly ReportCategory[] = [
   {

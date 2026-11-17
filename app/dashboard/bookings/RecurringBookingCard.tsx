@@ -4,7 +4,9 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { recurrenceLabel, type RecurrenceFrequency } from '@/lib/recurrence'
-import { cancelRecurringBookingAction } from './recurring/actions'
+import { cancelRecurringBookingAction, cancelRecurringOccurrencesAction } from './recurring/actions'
+import RecurringCancelSheet, { type OccurrenceOption } from '@/app/components/RecurringCancelSheet'
+import { CUSTOMER_CANCEL_REASONS } from '@/lib/cancellationReasons'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
 const WEEKDAYS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
@@ -19,6 +21,8 @@ export type RecurringRow = {
   time: string
   // Why the last visit couldn't be booked, if it couldn't.
   lastError: string | null
+  // Upcoming visits, booked or not yet, to cancel one of (lib/recurringOccurrences).
+  occurrences: OccurrenceOption[]
 }
 
 function formatTime(hhmm: string): string {
@@ -40,25 +44,14 @@ function IconRepeat() {
 
 export default function RecurringBookingCard({ series }: { series: RecurringRow }) {
   const router = useRouter()
-  const [confirming, setConfirming] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const next = new Date(`${series.nextDate}T00:00:00`)
   const weekday = WEEKDAYS[next.getDay()]
-  const nextLabel = `${MONTHS_SHORT[next.getMonth()]} ${next.getDate()}`
-
-  async function handleCancel() {
-    setCancelling(true)
-    setError(null)
-    const result = await cancelRecurringBookingAction(series.id)
-    if ('error' in result) {
-      setCancelling(false)
-      setError(result.error)
-      return
-    }
-    router.refresh()
-  }
+  // The next date to be booked, past any the customer canceled ahead of time.
+  const nextUnbooked = series.occurrences.find((o) => !o.booked)?.date ?? series.nextDate
+  const nextDay = new Date(`${nextUnbooked}T00:00:00`)
+  const nextLabel = `${MONTHS_SHORT[nextDay.getMonth()]} ${nextDay.getDate()}`
 
   return (
     <div className="rounded-2xl border border-slate-100 bg-white shadow-sm p-4">
@@ -85,49 +78,43 @@ export default function RecurringBookingCard({ series }: { series: RecurringRow 
         </p>
       )}
 
-      {confirming ? (
-        <div className="mt-4">
-          <p className="text-xs text-slate-600 leading-relaxed mb-3">
-            No more visits will be booked. Any visit that&apos;s already booked stays booked; cancel it from its own page if you don&apos;t need it.
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
-              disabled={cancelling}
-              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
-            >
-              Keep it
-            </button>
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold disabled:opacity-60"
-            >
-              {cancelling ? 'Cancelling…' : 'Yes, cancel it'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2 mt-4">
-          <Link
-            href={`/dashboard/bookings/recurring/${series.id}/tidy-pro`}
-            className="w-full py-2.5 rounded-xl text-white text-sm font-semibold text-center"
-            style={{ backgroundColor: 'var(--color-brand)' }}
-          >
-            Choose a new Tidy Pro
-          </Link>
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-            className="w-full py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-red-600"
-          >
-            Cancel recurring booking
-          </button>
-        </div>
+      <div className="flex flex-col gap-2 mt-4">
+        <Link
+          href={`/dashboard/bookings/recurring/${series.id}/tidy-pro`}
+          className="w-full py-2.5 rounded-xl text-white text-sm font-semibold text-center"
+          style={{ backgroundColor: 'var(--color-brand)' }}
+        >
+          Choose a new Tidy Pro
+        </Link>
+        <button
+          type="button"
+          onClick={() => setCancelling(true)}
+          className="w-full py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-red-600"
+        >
+          Cancel
+        </button>
+      </div>
+      {cancelling && (
+        <RecurringCancelSheet
+          occurrences={series.occurrences}
+          reasons={CUSTOMER_CANCEL_REASONS}
+          copy={{
+            series:
+              'No more visits will be booked. Visits already booked are canceled too: one you’ve paid for is refunded minus the nonrefundable Stripe fee, and one not charged yet is free.',
+            bookedVisit: 'A booked visit you’ve paid for is refunded minus the nonrefundable Stripe fee, and one not charged yet is free.',
+            laterVisit: 'Visits not booked yet won’t be booked, and you won’t be charged for them.',
+            lateVisit: 'A visit less than 2 hours away refunds 50%.',
+            rest: 'Your other visits stay on.',
+          }}
+          onCancelSeries={(c) => cancelRecurringBookingAction(series.id, c)}
+          onCancelOccurrences={(dates, c) => cancelRecurringOccurrencesAction(series.id, dates, c)}
+          onClose={() => setCancelling(false)}
+          onDone={() => {
+            setCancelling(false)
+            router.refresh()
+          }}
+        />
       )}
-      {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}
     </div>
   )
 }

@@ -252,38 +252,74 @@ describe('laundry service tasks — one service, one quantity', () => {
     expect(minutesFor({ laundryService: 'washDry', laundryBaskets: 2.5 })).toBe(360)
   })
 
-  it('takes the booking’s non-laundry task time off a full wash & dry cycle', () => {
+  it('does the household tasks during a full wash & dry cycle: the visit is the longer of the two', () => {
     const washDry = tidyTask({ id: 'wd', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
     const kitchen = tidyTask({ id: 'k', tier: 'Standard', estimatedMinutes: 20 })
     const bath = tidyTask({ id: 'b', tier: 'Heavy', estimatedMinutes: 25 })
     const fold = tidyTask({ id: 'f', dirtLevel: null, laundryService: 'fold', laundryBaskets: 1 })
-    const cycle = (tasks: TidyTask[]) => buildValidatedTaskPool(tasks).find((t) => t.tier === 'Full cycle')!.estimated_minutes
+    const cycle = (tasks: TidyTask[]) => buildValidatedTaskPool(tasks).find((t) => t.tier === 'Full cycle')!
 
-    expect(cycle([washDry, kitchen, bath])).toBe(75) // 120 − 45
-    expect(cycle([washDry, fold])).toBe(120) // laundry tasks don't count
-    // Other tasks longer than the cycle: laundry adds no time.
-    const long = Array.from({ length: 6 }, (_, i) => tidyTask({ id: `l${i}`, tier: 'Heavy', estimatedMinutes: 25 }))
-    expect(cycle([washDry, ...long])).toBe(0)
-    // The visit lasts as long as the cycle, with the other tasks done meanwhile.
+    // The cycle is always charged in full, as task time at the state rate.
+    expect(cycle([washDry, kitchen, bath]).estimated_minutes).toBe(120)
+    expect(cycle([washDry, kitchen, bath]).flat_price).toBeUndefined()
+    // Household tasks under 2 hours: the visit is 2 hours.
     expect(visitDurationMinutes([washDry, kitchen, bath])).toBe(120)
+    // Household tasks over 2 hours: the visit is their time.
+    const long = Array.from({ length: 6 }, (_, i) => tidyTask({ id: `l${i}`, tier: 'Heavy', estimatedMinutes: 25 }))
+    expect(visitDurationMinutes([washDry, ...long])).toBe(150)
+    // Other laundry tasks are added on top.
+    expect(visitDurationMinutes([washDry, fold])).toBe(140)
   })
 
-  it('takes the other tasks’ time off only once across several wash & dry tasks', () => {
+  it('fits 60 minutes of tasks inside a wash & dry load: just the 2 hours, $107.50 at a $215 state rate', () => {
+    const washDry = tidyTask({ id: 'wd', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
+    const chores = [30, 30].map((m, i) =>
+      tidyTask({ id: `c${i}`, name: 'Wipe counters', tier: 'Heavy', estimatedMinutes: m, dirtLevel: 'light' })
+    )
+    // 120/240 × $215; the chores' time is covered, and light chores have no surcharge.
+    const breakdown = priceTaskListForState([washDry, ...chores], 'GA', 215)
+    expect(breakdown.total_customer_charge).toBe(107.5)
+    expect(breakdown.total_task_minutes).toBe(120)
+  })
+
+  it('charges cleaning time past the laundry 2 hours: $106 + $53 = $159 in Atlanta', () => {
+    // Atlanta: $212 for 4 hours, $53 an hour.
+    const washDry = tidyTask({ id: 'wd', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
+    const threeHours = Array.from({ length: 6 }, (_, i) =>
+      tidyTask({ id: `c${i}`, name: 'Wipe counters', tier: 'Heavy', estimatedMinutes: 30, dirtLevel: 'light' })
+    )
+    expect(priceTaskListForState([washDry, ...threeHours], 'GA', 212).total_customer_charge).toBe(159)
+  })
+
+  it('still charges the surcharges of tasks done during the laundry', () => {
+    const washDry = tidyTask({ id: 'wd', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
+    const heavy = tidyTask({ id: 'h', name: 'Scrub tub', tier: 'Heavy', estimatedMinutes: 30, dirtLevel: 'heavy', unusual: ['Mold'] })
+    // $106 laundry + $10 heavy + $10 for the extra issue.
+    expect(priceTaskListForState([washDry, heavy], 'GA', 212).total_customer_charge).toBe(126)
+  })
+
+  it('adds only the home-size multiplier for floor tasks done during the laundry', () => {
+    const washDry = tidyTask({ id: 'wd', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
+    const floors = tidyTask({ id: 'f', name: 'Sweep and mop floors', tier: 'Heavy', estimatedMinutes: 60, dirtLevel: 'light' })
+    // 1,500 sq ft is 1.1x: an hour of floors is $53, so the multiplier adds $5.30.
+    const breakdown = priceTaskListForState([washDry, floors], 'GA', 212, '1000_1999')
+    expect(breakdown.square_footage_adjustment).toBe(5.3)
+    expect(breakdown.total_customer_charge).toBe(111.3)
+  })
+
+  it('overlaps the household tasks with every cycle in the booking', () => {
     const wd1 = tidyTask({ id: 'wd1', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
     const wd2 = tidyTask({ id: 'wd2', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
     const others = Array.from({ length: 6 }, (_, i) => tidyTask({ id: `o${i}`, tier: 'Heavy', estimatedMinutes: 25 }))
-    const minutes = buildValidatedTaskPool([wd1, wd2, ...others])
-      .filter((t) => t.tier === 'Full cycle')
-      .map((t) => t.estimated_minutes)
-    // 150 minutes of other tasks: 120 off the first cycle, the last 30 off the second.
-    expect(minutes).toEqual([0, 90])
+    // 240 minutes of cycles, 150 of household tasks.
+    expect(visitDurationMinutes([wd1, wd2, ...others])).toBe(240)
   })
 
-  it('charges washing and drying at $25 an hour, the same in every state: $50 a full-cycle load', () => {
+  it('charges a wash & dry load as 2 hours at the state rate, not scaled by home size', () => {
     const washDry = tidyTask({ dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
-    expect(priceTaskListForState([washDry], 'GA', 240).total_customer_charge).toBe(50)
-    expect(priceTaskListForState([washDry], 'CA', 600, '3000_plus').total_customer_charge).toBe(50)
-    expect(priceTaskListForState([{ ...washDry, machineLoads: 2 }], 'GA', 240).total_customer_charge).toBe(100)
+    expect(priceTaskListForState([washDry], 'GA', 212).total_customer_charge).toBe(106)
+    expect(priceTaskListForState([washDry], 'CA', 600, '3000_plus').total_customer_charge).toBe(300)
+    expect(priceTaskListForState([{ ...washDry, machineLoads: 2 }], 'GA', 212).total_customer_charge).toBe(212)
     // Wash or Dry only: 7 minutes a load at $25 an hour.
     const wash = tidyTask({ dirtLevel: null, laundryService: 'wash', laundryBaskets: 1, machineLoads: 1 })
     expect(priceTaskListForState([wash], 'GA', 240).total_customer_charge).toBe(2.92)
@@ -295,21 +331,22 @@ describe('laundry service tasks — one service, one quantity', () => {
     expect(priceTaskListForState([fold], 'GA', 240).total_customer_charge).toBe(20)
   })
 
-  it('charges only the cycle time the other tasks don’t cover, scaling only the floor tasks', () => {
+  it('covers floor tasks time with the cycle, charging their home-size multiplier and any time past it', () => {
     const washDry = tidyTask({ id: 'wd', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
     const chores = (minutes: number[]) =>
       minutes.map((m, i) =>
         tidyTask({ id: `c${i}`, name: 'Sweep and mop kitchen floor', tier: 'Heavy', estimatedMinutes: m, dirtLevel: 'light' })
       )
 
-    // $240 / 4 hours = $1 a minute, 1.2× home.
+    // $240 / 4 hours = $1 a minute, 1.2x home.
     const short = priceTaskListForState([washDry, ...chores([30, 30])], 'GA', 240, '2000_2999')
-    // 60 minutes of chores ($60 × 1.2) plus the cycle's other 60 minutes at $25 an hour.
+    // The $120 cycle; the 60 minutes of chores fit in it, so only their 1.2x ($12) is added.
     expect(short.total_task_minutes).toBe(120)
-    expect(short.base_price).toBe(60)
+    expect(short.base_price).toBe(120)
     expect(short.square_footage_adjustment).toBe(12)
-    expect(short.total_customer_charge).toBe(97)
+    expect(short.total_customer_charge).toBe(132)
 
+    // 180 minutes of chores: the cycle covers 120, the other 60 are charged, and the 1.2x is on all 180.
     const long = priceTaskListForState([washDry, ...chores([25, 25, 25, 25, 25, 25, 30])], 'GA', 240, '2000_2999')
     expect(long.total_task_minutes).toBe(180)
     expect(long.base_price).toBe(180)
@@ -318,7 +355,7 @@ describe('laundry service tasks — one service, one quantity', () => {
 
     const laundryOnly = priceTaskListForState([washDry], 'GA', 240, '2000_2999')
     expect(laundryOnly.square_footage_adjustment).toBe(0)
-    expect(laundryOnly.total_customer_charge).toBe(50)
+    expect(laundryOnly.total_customer_charge).toBe(120)
   })
 
   it('refuses a wash-only or dry-only laundromat trip, but prices a full cycle there', () => {
@@ -330,6 +367,33 @@ describe('laundry service tasks — one service, one quantity', () => {
     }
     expect(isTaskPriceable(laundromat('washDry'))).toBe(true)
     expect(minutesFor({ laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1, hasWasherDryer: false })).toBe(120)
+  })
+
+  it('charges a laundromat trip 2 hours for every 3 loads, run side by side', () => {
+    const trip = (machineLoads: number) =>
+      tidyTask({ id: 'lm', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads, hasWasherDryer: false })
+    for (const [loads, minutes] of [[1, 120], [3, 120], [4, 240], [6, 240], [7, 360], [9, 360]]) {
+      expect(minutesFor({ laundryService: 'washDry', laundryBaskets: 1, machineLoads: loads, hasWasherDryer: false })).toBe(minutes)
+    }
+    // Atlanta, $53 an hour: 5 loads is 4 hours, $212.
+    expect(priceTaskListForState([trip(5)], 'GA', 212).total_customer_charge).toBe(212)
+  })
+
+  it('never lets a laundromat trip cover the other tasks: the Tidy Pro is away for it', () => {
+    const trip = tidyTask({ id: 'lm', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 2, hasWasherDryer: false })
+    const hour = [30, 30].map((m, i) => tidyTask({ id: `c${i}`, name: 'Wipe counters', tier: 'Heavy', estimatedMinutes: m, dirtLevel: 'light' }))
+    // $106 for the trip + $53 for the hour of cleaning, done before or after it.
+    expect(priceTaskListForState([trip, ...hour], 'GA', 212).total_customer_charge).toBe(159)
+    expect(visitDurationMinutes([trip, ...hour])).toBe(180)
+  })
+
+  it('still lets laundry at home cover the other tasks when there is also a laundromat trip', () => {
+    const trip = tidyTask({ id: 'lm', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1, hasWasherDryer: false })
+    const home = tidyTask({ id: 'wd', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
+    const hour = tidyTask({ id: 'c', name: 'Wipe counters', tier: 'Heavy', estimatedMinutes: 60, dirtLevel: 'light' })
+    // Trip $106 + home cycle $106; the hour of cleaning fits in the home cycle.
+    expect(priceTaskListForState([trip, home, hour], 'GA', 212).total_customer_charge).toBe(212)
+    expect(visitDurationMinutes([trip, home, hour])).toBe(240)
   })
 
   it('prices folding at 20 minutes a basket, scaled exactly', () => {
@@ -353,8 +417,8 @@ describe('laundry service tasks — one service, one quantity', () => {
       200,
       '2000_2999'
     )
-    // 2 hours at $25 = $50, + 2 × $5 = $60. No 1.2× for the home size.
-    expect(breakdown.total_customer_charge).toBe(60)
+    // 2 hours at $50 an hour = $100, + 2 x $5 = $110. No 1.2x for the home size.
+    expect(breakdown.total_customer_charge).toBe(110)
     expect(breakdown.square_footage_adjustment).toBe(0)
   })
 
@@ -425,6 +489,25 @@ describe('square footage multiplier — Entire home and floor tasks only', () =>
     const breakdown = price({ name: 'Clean baseboards', room: 'Entire home' })
     expect(breakdown.total_customer_charge).toBe(35.1)
   })
+
+  it('makes an Entire home task take longer in a bigger home', () => {
+    const task = tidyTask({ name: 'Clean baseboards', room: 'Entire home', dirtLevel: 'light' })
+    // 27 min × 1.3 = 35.1, rounded.
+    const big = priceTaskListForState([task], 'GA', 240, '3000_plus')
+    expect(big.total_task_minutes).toBe(35)
+    expect(big.task_list[0].estimated_minutes).toBe(35)
+    expect(visitDurationMinutes([task], '3000_plus')).toBe(35)
+    expect(visitDurationMinutes([task], '2000_2999')).toBe(32)
+    expect(visitDurationMinutes([task], null)).toBe(27)
+  })
+
+  it('keeps the time of room tasks, floor tasks included, the same in any home', () => {
+    const tasks = [
+      tidyTask({ name: 'Wipe down kitchen counters', tier: 'Standard', estimatedMinutes: 24, dirtLevel: 'light' }),
+      tidyTask({ id: 't2', name: 'Mop the bathroom', tier: 'Standard', estimatedMinutes: 20, dirtLevel: 'light' }),
+    ]
+    expect(priceTaskListForState(tasks, 'GA', 240, '3000_plus').total_task_minutes).toBe(44)
+  })
 })
 
 describe('buildValidatedTaskPool — Entire home tasks', () => {
@@ -464,9 +547,9 @@ describe('machine loads and visit length for Wash and Dry', () => {
     expect(buildValidatedTaskPool([washDry()])[0].estimated_minutes).toBe(240)
   })
 
-  it('reserves the 2-hour cycle once for a linked Wash + Dry', () => {
-    expect(visitDurationMinutes([wash(1), dry(1)])).toBe(120)
-    expect(visitDurationMinutes([wash(3), dry(2)])).toBe(120)
+  it('reserves 1 hour for a linked Wash + Dry (washed and moved to the dryer)', () => {
+    expect(visitDurationMinutes([wash(1), dry(1)])).toBe(60)
+    expect(visitDurationMinutes([wash(3), dry(2)])).toBe(60)
   })
 
   it('treats Wash and Dry that are not the same laundry as start-the-load tasks', () => {
@@ -475,17 +558,44 @@ describe('machine loads and visit length for Wash and Dry', () => {
     expect(visitDurationMinutes([dry(1)])).toBe(7)
   })
 
-  it('adds the booking’s other tasks to the visit', () => {
+  it('adds other laundry tasks to the visit', () => {
     const fold = tidyTask({ id: 'fold', dirtLevel: null, laundryService: 'fold', laundryBaskets: 1 })
-    expect(visitDurationMinutes([wash(1), dry(1), fold])).toBe(140)
+    expect(visitDurationMinutes([wash(1), dry(1), fold])).toBe(80)
   })
 
-  it('keeps pricing per task while the booking length uses the visit duration', () => {
-    const breakdown = priceTaskListForState([wash(1), dry(1)], 'CA', 240)
-    // 2 loads started at 7 minutes each, at $25 an hour.
-    expect(breakdown.base_price).toBe(0)
-    expect(breakdown.total_customer_charge).toBe(5.84)
-    expect(breakdown.total_task_minutes).toBe(120)
+  it('prices a linked Wash + Dry as 1 hour at the state rate: $53 in Atlanta', () => {
+    const breakdown = priceTaskListForState([wash(1), dry(1)], 'GA', 212)
+    expect(breakdown.base_price).toBe(53)
+    expect(breakdown.flat_price_total).toBe(0)
+    expect(breakdown.total_customer_charge).toBe(53)
+    expect(breakdown.total_task_minutes).toBe(60)
+    expect(breakdown.task_list).toHaveLength(1)
+  })
+
+  it('does the other household tasks during a linked Wash + Dry cycle', () => {
+    const chores = (minutes: number[]) =>
+      minutes.map((m, i) => tidyTask({ id: `c${i}`, name: 'Wipe counters', tier: 'Heavy', estimatedMinutes: m, dirtLevel: 'light' }))
+
+    // $240 / 4 hours = $1 a minute. The $60 hour covers up to an hour of chores.
+    const short = priceTaskListForState([wash(1), dry(1), ...chores([30, 30])], 'GA', 240)
+    expect(short.total_task_minutes).toBe(60)
+    expect(short.total_customer_charge).toBe(60)
+
+    // Over an hour of chores: the booking is the chores' time, and the extra 90 minutes are charged.
+    const long = priceTaskListForState([wash(1), dry(1), ...chores([25, 25, 25, 25, 25, 25])], 'GA', 240)
+    expect(long.total_task_minutes).toBe(150)
+    expect(long.total_customer_charge).toBe(150)
+  })
+
+  it('counts an Entire home task’s home-size time against the cycle', () => {
+    const home = tidyTask({ id: 'eh', name: 'Clean baseboards', room: 'Entire home', dirtLevel: 'light' })
+    const washDry = tidyTask({ id: 'wd', dirtLevel: null, laundryService: 'washDry', laundryBaskets: 1, machineLoads: 1 })
+    const chores = Array.from({ length: 4 }, (_, i) =>
+      tidyTask({ id: `c${i}`, name: 'Wipe counters', tier: 'Heavy', estimatedMinutes: 25, dirtLevel: 'light' })
+    )
+    // 100 min of chores + baseboards 27 min × 1.3 = 35 → 135 min, past the 2-hour cycle.
+    expect(visitDurationMinutes([washDry, home, ...chores], '3000_plus')).toBe(135)
+    expect(visitDurationMinutes([washDry, home, ...chores], null)).toBe(127)
   })
 
   it('rejects an invalid wash & dry load count', () => {

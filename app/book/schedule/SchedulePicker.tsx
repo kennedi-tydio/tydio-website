@@ -12,6 +12,7 @@ import SquareFootageSelect from '@/app/components/form/SquareFootageSelect'
 import type { SquareFootage } from '@/lib/squareFootage'
 import TimeSelect from '@/app/components/form/TimeSelect'
 import LoadingScreen from '@/app/components/LoadingSpinner'
+import { VerifiedCheck } from '@/app/components/VerifiedCheck'
 import { useLocalClock } from '@/app/components/useLocalClock'
 import { ACCEPTANCE_CUTOFF_MINUTES } from '@/lib/bookingTime'
 import { MAX_DATE_RANGE_DAYS, addDaysISO } from '@/lib/bookingSlots'
@@ -115,14 +116,6 @@ function IconStar() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="var(--color-brand)" stroke="none">
       <path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z" />
-    </svg>
-  )
-}
-function IconVerified() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="#22c55e" stroke="white" strokeWidth="1.5">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M7.5 12.5l2.8 2.8 6.2-6.6" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -730,15 +723,12 @@ function SchedulePickerForm({
                           <img src={cleaner.photoUrl} alt="" className="w-full h-full object-cover" />
                         )}
                       </div>
-                      {cleaner.isVerified && (
-                        <div className="absolute -bottom-0.5 -right-0.5 rounded-full bg-white p-0.5">
-                          <IconVerified />
-                        </div>
-                      )}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <p className="text-sm font-semibold text-slate-900 truncate">{cleaner.name}</p>
+                        {/* Beside the name, not on the photo, where it read as an "online" dot. */}
+                        {cleaner.isVerified && <VerifiedCheck size={16} />}
                         {cleaner.isTopTidyPro && (
                           <span
                             className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0"

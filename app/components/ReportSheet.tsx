@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import ModalShell from '@/app/components/ModalShell'
 import { findReportChoice, reportNeedsDetails, type ReportCategory } from '@/lib/reportCategories'
 
@@ -9,16 +9,30 @@ type SubmitResult = { success: true } | { error: string }
 // The bottom sheet for reporting a booking: pick a category, then the reason within it,
 // then add an optional note ("Something else" asks them to describe what happened).
 // Customers use it to report their Tidy Pro; Tidy Pros use it to report the customer.
+//
+// `waits` holds reasons that can't be reported until a set time (a no-show, 10 minutes
+// after the start). Choosing one early shows a countdown and keeps Submit off until then.
+export type ReportWait = { reasonId: string; availableAtMs: number; message: string }
+
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
 export default function ReportSheet({
   title,
   categories,
   onSubmit,
   onClose,
+  waits = [],
 }: {
   title: string
   categories: readonly ReportCategory[]
   onSubmit: (categoryId: string, reasonId: string | null, details: string) => Promise<SubmitResult>
   onClose: () => void
+  waits?: ReportWait[]
 }) {
   const ids = useId()
   const [categoryId, setCategoryId] = useState('')
@@ -31,7 +45,17 @@ export default function ReportSheet({
   const category = categories.find((c) => c.id === categoryId) ?? null
   const choice = findReportChoice(categories, categoryId, reasonId)
   const detailsRequired = choice != null && reportNeedsDetails(choice)
-  const canSubmit = choice != null && (!detailsRequired || details.trim() !== '')
+
+  const wait = waits.find((w) => w.reasonId === reasonId) ?? null
+  const [now, setNow] = useState(() => Date.now())
+  const waiting = wait != null && now < wait.availableAtMs
+  useEffect(() => {
+    if (!waiting) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [waiting])
+
+  const canSubmit = choice != null && !waiting && (!detailsRequired || details.trim() !== '')
 
   function chooseCategory(id: string) {
     setCategoryId(id)
@@ -109,7 +133,10 @@ export default function ReportSheet({
                         name={`${ids}-reason`}
                         value={r.id}
                         checked={selected}
-                        onChange={() => setReasonId(r.id)}
+                        onChange={() => {
+                          setReasonId(r.id)
+                          setNow(Date.now())
+                        }}
                         className="accent-[var(--color-brand)]"
                       />
                       {r.label}
@@ -118,6 +145,16 @@ export default function ReportSheet({
                 })}
               </div>
             </fieldset>
+          )}
+
+          {waiting && wait && (
+            <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4">
+              <p className="text-xs font-semibold text-amber-900">You can report this in</p>
+              <p className="text-2xl font-bold text-amber-900 tabular-nums" aria-live="off">
+                {formatCountdown(wait.availableAtMs - now)}
+              </p>
+              <p className="text-xs text-amber-800 mt-1 leading-relaxed">{wait.message}</p>
+            </div>
           )}
 
           {choice && (

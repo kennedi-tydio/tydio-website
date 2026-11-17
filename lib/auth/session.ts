@@ -4,10 +4,10 @@ import { cookies } from 'next/headers'
 import { currentFingerprint, isSessionCurrent } from '@/lib/auth/sessionFingerprint'
 
 const COOKIE = 'tydio_session'
-// "Stay signed in" keeps the cookie for 7 days. Without it the cookie ends when
+// "Stay signed in" keeps the cookie for 30 days. Without it the cookie ends when
 // the browser closes, and the token lapses after a day in case it's left open.
-const REMEMBERED_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
-const REMEMBERED_TTL = '7d'
+const REMEMBERED_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
+const REMEMBERED_TTL = '30d'
 const BROWSER_SESSION_TTL = '1d'
 
 function secret() {

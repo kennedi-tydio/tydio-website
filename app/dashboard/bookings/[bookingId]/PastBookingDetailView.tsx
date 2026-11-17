@@ -7,6 +7,7 @@ import { cityAndState } from '@/lib/address'
 import type { BookingTaskRow } from './CurrentBookingView'
 import BookingSummary, { type OrderLine } from './BookingSummary'
 import ReviewForm from './ReviewForm'
+import TipForm from './TipForm'
 
 type Props = {
   cardFeePercentage?: number
@@ -24,6 +25,8 @@ type Props = {
   orderLines: OrderLine[]
   totalPrice: number
   alreadyReviewed: boolean
+  // Reviewed, but no tip on the booking yet (it didn't go through, or they skipped it).
+  canSendTip?: boolean
   status: 'completed' | 'cancelled' | 'declined'
 }
 
@@ -42,12 +45,14 @@ export default function PastBookingDetailView({
   orderLines,
   totalPrice,
   alreadyReviewed,
+  canSendTip = false,
   status,
   cardFeePercentage,
 }: Props) {
   const router = useRouter()
   const firstName = cleanerName.split(' ')[0]
   const [showReviewForm, setShowReviewForm] = useState(false)
+  const [showTipForm, setShowTipForm] = useState(false)
 
   return (
     <BookingSummary
@@ -67,6 +72,18 @@ export default function PastBookingDetailView({
     >
       {showReviewForm ? (
         <ReviewForm cardFeePercentage={cardFeePercentage} bookingId={bookingId} firstName={firstName} totalPrice={totalPrice} onSubmitted={() => router.refresh()} />
+      ) : showTipForm ? (
+        <TipForm
+          bookingId={bookingId}
+          firstName={firstName}
+          totalPrice={totalPrice}
+          cardFeePercentage={cardFeePercentage}
+          onSent={() => {
+            setShowTipForm(false)
+            router.refresh()
+          }}
+          onCancel={() => setShowTipForm(false)}
+        />
       ) : (
         <div className="flex flex-col gap-3">
           {status === 'completed' && !alreadyReviewed && (
@@ -76,6 +93,15 @@ export default function PastBookingDetailView({
               className="w-full py-2.5 rounded-xl bg-slate-100 text-slate-500 text-base"
             >
               Leave a review
+            </button>
+          )}
+          {status === 'completed' && alreadyReviewed && canSendTip && (
+            <button
+              type="button"
+              onClick={() => setShowTipForm(true)}
+              className="w-full py-2.5 rounded-xl bg-slate-100 text-slate-500 text-base"
+            >
+              Send a tip
             </button>
           )}
           <Link

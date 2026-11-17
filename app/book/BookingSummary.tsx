@@ -2,7 +2,7 @@ import Link from 'next/link'
 import type { TidyTask } from '@/app/dashboard/types'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
 import { isPetTask } from '@/lib/petTasks'
-import { formatVisitDuration, laundryDetailLabel } from '@/lib/laundry'
+import { laundryDetailLabel } from '@/lib/laundry'
 
 type GroupedTask = { name: string; detail: string | null; count: number }
 
@@ -27,13 +27,10 @@ export default function BookingSummary({
   tasks,
   firstName,
   photoUrls,
-  durationMinutes,
 }: {
   tasks: TidyTask[]
   firstName: string
   photoUrls: Record<string, string>
-  // Estimated visit length (see visitDurationMinutes).
-  durationMinutes: number
 }) {
   const lines = groupTasks(tasks)
 
@@ -63,11 +60,6 @@ export default function BookingSummary({
           ))}
         </div>
         )}
-
-        <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 mb-6">
-          <span className="text-sm text-slate-600">Estimated visit</span>
-          <span className="text-sm font-semibold text-slate-900">{formatVisitDuration(durationMinutes)}</span>
-        </div>
 
         <PetTaskDetails tasks={tasks} photoUrls={photoUrls} showPrepNotice className="mb-6" />
       </div>

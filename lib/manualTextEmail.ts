@@ -25,6 +25,16 @@ export function linksToBookingList(url: string): boolean {
   return ['/dashboard', '/dashboard/bookings', '/pro/messages', '/pro/bookings'].includes(path)
 }
 
+// Who a text is meant for, from where its link goes: Tidy Pro pages are under /pro and
+// customer pages under /dashboard. Needed when one phone number is on both a customer
+// and a Tidy Pro account (as with test accounts), so the email names the right one.
+export function recipientRoleFromUrl(url: string): 'TIDYPRO' | 'USER' | null {
+  const path = url.replace(/^https?:\/\/[^/]+/, '')
+  if (/^\/pro(?:[/?#]|$)/.test(path)) return 'TIDYPRO'
+  if (/^\/dashboard(?:[/?#]|$)/.test(path)) return 'USER'
+  return null
+}
+
 export function textBody(payload: NotificationPayload): string {
   return `Tydio: ${payload.body} ${payload.url}`
 }
@@ -109,9 +119,14 @@ export async function emailAdminManualText(admin: Admin, to: string, payload: No
   const customer = booking ? parties.get(booking.user_id) : undefined
   const tidyPro = booking?.tidy_pro_id ? parties.get(booking.tidy_pro_id) : undefined
 
-  // The booking's own customer or Tidy Pro, when the number is theirs.
+  // The booking's own customer or Tidy Pro, when the number is theirs. If the number is on
+  // both, the link says which one the text is for.
+  const intendedRole = recipientRoleFromUrl(payload.url)
+  const ownsNumber = (p: Person | undefined): p is Person => !!p?.phone && normalizePhone(p.phone) === normalizePhone(to)
+  const fitsRole = (p: Person) => !intendedRole || p.role === intendedRole
+  const numberOwners = [customer, tidyPro].filter(ownsNumber)
   const recipient =
-    [customer, tidyPro].find((p) => p?.phone && normalizePhone(p.phone) === normalizePhone(to)) ?? recipients[0] ?? null
+    numberOwners.find(fitsRole) ?? recipients.find(fitsRole) ?? numberOwners[0] ?? recipients[0] ?? null
   const who = recipient ? `${roleLabel(recipient.role)} ${recipient.name}` : 'Unknown person'
   const text = textBody(payload)
 

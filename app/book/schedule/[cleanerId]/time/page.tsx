@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { shiftDateISO } from '@/lib/bookingTime'
-import { visitDurationMinutes } from '@/app/dashboard/taskPricing'
+import { visitDurationMinutes, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
+import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
 import { parseTimeOff } from '@/lib/timeOff'
@@ -34,7 +35,7 @@ export default async function ChooseTimePage({
 
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
-    .select('id, task_list, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time')
+    .select('id, task_list, scheduled_location, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time')
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -67,9 +68,16 @@ export default async function ChooseTimePage({
   const allTasks = (draft.task_list as TidyTask[] | null) ?? []
   const tasks = allTasks.filter((t) => t.completed)
 
+  // Entire home tasks take longer in a bigger home.
+  const squareFootage = await resolveLocationSquareFootage(
+    admin,
+    session.profileId,
+    draft.scheduled_location as ScheduledLocation | null
+  )
+
   let durationMinutes = 180
   try {
-    durationMinutes = visitDurationMinutes(tasks)
+    durationMinutes = visitDurationMinutes(tasks, squareFootage)
   } catch {
     // fall back to the default typical duration if a task is unpriceable
   }

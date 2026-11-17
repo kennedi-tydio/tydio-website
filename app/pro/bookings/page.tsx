@@ -7,6 +7,10 @@ import { REQUEST_FILLED_REASON } from '@/lib/bookingRequestGroups'
 import { DEFAULT_BOOKING_TIME_ZONE, scheduleForViewer, todayInZone } from '@/lib/bookingTime'
 import { canLeaveCustomerReview, cleanerReviewHoursLeft } from '@/lib/cleanerReviewWindow'
 import JobsListView, { type JobRow } from './JobsListView'
+import type { ProRecurringRow } from './ProRecurringCard'
+
+import { isRecurrenceFrequency, occurrenceLabel, recurrenceScheduleLabel, type RecurrenceFrequency } from '@/lib/recurrence'
+import { listSeriesOccurrences } from '@/lib/recurringOccurrences'
 
 export const metadata: Metadata = { title: 'Your Jobs — Tydio' }
 
@@ -76,5 +80,45 @@ export default async function JobsPage() {
     }
   })
 
-  return <JobsListView jobs={jobs} unreadMessageCount={unreadMessageCount} />
+  // Recurring bookings they've accepted, to cancel the series or one visit from here.
+  const { data: seriesRows } = await admin
+    .from('recurring_bookings')
+    .select('id, user_id, frequency, next_date, scheduled_time, time_zone, skipped_dates, scheduled_location')
+    .eq('tidy_pro_id', session.profileId)
+    .eq('status', 'active')
+    .not('tidy_pro_accepted_at', 'is', null)
+    .order('next_date', { ascending: true })
+
+  const seriesCustomerIds = [...new Set((seriesRows ?? []).map((s) => s.user_id).filter((id) => !customerById.has(id)))]
+  const { data: seriesCustomers } = seriesCustomerIds.length
+    ? await admin.from('profiles').select('id, first_name, last_name, street_address').in('id', seriesCustomerIds)
+    : { data: [] }
+  for (const c of seriesCustomers ?? []) customerById.set(c.id, c)
+
+  const recurring: ProRecurringRow[] = await Promise.all(
+    (seriesRows ?? []).filter((s) => isRecurrenceFrequency(s.frequency)).map(async (s) => {
+      const customer = customerById.get(s.user_id)
+      const occurrences = await listSeriesOccurrences(admin, s, { tidyProId: session.profileId })
+      // Shown in the Tidy Pro's own zone; the date sent back stays the series' own.
+      const first = scheduleForViewer(s.next_date, s.scheduled_time, s.time_zone, myTimeZone)
+      return {
+        id: s.id,
+        customerName: customer ? [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'Customer' : 'Customer',
+        schedule: recurrenceScheduleLabel(s.frequency as RecurrenceFrequency, first.date, first.time),
+        address: customer?.street_address ?? null,
+        occurrences: occurrences.map((o) => {
+          const seen = scheduleForViewer(o.date, o.time, s.time_zone, myTimeZone)
+          return {
+            date: o.date,
+            time: o.time,
+            booked: o.bookingId != null,
+            late: o.late,
+            label: seen.date && seen.time ? occurrenceLabel(seen.date, seen.time.slice(0, 5)) : undefined,
+          }
+        }),
+      }
+    })
+  )
+
+  return <JobsListView jobs={jobs} recurring={recurring} unreadMessageCount={unreadMessageCount} />
 }

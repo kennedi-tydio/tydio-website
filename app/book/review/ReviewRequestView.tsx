@@ -7,12 +7,14 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
 import { lateCancelRefund } from '@/lib/pricingRules'
 import { MAX_ENTRY_INSTRUCTIONS_LENGTH } from '@/lib/entryInstructions'
-import { laundryDetailLabel, formatVisitDuration } from '@/lib/laundry'
+import { laundryDetailLabel } from '@/lib/laundry'
 import { formatEstimatedMinutes, isPetTask, petDetailLabel } from '@/lib/petTasks'
 import { VerifiedCheck } from '@/app/components/VerifiedCheck'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
+import LaundromatNotice from '@/app/components/LaundromatNotice'
 import type { CleanerMatch } from '@/lib/cleanerMatching'
-import { recurrenceLabel, type RecurrenceFrequency } from '@/lib/recurrence'
+import { usePersistedPicks, writePicks } from '@/app/components/TidyProPickList'
+import { recurrenceScheduleLabel, type RecurrenceFrequency } from '@/lib/recurrence'
 import {
   updateTaskNoteAction,
   removeTaskFromBookingAction,
@@ -82,6 +84,8 @@ type Props = {
   addressName: string
   addressLine: string | null
   cleanerName: string
+  // The Tidy Pro the customer chose, shown as "Your Tidy Pro".
+  selectedCleaner: CleanerMatch
   extraCleanerOptions: CleanerMatch[]
   // One line per pet (or "No pets"), from Profile → Pets.
   pets: string
@@ -108,6 +112,32 @@ function IconRemove() {
   )
 }
 
+// Photo, name and stats for a Tidy Pro row: the chosen one and the others they can also ask.
+function CleanerSummary({ cleaner }: { cleaner: CleanerMatch }) {
+  return (
+    <>
+      <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-200 flex-shrink-0">
+        {cleaner.photoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={cleaner.photoUrl} alt="" className="w-full h-full object-cover" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-slate-900 flex items-center gap-1 min-w-0">
+          <span className="truncate">{cleaner.name}</span>
+          {cleaner.isVerified && <VerifiedCheck size={14} />}
+        </p>
+        <p className="text-xs text-slate-500">
+          <span className="text-amber-500">★</span> {cleaner.rating.toFixed(1)} · {cleaner.distanceMiles} miles
+          {cleaner.isTopTidyPro && (
+            <span className="font-semibold" style={{ color: 'var(--color-brand)' }}> · Top Tidy Pro</span>
+          )}
+        </p>
+      </div>
+    </>
+  )
+}
+
 export default function ReviewRequestView({
   draftId,
   tasks,
@@ -119,6 +149,7 @@ export default function ReviewRequestView({
   addressName,
   addressLine,
   cleanerName,
+  selectedCleaner,
   extraCleanerOptions,
   pets,
   notes: initialNotes,
@@ -157,14 +188,13 @@ export default function ReviewRequestView({
   const [confirmError, setConfirmError] = useState<string | null>(null)
   // The selected card couldn't be charged; the customer is sent to add or pick another.
   const [paymentFailed, setPaymentFailed] = useState(false)
-  const [extraCleanerIds, setExtraCleanerIds] = useState<string[]>([])
-  const extrasAtLimit = extraCleanerIds.length >= MAX_EXTRA_BOOKING_CLEANERS
-
-  function toggleExtraCleaner(id: string) {
-    setExtraCleanerIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < MAX_EXTRA_BOOKING_CLEANERS ? [...prev, id] : prev
-    )
-  }
+  // Checked off on /book/review/others, after looking over their profiles.
+  const { picks: extraCleanerIds, toggle: removeExtraCleaner } = usePersistedPicks(
+    `draft:${draftId}`,
+    extraCleanerOptions.map((c) => c.id),
+    MAX_EXTRA_BOOKING_CLEANERS
+  )
+  const extraCleaners = extraCleanerOptions.filter((c) => extraCleanerIds.includes(c.id))
 
   const selectedPaymentMethod = paymentMethods.find((pm) => pm.id === selectedPaymentMethodId) ?? null
   const paymentLinkHref = `/dashboard/profile/payment-methods?draftId=${draftId}`
@@ -222,7 +252,8 @@ export default function ReviewRequestView({
       setPaymentFailed(!!result.paymentFailed)
       return
     }
-    router.push(`/dashboard/messages/${result.bookingId}`)
+    writePicks(`draft:${draftId}`, [])
+    router.push(`/dashboard/messages/${result.bookingId}?from=booking`)
   }
 
   return (
@@ -240,11 +271,13 @@ export default function ReviewRequestView({
           <div>
             <p className="text-sm font-bold text-slate-900">{formatDateLabel(date)}</p>
             <p className="text-sm text-slate-500">{formatTimeRange(time, durationMinutes)}</p>
-            <p className="text-xs text-slate-400">Estimated visit: {formatVisitDuration(durationMinutes)}</p>
             {recurrence && (
-              <p className="text-xs font-semibold mt-1" style={{ color: 'var(--color-brand)' }}>
-                Repeats {recurrenceLabel(recurrence).toLowerCase()}
-              </p>
+              <>
+                <p className="text-xs font-semibold mt-1" style={{ color: 'var(--color-brand)' }}>
+                  Repeats {recurrenceScheduleLabel(recurrence, date, time).replace(/^Every/, 'every')}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">Each visit after this one is on the same day and time.</p>
+              </>
             )}
           </div>
           <div className="text-right">
@@ -309,6 +342,16 @@ export default function ReviewRequestView({
         </div>
 
         <PetTaskDetails tasks={tasks} photoUrls={photoUrls} showPrepNotice className="mb-6" />
+        <LaundromatNotice tasks={tasks} audience="customer" className="mb-6" />
+
+        <div className="border-t border-slate-100 pt-5 mb-6">
+          <h2 className="text-sm font-bold mb-2" style={{ color: 'var(--color-brand)' }}>
+            Your Tidy Pro
+          </h2>
+          <div className="rounded-2xl border border-slate-100 px-3 py-2.5 flex items-center gap-3">
+            <CleanerSummary cleaner={selectedCleaner} />
+          </div>
+        </div>
 
         {extraCleanerOptions.length > 0 && (
           <div className="border-t border-slate-100 pt-5 mb-6">
@@ -319,42 +362,38 @@ export default function ReviewRequestView({
               Send this request to up to {MAX_EXTRA_BOOKING_CLEANERS} more Tidy Pros along with {cleanerName}. You&apos;re only charged once, at
               this price. The first to accept gets your booking, and the other requests are canceled.
             </p>
-            <div className="flex flex-col gap-2">
-              {extraCleanerOptions.map((cleaner) => {
-                const isSelected = extraCleanerIds.includes(cleaner.id)
-                return (
-                  <button
-                    key={cleaner.id}
-                    type="button"
-                    role="checkbox"
-                    aria-checked={isSelected}
-                    onClick={() => toggleExtraCleaner(cleaner.id)}
-                    disabled={confirming || (extrasAtLimit && !isSelected)}
-                    className="w-full rounded-2xl border px-3 py-2.5 flex items-center gap-3 text-left transition-colors disabled:opacity-50"
-                    style={{ borderColor: isSelected ? 'var(--color-brand)' : '#f1f5f9', backgroundColor: isSelected ? '#e8f9fa' : 'white' }}
-                  >
-                    <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-200 flex-shrink-0">
-                      {cleaner.photoUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={cleaner.photoUrl} alt="" className="w-full h-full object-cover" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-900 flex items-center gap-1 min-w-0">
-                        <span className="truncate">{cleaner.name}</span>
-                        {cleaner.isVerified && <VerifiedCheck size={14} />}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        <span className="text-amber-500">★</span> {cleaner.rating.toFixed(1)} · {cleaner.distanceMiles} miles
-                        {cleaner.isTopTidyPro && (
-                          <span className="font-semibold" style={{ color: 'var(--color-brand)' }}> · Top Tidy Pro</span>
-                        )}
-                      </p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
+            {extraCleaners.length > 0 && (
+              <ul className="flex flex-col gap-2 mb-3">
+                {extraCleaners.map((cleaner) => (
+                  <li key={cleaner.id} className="rounded-2xl border border-slate-100 px-3 py-2.5 flex items-center gap-3">
+                    <CleanerSummary cleaner={cleaner} />
+                    <button
+                      type="button"
+                      onClick={() => removeExtraCleaner(cleaner.id)}
+                      disabled={confirming}
+                      aria-label={`Don't ask ${cleaner.name}`}
+                      className="w-8 h-8 flex items-center justify-center flex-shrink-0 disabled:opacity-50"
+                    >
+                      <IconRemove />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Link
+              href="/book/review/others"
+              aria-disabled={confirming}
+              className={`block w-full py-3 rounded-2xl text-sm font-semibold text-center ${confirming ? 'pointer-events-none opacity-50' : ''}`}
+              style={
+                extraCleaners.length > 0
+                  ? { backgroundColor: '#f1f5f9', color: 'var(--color-slate-600)' }
+                  : { backgroundColor: 'var(--color-brand)', color: 'white' }
+              }
+            >
+              {extraCleaners.length > 0
+                ? 'Change other Tidy Pros'
+                : `Ask ${Math.min(MAX_EXTRA_BOOKING_CLEANERS, extraCleanerOptions.length)} more Tidy Pro${extraCleanerOptions.length === 1 ? '' : 's'}`}
+            </Link>
           </div>
         )}
 

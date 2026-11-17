@@ -153,7 +153,7 @@ export function canReportNoAccess(
 
 // A customer whose cleaner still hasn't arrived this long after the start time can report
 // a no-show. "Anytime" bookings have no start time to measure from.
-export const NO_SHOW_REPORT_AFTER_MINUTES = 20
+export const NO_SHOW_REPORT_AFTER_MINUTES = 10
 
 export function noShowReportableAt(
   date: string | null,

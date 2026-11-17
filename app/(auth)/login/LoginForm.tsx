@@ -139,7 +139,7 @@ export default function LoginForm({ next, googleEnabled = false }: { next?: stri
             Stay signed in
           </label>
           <p id="remember-hint" className="text-xs text-slate-500 leading-relaxed">
-            Keeps you signed in on this device for 7 days. Leave this off on a shared or public device.
+            Keeps you signed in on this device for 30 days. Leave this off on a shared or public device.
           </p>
         </div>
       </div>

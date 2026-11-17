@@ -139,9 +139,9 @@ describe('canReportNoAccess', () => {
 })
 
 describe('canReportNoShow', () => {
-  it('unlocks 20 minutes after the start time', () => {
-    expect(canReportNoShow('2026-12-01', '09:00', new Date('2026-12-01T14:19:00Z'))).toBe(false)
-    expect(canReportNoShow('2026-12-01', '09:00', new Date('2026-12-01T14:20:00Z'))).toBe(true)
+  it('unlocks 10 minutes after the start time', () => {
+    expect(canReportNoShow('2026-12-01', '09:00', new Date('2026-12-01T14:09:00Z'))).toBe(false)
+    expect(canReportNoShow('2026-12-01', '09:00', new Date('2026-12-01T14:10:00Z'))).toBe(true)
   })
 
   it('never unlocks for an anytime booking', () => {

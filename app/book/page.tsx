@@ -83,7 +83,6 @@ export default async function BookPage() {
       tasks={tasks}
       firstName={profile.first_name ?? 'Your'}
       photoUrls={photoUrls}
-      durationMinutes={breakdown.total_task_minutes}
     />
   )
 }

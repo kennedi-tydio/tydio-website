@@ -9,11 +9,45 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { bookingBlockedByAccess, bookingBlockedBySuspension } from '@/lib/accountSuspension'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
-import { DEFAULT_BOOKING_TIME_ZONE, hasAcceptanceWindowClosed, isValidTimeZone } from '@/lib/bookingTime'
+import { DEFAULT_BOOKING_TIME_ZONE, hasAcceptanceWindowClosed } from '@/lib/bookingTime'
+import { serviceTimeZone } from '@/lib/serviceTimeZone'
 import { MAX_ENTRY_INSTRUCTIONS_LENGTH } from '@/lib/entryInstructions'
 import { draftEntryInstructions } from '@/lib/entryInstructionsData'
 import { placeBooking } from '@/lib/placeBooking'
+import { markQuoteBooked } from '@/lib/pricingQuotes'
+import { dropUnmatchedLaundryLinks } from '@/lib/laundry'
+import { defaultPaymentMethodId, makeDefaultIfNone } from '@/lib/defaultPaymentMethod'
 import { isRecurrenceFrequency, startRecurringSeries } from '@/lib/recurringBookings'
+
+// After a booking is placed, only the tasks it took leave the dashboard; the ones the
+// customer didn't select stay on their list. The booked ones come back if the booking
+// is canceled (see restoreBookingTasks). The booked-from draft is replaced with a fresh
+// one so its schedule, cleaner, notes and card don't carry into the next booking.
+async function keepUnbookedTasks(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+  draftId: string,
+  taskList: TidyTask[]
+): Promise<void> {
+  const bookedIds = new Set(taskList.filter((t) => t.completed).map((t) => t.id))
+  const withoutBooked = (tasks: TidyTask[]) => dropUnmatchedLaundryLinks(tasks.filter((t) => !bookedIds.has(t.id)))
+
+  await admin.from('booking_drafts').delete().eq('id', draftId)
+  const remaining = withoutBooked(taskList)
+  if (remaining.length > 0) {
+    await admin.from('booking_drafts').insert({ customer_user_id: profileId, task_list: remaining as never, last_step_reached: 1 })
+  }
+
+  // Any older list is cleared of the booked tasks too, so they can't resurface from it.
+  const { data: others } = await admin.from('booking_drafts').select('id, task_list').eq('customer_user_id', profileId).neq('id', draftId)
+  for (const other of others ?? []) {
+    const tasks = (other.task_list as TidyTask[] | null) ?? []
+    if (!tasks.some((t) => bookedIds.has(t.id))) continue
+    const kept = withoutBooked(tasks)
+    if (kept.length === 0) await admin.from('booking_drafts').delete().eq('id', other.id)
+    else await admin.from('booking_drafts').update({ task_list: kept as never }).eq('id', other.id)
+  }
+}
 
 async function loadOwnedDraftTasks(
   admin: ReturnType<typeof createAdminClient>,
@@ -172,14 +206,17 @@ export async function confirmBookingAction(
   if (!draft.selected_tidy_pro_id || !draft.scheduled_date || !draft.scheduled_time) {
     return { error: 'Finish scheduling before confirming.' }
   }
-  if (!draft.selected_payment_method_id) return { error: 'Select a payment method before confirming.' }
+  // A card picked for this booking, or else their default (which the review page preselects).
+  const paymentMethodId = draft.selected_payment_method_id ?? (await defaultPaymentMethodId(admin, session.profileId))
+  if (!paymentMethodId) return { error: 'Select a payment method before confirming.' }
+  const location = draft.scheduled_location as ScheduledLocation | null
+  // The time they picked is local to the home, wherever their device thinks it is.
+  const bookingTimeZone = await serviceTimeZone(admin, session.profileId, location, timeZone, DEFAULT_BOOKING_TIME_ZONE)
   // A booking inside this window would be auto-canceled as soon as it was made.
-  if (hasAcceptanceWindowClosed(draft.scheduled_date, draft.scheduled_time, new Date(), isValidTimeZone(timeZone) ? timeZone : DEFAULT_BOOKING_TIME_ZONE)) {
+  if (hasAcceptanceWindowClosed(draft.scheduled_date, draft.scheduled_time, new Date(), bookingTimeZone)) {
     return { error: 'Please choose a time at least an hour from now.' }
   }
 
-  const bookingTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_BOOKING_TIME_ZONE
-  const location = draft.scheduled_location as ScheduledLocation | null
   const entryInstructions = await draftEntryInstructions(admin, session.profileId, draft.entry_instructions, location)
   const taskList = (draft.task_list as TidyTask[] | null) ?? []
 
@@ -194,11 +231,16 @@ export async function confirmBookingAction(
     notes: draft.notes,
     entryInstructions,
     suppliesProvided: draft.supplies_provided,
-    paymentMethodId: draft.selected_payment_method_id,
+    paymentMethodId,
     extraCleanerIds,
     stripeMetadata: { draft_id: draftId },
   })
   if ('error' in placed) return placed
+
+  // Before keepUnbookedTasks clears the draft, so the quote isn't later counted as abandoned.
+  await markQuoteBooked(admin, draftId, placed.bookingId)
+
+  await makeDefaultIfNone(admin, session.profileId, paymentMethodId)
 
   // The first visit is booked; the series books each next one (see lib/recurringBookings).
   if (isRecurrenceFrequency(draft.recurrence_frequency)) {
@@ -215,13 +257,13 @@ export async function confirmBookingAction(
       notes: draft.notes,
       entryInstructions,
       suppliesProvided: draft.supplies_provided,
-      paymentMethodId: draft.selected_payment_method_id,
+      paymentMethodId,
       firstBookingId: placed.bookingId,
     }).catch((err) => console.error('[Tydio] Starting recurring booking failed:', err))
     revalidatePath('/dashboard/bookings')
   }
 
-  await admin.from('booking_drafts').delete().eq('id', draftId)
+  await keepUnbookedTasks(admin, session.profileId, draftId, taskList)
 
   if (saveEntryInstructionsToAddress && location?.type === 'address') {
     await admin

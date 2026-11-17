@@ -9,6 +9,7 @@ import OnTheWayView from './OnTheWayView'
 import TaskListView from './TaskListView'
 import type { TidyTask } from '@/app/dashboard/types'
 import { isPetTask } from '@/lib/petTasks'
+import { usesLaundromat } from '@/lib/laundry'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 import NoAccessView from './NoAccessView'
 import SuspendedBookingView from './SuspendedBookingView'
@@ -80,6 +81,8 @@ export default async function ProActiveBookingPage({
   // Pet enclosure / litter box tasks carry their scope, instructions and
   // checked photos on the booking's task list.
   const petTasks = ((booking.task_list as TidyTask[] | null) ?? []).filter(isPetTask)
+  // Laundromat trips: shown with the stay-for-the-whole-cycle rule while the job is on.
+  const laundromatTasks = ((booking.task_list as TidyTask[] | null) ?? []).filter(usesLaundromat)
   const photoUrls = await signedTaskPhotoUrls(admin, petTasks)
 
   const arrivedAtMs = booking.arrived_at ? new Date(booking.arrived_at).getTime() : null
@@ -136,6 +139,7 @@ export default async function ProActiveBookingPage({
         bookingEarnings={booking.cleaner_pay ?? 0}
         tipAmount={0}
         canLeaveReview={false}
+        isRecurring={booking.recurring_booking_id != null}
       />
     )
   }
@@ -183,6 +187,7 @@ export default async function ProActiveBookingPage({
         addressLine={addressLine}
         entryInstructions={booking.entry_instructions}
         tasks={tasks.map((t) => ({ id: t.id, taskName: t.task_name }))}
+        laundromatTasks={laundromatTasks}
       />
     )
   }
@@ -217,6 +222,7 @@ export default async function ProActiveBookingPage({
       notes={booking.notes}
       tasks={tasks}
       petTasks={petTasks}
+      laundromatTasks={laundromatTasks}
       photoUrls={photoUrls}
       wantsBeforePhotos={wantsBeforePhotos}
       arrivedAtMs={arrivedAtMs}

@@ -1,10 +1,21 @@
 import type { TidyTask } from '@/app/dashboard/types'
-import { LAUNDRY_SERVICE_LABEL, laundryQuantityLabel, usesLaundromat } from '@/lib/laundry'
+import { LAUNDROMAT_CUSTOMER_NOTE, LAUNDROMAT_STAY_NOTE, LAUNDRY_SERVICE_LABEL, laundryQuantityLabel, usesLaundromat } from '@/lib/laundry'
 
-// Highlighted on a booking request when the customer has no working washer
-// and dryer, so the Tidy Pro knows before accepting that they'll be taking
-// the laundry to a laundromat. Renders nothing otherwise.
-export default function LaundromatNotice({ tasks, className = '' }: { tasks: TidyTask[]; className?: string }) {
+// Highlighted when the customer has no working washer and dryer, so the laundry
+// goes to a laundromat. For the Tidy Pro ('tidyPro'): on the booking request, so
+// they know before accepting, and throughout the active booking, with the rule that
+// they stay there for the whole cycle. For the customer ('customer'): when they
+// review the booking, so they know how the trip works and is charged. Renders
+// nothing otherwise.
+export default function LaundromatNotice({
+  tasks,
+  audience = 'tidyPro',
+  className = '',
+}: {
+  tasks: TidyTask[]
+  audience?: 'tidyPro' | 'customer'
+  className?: string
+}) {
   const laundromatTasks = tasks.filter(usesLaundromat)
   if (laundromatTasks.length === 0) return null
 
@@ -17,9 +28,16 @@ export default function LaundromatNotice({ tasks, className = '' }: { tasks: Tid
         </svg>
         <div className="min-w-0">
           <p className="text-sm font-bold text-amber-900">Laundromat trip</p>
-          <p className="text-sm text-amber-900 leading-relaxed mt-0.5">
-            This customer doesn&apos;t have a working washer and dryer. You&apos;ll take their laundry to the nearest laundromat.
-          </p>
+          {audience === 'tidyPro' ? (
+            <>
+              <p className="text-sm text-amber-900 leading-relaxed mt-0.5">
+                This customer doesn&apos;t have a working washer and dryer. You&apos;ll take their laundry to the nearest laundromat.
+              </p>
+              <p className="text-sm font-semibold text-amber-900 leading-relaxed mt-1.5">{LAUNDROMAT_STAY_NOTE}</p>
+            </>
+          ) : (
+            <p className="text-sm text-amber-900 leading-relaxed mt-0.5">{LAUNDROMAT_CUSTOMER_NOTE}</p>
+          )}
           <ul className="mt-1.5 text-xs text-amber-800 list-disc pl-4">
             {laundromatTasks.map((task) => (
               <li key={task.id}>

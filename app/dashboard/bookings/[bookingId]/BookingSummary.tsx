@@ -77,6 +77,7 @@ export default function BookingSummary({
   orderLines,
   totalPrice,
   banner,
+  headerAction,
   children,
 }: {
   eyebrow: string
@@ -94,6 +95,8 @@ export default function BookingSummary({
   totalPrice: number
   // Shown right under the heading, for something the customer needs to act on.
   banner?: ReactNode
+  // Top right, across from the back button (e.g. the Report Tidy Pro flag).
+  headerAction?: ReactNode
   children: ReactNode
 }) {
   const router = useRouter()
@@ -101,14 +104,17 @@ export default function BookingSummary({
   return (
     <main id="main-content" className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
-        <button
-          type="button"
-          onClick={() => router.push('/dashboard/bookings')}
-          aria-label="Back"
-          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-1.5 mb-5"
-        >
-          <IconBack />
-        </button>
+        <div className="flex items-center justify-between mb-5">
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/bookings')}
+            aria-label="Back"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-1.5"
+          >
+            <IconBack />
+          </button>
+          {headerAction}
+        </div>
 
         <p className="text-sm text-slate-400 mb-1">{eyebrow}</p>
         <h1 className="text-2xl font-bold text-slate-900 mb-3">{cleanerName}</h1>

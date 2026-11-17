@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { shiftDateISO } from '@/lib/bookingTime'
+import ProRecurringCard, { type ProRecurringRow } from './ProRecurringCard'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
 
@@ -125,7 +126,16 @@ function JobRowCard({ job }: { job: JobRow }) {
   )
 }
 
-export default function JobsListView({ jobs, unreadMessageCount }: { jobs: JobRow[]; unreadMessageCount: number }) {
+export default function JobsListView({
+  jobs,
+  recurring,
+  unreadMessageCount,
+}: {
+  jobs: JobRow[]
+  // Recurring bookings they've accepted, shown under Upcoming with Cancel.
+  recurring: ProRecurringRow[]
+  unreadMessageCount: number
+}) {
   const [tab, setTab] = useState<Tab>('today')
   const [sortDesc, setSortDesc] = useState(false)
 
@@ -169,6 +179,17 @@ export default function JobsListView({ jobs, unreadMessageCount }: { jobs: JobRo
             Date <IconChevronDown />
           </button>
         </div>
+
+        {tab === 'upcoming' && recurring.length > 0 && (
+          <section aria-labelledby="recurring-heading" className="mb-5">
+            <h2 id="recurring-heading" className="text-sm font-bold text-slate-900 mb-2">Recurring bookings</h2>
+            <div className="flex flex-col gap-3">
+              {recurring.map((series) => (
+                <ProRecurringCard key={series.id} series={series} />
+              ))}
+            </div>
+          </section>
+        )}
 
         {visible.length === 0 ? (
           <div className="rounded-2xl border border-slate-100 bg-white shadow-sm py-10 px-6 text-center">

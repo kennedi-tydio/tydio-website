@@ -20,12 +20,12 @@ beforeEach(() => {
 })
 
 describe('createSession', () => {
-  it('with "Stay signed in", keeps the cookie and token for 7 days', async () => {
+  it('with "Stay signed in", keeps the cookie and token for 30 days', async () => {
     await createSession(payload, { remember: true })
     const { name, options, lifetime } = issued()
     expect(name).toBe('tydio_session')
-    expect(options.maxAge).toBe(60 * 60 * 24 * 7)
-    expect(lifetime).toBe(60 * 60 * 24 * 7)
+    expect(options.maxAge).toBe(60 * 60 * 24 * 30)
+    expect(lifetime).toBe(60 * 60 * 24 * 30)
   })
 
   it('without it, the cookie ends with the browser and the token lapses after a day', async () => {

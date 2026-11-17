@@ -9,11 +9,12 @@ import {
 } from '@/lib/bookingRequestGroups'
 import { hasAcceptanceWindowClosed } from '@/lib/bookingTime'
 import { withdrawPendingProposals } from '@/lib/bookingTimeProposals'
-import { dropPendingUpcharges } from '@/lib/bookingUpcharges'
+import { dropPendingUpcharges, refundUpchargesOfUnpaidVisit } from '@/lib/bookingUpcharges'
 import { notifyCustomer } from '@/lib/customerNotifications'
 import { notifyBookingDeclined, notifyCleanerCancelled, notifyCleanerCancelledRefunded, notifyRecurringVisitCancelledByTidyPro } from '@/lib/notifications'
 import { isUnpaidVisit } from '@/lib/recurringPayments'
 import { userFacingError } from '@/lib/userFacingError'
+import { emailAdminOfTidyProCancel } from '@/lib/tidyProCancelAlert'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -31,7 +32,27 @@ type Admin = ReturnType<typeof createAdminClient>
 // Used by the Tidy Pro's Cancel button, by dropping a whole recurring series, by suspending
 // or banning them (lib/accountBookingCancellation), and by time
 // off that covers a recurring visit.
+//
+// The admin is emailed about each cancel, except ones the admin caused (alertAdmin: false,
+// for suspending or banning a Tidy Pro).
 export async function cancelBookingForTidyPro(
+  admin: Admin,
+  input: {
+    bookingId: string
+    tidyProId: string
+    reason: { cancellation_reason: string; cancellation_note: string | null }
+    now?: Date
+    alertAdmin?: boolean
+  }
+): Promise<{ success: true } | { error: string }> {
+  const result = await cancelForTidyPro(admin, input)
+  if ('success' in result && input.alertAdmin !== false) {
+    await emailAdminOfTidyProCancel(admin, input).catch((err) => console.error('Tidy Pro cancel email to admin failed', input.bookingId, err))
+  }
+  return result
+}
+
+async function cancelForTidyPro(
   admin: Admin,
   input: {
     bookingId: string
@@ -79,6 +100,7 @@ export async function cancelBookingForTidyPro(
     if (!updated?.length) return { error: 'This booking just changed. Please refresh the page and try again.' }
 
     await dropPendingUpcharges(admin, input.bookingId)
+    await refundUpchargesOfUnpaidVisit(admin, input.bookingId)
     await notifyCustomer(admin, booking.user_id, notifyRecurringVisitCancelledByTidyPro(cleanerName, booking.scheduled_date ?? ''))
     return { success: true }
   }

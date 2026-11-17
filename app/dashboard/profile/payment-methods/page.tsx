@@ -36,7 +36,7 @@ export default async function PaymentMethodsPage({
       .eq('id', draftId)
       .eq('customer_user_id', session.profileId)
       .maybeSingle()
-    selectedId = draft?.selected_payment_method_id ?? null
+    selectedId = draft?.selected_payment_method_id ?? paymentMethods?.find((pm) => pm.is_default)?.id ?? null
   }
 
   const declinedId = draftId && paymentMethods?.some((pm) => pm.id === declined) ? declined! : null

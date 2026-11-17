@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { addUploadedPortfolioItem, removePortfolioItems, type UploadedPortfolioPhoto } from '@/lib/tidyProPortfolio'
-import { PORTFOLIO_CAPTION_MAX_LENGTH, PORTFOLIO_MAX_ITEMS, type PortfolioItem } from '@/lib/portfolioItems'
+import { PORTFOLIO_CAPTION_MAX_LENGTH, type PortfolioItem } from '@/lib/portfolioItems'
 
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 const MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024
@@ -18,8 +18,8 @@ async function readPhoto(value: FormDataEntryValue | null): Promise<UploadedPort
   return { body: Buffer.from(await value.arrayBuffer()), contentType }
 }
 
-// A Tidy Pro uploads a photo of their work from their device: the finished
-// result (required), optionally with a before photo, and a short caption.
+// A Tidy Pro uploads a before/after pair of their work from their device, with
+// a short caption. Their oldest pair drops off once they're past the limit.
 export async function uploadPortfolioPhotoAction(formData: FormData): Promise<{ item: PortfolioItem } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
@@ -30,20 +30,14 @@ export async function uploadPortfolioPhotoAction(formData: FormData): Promise<{ 
     return { error: `Keep the caption under ${PORTFOLIO_CAPTION_MAX_LENGTH} characters.` }
   }
 
-  const after = await readPhoto(formData.get('after'))
-  if (typeof after === 'string') return { error: after }
-  if (!after) return { error: 'Please choose a photo of the finished work.' }
   const before = await readPhoto(formData.get('before'))
   if (typeof before === 'string') return { error: before }
+  if (!before) return { error: 'Please choose a before photo.' }
+  const after = await readPhoto(formData.get('after'))
+  if (typeof after === 'string') return { error: after }
+  if (!after) return { error: 'Please choose an after photo of the finished work.' }
 
   const admin = createAdminClient()
-  const { count } = await admin
-    .from('tidypro_portfolio_items')
-    .select('id', { count: 'exact', head: true })
-    .eq('tidypro_id', session.profileId)
-  if ((count ?? 0) >= PORTFOLIO_MAX_ITEMS) {
-    return { error: `You have ${PORTFOLIO_MAX_ITEMS} work photos. Remove some before adding more.` }
-  }
 
   let item: PortfolioItem
   try {
@@ -53,7 +47,7 @@ export async function uploadPortfolioPhotoAction(formData: FormData): Promise<{ 
     return { error: "We couldn't upload that photo — please try another." }
   }
 
-  revalidatePath('/pro/profile/portfolio')
+  revalidatePath('/pro/profile/edit')
   revalidatePath('/pro/profile/preview')
   revalidatePath(`/book/schedule/${session.profileId}`)
   return { item }
@@ -78,7 +72,7 @@ export async function removePortfolioItemAction(itemId: string): Promise<{ succe
     return { error: "We couldn't remove that photo. Please try again." }
   }
 
-  revalidatePath('/pro/profile/portfolio')
+  revalidatePath('/pro/profile/edit')
   revalidatePath('/pro/profile/preview')
   revalidatePath(`/book/schedule/${session.profileId}`)
   return { success: true }

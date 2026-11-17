@@ -3,22 +3,20 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { stripe } from '@/lib/stripe'
-import { grossUpForStripeFee } from '@/lib/pricingRules'
-import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import { notifyNewReview, notifyNoShowReported, notifyNoShowReportedConfirmation } from '@/lib/notifications'
 import { sendCleanerReportEscalation } from '@/lib/bookingIncidentEmail'
 import { TIDY_PRO_REPORT_CATEGORIES, parseReportInput, reportDescription, reportSeverity } from '@/lib/reportCategories'
 import { NO_SHOW_REPORT_AFTER_MINUTES, canReportNoShow } from '@/lib/bookingTime'
-import { notifyIncidentCleaner, reportBookingIncident, resolveBookingIncident } from '@/lib/bookingIncidents'
+import { notifyIncidentCleaner, reportBookingIncident } from '@/lib/bookingIncidents'
 import { restoreBookingTasks } from '@/lib/bookingRequestGroups'
 import { notifyCustomer } from '@/lib/customerNotifications'
 import type { TidyTask } from '@/app/dashboard/types'
 import { userFacingError } from '@/lib/userFacingError'
 import { payUpcharge } from '@/lib/bookingUpcharges'
 import { payForVisit } from '@/lib/recurringPayments'
+import { chargeAndSendTip, isValidTipAttemptId } from '@/lib/tipPayout'
 
 const MAX_TIP_PERCENT = 100
 
@@ -36,6 +34,14 @@ export async function reportTidyProAction(
   const { choice } = input
 
   const admin = createAdminClient()
+
+  // "Cleaner didn't show up" on a booking that's still open becomes a no-show incident,
+  // even if the cleaner has tapped "I've arrived": they could have tapped it without being
+  // there. Too early, or once the job is done, it's logged like any other report.
+  if (choice.reason?.id === 'no_show') {
+    const noShow = await fileNoShowReport(admin, bookingId, session.profileId, input.details)
+    if (noShow !== 'not_eligible') return noShow
+  }
 
   const { data: booking } = await admin
     .from('bookings')
@@ -64,36 +70,36 @@ export async function reportTidyProAction(
   return { success: true }
 }
 
-// The cleaner still hasn't arrived NO_SHOW_REPORT_AFTER_MINUTES after the start, and hasn't
-// marked themselves arrived. The booking is canceled and refunded straight away, less the
-// processing fee, and the cleaner flagged; the admin decides whether to pause them (see
-// lib/bookingIncidents).
-export async function reportNoShowAction(bookingId: string): Promise<{ success: true } | { error: string }> {
-  const session = await getSession()
-  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+// A no-show can be reported until the job is marked done: before the cleaner sets off, on
+// the way, and after "I've arrived" or "Start cleaning", since a cleaner could tap those
+// without being there.
+const NO_SHOW_REPORTABLE_PROGRESS = new Set<string | null>([null, 'on_the_way', 'arrived', 'cleaning'])
 
-  const admin = createAdminClient()
+// The booking is canceled and the cleaner flagged, with no money moved: the admin calls both
+// sides and settles the refund (and the cleaner's pay) from /admin/incidents. 'not_eligible'
+// means it isn't open or it's too early, for a caller that falls back to a plain report.
+async function fileNoShowReport(
+  admin: ReturnType<typeof createAdminClient>,
+  bookingId: string,
+  profileId: string,
+  details: string | null
+): Promise<{ success: true } | { error: string } | 'not_eligible'> {
   const { data: booking } = await admin
     .from('bookings')
     .select('id, user_id, tidy_pro_id, status, progress_status, scheduled_date, scheduled_time, time_zone, task_list')
     .eq('id', bookingId)
-    .eq('user_id', session.profileId)
+    .eq('user_id', profileId)
     .maybeSingle()
 
   if (!booking) return { error: 'Booking not found.' }
-  if (booking.status !== 'scheduled' || !booking.tidy_pro_id || (booking.progress_status != null && booking.progress_status !== 'on_the_way')) {
-    return { error: 'This booking can no longer be reported as a no-show.' }
-  }
-  if (!canReportNoShow(booking.scheduled_date, booking.scheduled_time, new Date(), booking.time_zone)) {
-    return { error: `You can report a no-show ${NO_SHOW_REPORT_AFTER_MINUTES} minutes after your booking’s start time.` }
-  }
+  if (booking.status !== 'scheduled' || !booking.tidy_pro_id || !NO_SHOW_REPORTABLE_PROGRESS.has(booking.progress_status)) return 'not_eligible'
+  if (!canReportNoShow(booking.scheduled_date, booking.scheduled_time, new Date(), booking.time_zone)) return 'not_eligible'
 
-  const result = await reportBookingIncident(admin, booking, 'cleaner_no_show', session.profileId)
+  const result = await reportBookingIncident(admin, booking, 'cleaner_no_show', profileId, new Date(), {
+    cleanerMarkedArrived: booking.progress_status === 'arrived' || booking.progress_status === 'cleaning',
+    details,
+  })
   if ('error' in result) return result
-
-  // Settled on the spot. If the refund fails, the incident stays open for the admin to settle.
-  const settled = await resolveBookingIncident(admin, bookingId, 'minus_fee', null, false, new Date(), { automatic: true })
-  if ('error' in settled) console.error(`No-show refund for ${bookingId}:`, settled.error)
 
   await restoreBookingTasks(admin, booking.user_id, (booking.task_list as TidyTask[] | null) ?? [])
   await notifyCustomer(admin, booking.user_id, notifyNoShowReportedConfirmation())
@@ -107,11 +113,24 @@ export async function reportNoShowAction(bookingId: string): Promise<{ success: 
   return { success: true }
 }
 
+// The "My Tidy Pro didn't show up" button, shown before the cleaner has marked themselves
+// arrived. After that, the customer reports it from Report Tidy Pro (see reportTidyProAction).
+export async function reportNoShowAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const result = await fileNoShowReport(createAdminClient(), bookingId, session.profileId, null)
+  if (result !== 'not_eligible') return result
+  return { error: `You can report a no-show ${NO_SHOW_REPORT_AFTER_MINUTES} minutes after your booking’s start time, until the job is complete.` }
+}
+
 export async function submitReviewAction(
   bookingId: string,
   rating: number,
   reviewText: string,
-  tipPercent: number
+  tipPercent: number,
+  // One per attempt from the form, so a double tap can't charge the tip twice.
+  tipAttemptId?: string
 ): Promise<{ success: true; tipWarning?: string } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
@@ -154,7 +173,8 @@ export async function submitReviewAction(
     tidypro_id: booking.tidy_pro_id,
     rating,
     review_text: trimmedText,
-    tip_amount: tipAmount,
+    // Set by chargeAndSendTip once the tip is actually paid.
+    tip_amount: 0,
   })
   if (reviewError) return { error: userFacingError(reviewError) }
 
@@ -179,60 +199,67 @@ export async function submitReviewAction(
   }
   await sendPushForPayload(booking.tidy_pro_id, reviewPayload).catch(() => {})
 
+  // The review/rating stands even if the tip charge fails; they can send it again
+  // from the booking (sendTipAction).
   let tipWarning: string | undefined
   if (tipAmount > 0) {
-    try {
-      let paymentMethodId: string | undefined
-      if (booking.stripe_payment_intent_id) {
-        const originalIntent = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id)
-        paymentMethodId =
-          typeof originalIntent.payment_method === 'string'
-            ? originalIntent.payment_method
-            : originalIntent.payment_method?.id
-      }
-      if (!paymentMethodId) throw new Error('No payment method on file for the original booking.')
-
-      const { data: profile } = await admin
-        .from('profiles')
-        .select('stripe_customer_id')
-        .eq('id', session.profileId)
-        .single()
-      if (!profile?.stripe_customer_id) throw new Error('No Stripe customer on file.')
-
-      // The cleaner gets 100% of tipAmount — Stripe's processing fee is
-      // passed through on top rather than taken out of the tip, same as the
-      // booking charge (see grossUpForStripeFee).
-      const tipChargeAmount = grossUpForStripeFee(tipAmount, await stripePercentageForPaymentMethod(paymentMethodId))
-      await stripe.paymentIntents.create({
-        amount: Math.round(tipChargeAmount * 100),
-        currency: 'usd',
-        customer: profile.stripe_customer_id,
-        payment_method: paymentMethodId,
-        off_session: true,
-        confirm: true,
-        metadata: { booking_id: bookingId, kind: 'tip' },
-      })
-
-      if (tidyPro?.stripe_account_id && tidyPro.stripe_onboarding_completed) {
-        await stripe.transfers.create({
-          amount: Math.round(tipAmount * 100),
-          currency: 'usd',
-          destination: tidyPro.stripe_account_id,
-          transfer_group: `${bookingId}-tip`,
-        })
-      }
-
-      await admin.from('bookings').update({ tip: tipAmount }).eq('id', bookingId)
-    } catch (err) {
-      // The review/rating must still succeed even if the tip charge fails.
-      tipWarning = userFacingError(err, 'Could not charge the tip.')
-    }
+    const tip = await chargeAndSendTip(admin, {
+      bookingId,
+      customerId: session.profileId,
+      tipAmount,
+      paymentIntentId: booking.stripe_payment_intent_id,
+      attemptId: isValidTipAttemptId(tipAttemptId) ? tipAttemptId : crypto.randomUUID(),
+    })
+    if ('error' in tip) tipWarning = tip.error
   }
 
   revalidatePath(`/dashboard/bookings/${bookingId}`)
   revalidatePath('/dashboard')
 
   return tipWarning ? { success: true, tipWarning } : { success: true }
+}
+
+// A tip sent from a completed booking after the review: the first one didn't go
+// through, or they didn't tip then. Once a tip is on the booking there's no second one.
+export async function sendTipAction(
+  bookingId: string,
+  tipPercent: number,
+  attemptId: string
+): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+  if (!Number.isFinite(tipPercent) || tipPercent <= 0) return { error: 'Please choose a tip.' }
+  if (tipPercent > MAX_TIP_PERCENT) return { error: "A tip can't be more than the cost of the cleaning." }
+  if (!isValidTipAttemptId(attemptId)) return { error: 'Please refresh the page and try again.' }
+
+  const admin = createAdminClient()
+  const { data: booking } = await admin
+    .from('bookings')
+    .select('id, tidy_pro_id, status, total_customer_charge, stripe_payment_intent_id, tip')
+    .eq('id', bookingId)
+    .eq('user_id', session.profileId)
+    .maybeSingle()
+
+  if (!booking) return { error: 'Booking not found.' }
+  if (booking.status !== 'completed') return { error: 'This booking is not complete yet.' }
+  if (!booking.tidy_pro_id) return { error: 'This booking has no Tidy Pro on file.' }
+  if ((booking.tip ?? 0) > 0) return { error: 'You’ve already tipped for this booking. Thank you!' }
+
+  const tipAmount = booking.total_customer_charge ? Math.round(((booking.total_customer_charge * tipPercent) / 100) * 100) / 100 : 0
+  if (tipAmount <= 0) return { error: 'Please choose a tip.' }
+
+  const result = await chargeAndSendTip(admin, {
+    bookingId,
+    customerId: session.profileId,
+    tipAmount,
+    paymentIntentId: booking.stripe_payment_intent_id,
+    attemptId,
+  })
+  if ('error' in result) return result
+
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidatePath('/dashboard')
+  return { success: true }
 }
 
 // The customer paying an upcharge the Tydio team added (see lib/bookingUpcharges).

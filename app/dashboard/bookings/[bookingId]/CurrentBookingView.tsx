@@ -181,7 +181,7 @@ export default function CurrentBookingView({
   )
   const overlays = (
     <>
-      {showReport && <ReportTidyProSheet bookingId={bookingId} onClose={() => setShowReport(false)} />}
+      {showReport && <ReportTidyProSheet bookingId={bookingId} noShowReportableAtMs={noShowReportableAtMs} onClose={() => setShowReport(false)} />}
       {viewingPhoto != null && <PhotoViewer photos={photos} startIndex={viewingPhoto} onClose={() => setViewingPhoto(null)} />}
     </>
   )

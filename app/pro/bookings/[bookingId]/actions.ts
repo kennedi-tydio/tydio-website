@@ -11,8 +11,9 @@ import { UPCHARGE_HOLD_MESSAGE } from '@/lib/bookingUpcharges'
 import { UNPAID_HOLD_MESSAGE } from '@/lib/recurringPayments'
 import { COMPLETION_PHOTOS_BUCKET } from '@/lib/taskPhotoRetention'
 import { addTaskToPortfolio, prepareTaskPhoto } from '@/lib/tidyProPortfolio'
-import { CUSTOMER_REPORT_CATEGORIES, parseReportInput, reportDescription, reportSeverity } from '@/lib/reportCategories'
+import { CUSTOMER_REPORT_CATEGORIES, NO_ACCESS_REPORT_REASON, parseReportInput, reportDescription, reportSeverity } from '@/lib/reportCategories'
 import { sendCustomerReportEscalation } from '@/lib/bookingIncidentEmail'
+import { revalidateNoAccessPaths, startNoAccessCountdown } from '@/lib/noAccessCountdown'
 
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 const MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024
@@ -170,7 +171,7 @@ export async function addPhotosToProfileAction(
     }
   }
 
-  revalidatePath('/pro/profile/portfolio')
+  revalidatePath('/pro/profile/edit')
   revalidatePath('/pro/profile/preview')
   if (failed > 0) {
     return { error: `${failed} photo pair${failed === 1 ? '' : 's'} couldn't be added. Try again, or finish without them.` }
@@ -240,7 +241,7 @@ export async function reportCustomerAction(
   categoryId: string,
   reasonId: string | null,
   details: string
-): Promise<{ success: true } | { error: string }> {
+): Promise<{ success: true; noAccessStarted?: boolean } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
 
@@ -273,6 +274,16 @@ export async function reportCustomerAction(
 
   // The report is saved either way; a failed email shouldn't tell the Tidy Pro it wasn't.
   await sendCustomerReportEscalation(admin, bookingId, choice, input.details).catch((err) => console.error('Customer report escalation email failed', bookingId, err))
+
+  // "I can't enter the property" during the job starts the same countdown as the
+  // "Unable to access location" button. Outside the job it's just a report.
+  if (choice.reason?.id === NO_ACCESS_REPORT_REASON) {
+    const countdown = await startNoAccessCountdown(admin, bookingId, session.profileId)
+    if ('success' in countdown) {
+      revalidateNoAccessPaths(bookingId)
+      return { success: true, noAccessStarted: true }
+    }
+  }
 
   return { success: true }
 }

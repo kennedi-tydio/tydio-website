@@ -7,6 +7,8 @@ import Link from 'next/link'
 import { arriveAndStartCleaningAction } from './actions'
 import { reportUnableToAccessAction } from '@/app/pro/messages/[bookingId]/actions'
 import { formatVisitDuration } from '@/lib/laundry'
+import type { TidyTask } from '@/app/dashboard/types'
+import LaundromatNotice from '@/app/components/LaundromatNotice'
 import BeforePhotosPrompt from './BeforePhotosPrompt'
 import ReportCustomerButton from './ReportCustomerButton'
 
@@ -90,6 +92,8 @@ type Props = {
   addressLine: string | null
   entryInstructions: string | null
   tasks: { id: string; taskName: string }[]
+  // Laundromat trips on this booking (see LaundromatNotice).
+  laundromatTasks?: TidyTask[]
 }
 
 export default function OnTheWayView({
@@ -103,6 +107,7 @@ export default function OnTheWayView({
   addressLine,
   entryInstructions,
   tasks,
+  laundromatTasks = [],
 }: Props) {
   const router = useRouter()
   const [showDirections, setShowDirections] = useState(false)
@@ -199,6 +204,8 @@ export default function OnTheWayView({
 
         {scheduledDate && <p className="text-sm font-semibold text-slate-900">{formatDateLabel(scheduledDate)}</p>}
         {scheduledTime && <p className="text-sm text-slate-500 mb-5">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
+
+        <LaundromatNotice tasks={laundromatTasks} className="mb-5" />
 
         {entryInstructions && (
           <div className="mb-5">

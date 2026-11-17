@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { label: 'Cancellations', href: '/admin/cancellations' },
   { label: 'Refunds', href: '/admin/refunds' },
   { label: 'No Pros', href: '/admin/no-pros' },
+  { label: 'Abandoned Carts', href: '/admin/abandoned-carts' },
   { label: 'Incidents', href: '/admin/incidents' },
   { label: 'Reports', href: '/admin/reports' },
   { label: 'Insurance', href: '/admin/insurance' },

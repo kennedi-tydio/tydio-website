@@ -6,6 +6,7 @@ import { LATE_CANCEL_REASON } from '@/lib/bookingRequestGroups'
 import { userFacingError } from '@/lib/userFacingError'
 import { CONTACT_INFO_BLOCKED_MESSAGE, detectContactInfo } from '@/lib/contactInfoFilter'
 import { emailAdminContactInfoAttempt } from '@/lib/contactInfoAttemptEmail'
+import { payOutTip } from '@/lib/tipPayout'
 
 // Shared by both sides' "send message" actions — inserts the chat message
 // and flips the *other* side's unread dot on the Messages list. Doesn't
@@ -211,6 +212,13 @@ export async function retryPayoutsForTidyPro(
   for (const booking of unpaid ?? []) {
     const result = await completeBookingPayout(admin, booking.id).catch((err) => ({ error: String(err) }))
     if ('error' in result) console.error(`Payout for ${booking.id}:`, result.error)
+  }
+
+  // Tips held back the same way (no payout account yet, or a failed transfer).
+  // payOutTip skips any that already went out.
+  const { data: tipped } = await admin.from('bookings').select('id').eq('tidy_pro_id', tidyProId).gt('tip', 0)
+  for (const booking of tipped ?? []) {
+    await payOutTip(admin, booking.id).catch((err) => console.error(`Tip payout for ${booking.id}:`, err))
   }
 }
 

@@ -17,12 +17,14 @@ type Admin = ReturnType<typeof createAdminClient>
 // A booking that couldn't go ahead: the cleaner arrived but couldn't get in, or never
 // showed up. Reporting one cancels the booking and tells the admin, without moving any
 // money. The admin settles it from /admin/incidents with a full, half, or no refund, and
-// the cleaner's pay follows the same split as a late cancellation. A no-show the customer
-// reports is settled on the spot instead, refunded less the processing fee, with the
-// cleaner's flag left open for the admin to decide whether to pause them.
+// the cleaner's pay follows the same split as a late cancellation, after calling both sides
+// to check the claim. No refund is automatic. ('minus_fee' is from an earlier automatic
+// no-show refund, kept so those settled incidents still read correctly.)
 
 // Each is also the booking's cancelled_reason (NO_ACCESS_REASON, CLEANER_NO_SHOW_REASON).
-export type IncidentType = 'no_access' | 'cleaner_no_show'
+// cleaner_asked_cancel: the customer canceled an accepted booking saying the Tidy Pro asked
+// them to; held for the admin rather than refunded on the spot (migration 081).
+export type IncidentType = 'no_access' | 'cleaner_no_show' | 'cleaner_asked_cancel'
 export type RefundLevel = 'full' | 'half' | 'none'
 // What a settled incident can record: the admin's choices, plus a no-show's automatic refund.
 export type SettledRefundLevel = RefundLevel | 'minus_fee'
@@ -30,6 +32,7 @@ export type SettledRefundLevel = RefundLevel | 'minus_fee'
 export const INCIDENT_LABELS: Record<IncidentType, string> = {
   no_access: 'Customer unavailable — no access',
   cleaner_no_show: 'Cleaner no-show',
+  cleaner_asked_cancel: 'Customer canceled — says the cleaner asked them to',
 }
 
 export const REFUND_LEVEL_LABELS: Record<SettledRefundLevel, string> = {
@@ -82,8 +85,21 @@ const ADMIN_EMAIL: Record<IncidentType, { subject: string; heading: string; intr
     subject: 'URGENT: CLEANER NO-SHOW',
     heading: 'Cleaner no-show',
     intro: (cleaner, customer) =>
-      `<strong>${escapeHtml(customer)}</strong> reported that their cleaner, <strong>${escapeHtml(cleaner)}</strong>, never arrived. The booking has been canceled, the customer is refunded automatically less the processing fee, and the cleaner has been flagged. Decide whether to pause the cleaner. (If the automatic refund fails, the incident stays open to settle in the admin.)`,
+      `<strong>${escapeHtml(customer)}</strong> reported that their cleaner, <strong>${escapeHtml(cleaner)}</strong>, never arrived. The booking has been canceled, the cleaner has been flagged, and no money has moved. Call both of them to check the claim, then decide the refund, the cleaner's pay, and whether to pause the cleaner in the admin.`,
   },
+  cleaner_asked_cancel: {
+    subject: 'CANCELLATION TO REVIEW: CUSTOMER SAYS THE CLEANER ASKED THEM TO CANCEL',
+    heading: 'Customer says the cleaner asked them to cancel',
+    intro: (cleaner, customer) =>
+      `<strong>${escapeHtml(customer)}</strong> canceled their booking and said their cleaner, <strong>${escapeHtml(cleaner)}</strong>, asked them to. The booking has been canceled and no money has moved. Check with both of them, then decide the refund, the cleaner's pay, and whether to pause the cleaner in the admin.`,
+  },
+}
+
+// The report logged on the account it's about (risk_events), one kind per incident.
+const RISK_EVENT_TYPE: Record<IncidentType, string> = {
+  no_access: 'customer_no_access',
+  cleaner_no_show: 'cleaner_no_show',
+  cleaner_asked_cancel: 'cleaner_asked_cancel',
 }
 
 // The caller has already checked who's reporting and that the timing allows it. The claim
@@ -93,7 +109,10 @@ export async function reportBookingIncident(
   booking: { id: string; user_id: string; tidy_pro_id: string | null },
   type: IncidentType,
   reportedBy: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  // For a no-show: whether the cleaner had tapped "I've arrived" (so it's disputed), and
+  // anything the customer wrote in their report.
+  context: { cleanerMarkedArrived?: boolean; details?: string | null } = {}
 ): Promise<{ success: true } | { error: string }> {
   const { data: claimed, error } = await admin
     .from('bookings')
@@ -118,11 +137,15 @@ export async function reportBookingIncident(
 
   // For a no-show, this is the flag on the cleaner's account the admin reviews.
   const { error: riskError } = await admin.from('risk_events').insert({
-    event_type: type === 'no_access' ? 'customer_no_access' : 'cleaner_no_show',
+    event_type: RISK_EVENT_TYPE[type],
     booking_id: booking.id,
     user_id: type === 'no_access' ? booking.user_id : booking.tidy_pro_id,
-    severity: type === 'no_access' ? 'medium' : 'high',
-    description: INCIDENT_LABELS[type],
+    severity: type === 'cleaner_no_show' ? 'high' : 'medium',
+    description: [
+      INCIDENT_LABELS[type],
+      context.cleanerMarkedArrived ? 'reported after the cleaner marked themselves arrived' : null,
+      context.details || null,
+    ].filter(Boolean).join(' — '),
     created_by: reportedBy,
   })
   if (riskError) console.error('Incident risk event failed', booking.id, riskError.message)
@@ -140,7 +163,10 @@ export async function reportBookingIncident(
           detailSection('Report', [
             ['Type', INCIDENT_LABELS[type]],
             ['Reported by', type === 'no_access' ? 'Cleaner' : 'Customer'],
+            ...(type === 'cleaner_asked_cancel' ? [['Cancel reason', 'The cleaner asked me to cancel'] as [string, string]] : []),
             ['Reported', formatInZone(now.toISOString(), incident.booking.time_zone)],
+            ...(context.cleanerMarkedArrived ? [['Cleaner marked arrived', 'Yes — disputed'] as [string, string]] : []),
+            ...(context.details ? [['Customer wrote', context.details] as [string, string]] : []),
           ]),
           incident.sections.customer,
           incident.sections.cleaner,
@@ -165,6 +191,10 @@ const RESOLUTION_REASON: Record<IncidentType, { customer: string; cleaner: strin
   cleaner_no_show: {
     customer: 'You reported that your Tidy Pro didn’t arrive for your booking.',
     cleaner: 'The customer reported that you didn’t arrive for this booking.',
+  },
+  cleaner_asked_cancel: {
+    customer: 'You canceled your booking and told us your Tidy Pro asked you to.',
+    cleaner: 'The customer canceled this booking and told us you asked them to.',
   },
 }
 
@@ -289,7 +319,7 @@ export async function resolveBookingIncident(
     .from('risk_events')
     .update({ resolved_at: now.toISOString(), resolution_notes: [REFUND_LEVEL_LABELS[level], note].filter(Boolean).join(' — ') })
     .eq('booking_id', bookingId)
-    .in('event_type', ['customer_no_access', 'cleaner_no_show'])
+    .in('event_type', Object.values(RISK_EVENT_TYPE))
     .is('resolved_at', null)
 
   await sendIncidentResolutionEmails(admin, booking, booking.incident_type, refund, cleanerPay, note, options.automatic)

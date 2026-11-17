@@ -121,8 +121,25 @@ export function notifyCustomerNoAccess(): NotificationPayload {
 export function notifyNoShowReportedConfirmation(): NotificationPayload {
   return {
     title: 'No-show reported',
-    body: "Sorry your Tidy Pro didn't arrive. Your booking has been canceled and refunded, except for the card processing fee. Your tasks are back on your list.",
+    body: "Sorry your Tidy Pro didn't arrive. Your booking has been canceled, and our team will contact you to review it and email you about any refund. Your tasks are back on your list.",
     url: siteUrl('/dashboard'),
+  }
+}
+
+// The customer canceled saying the Tidy Pro asked them to; the refund waits on the admin.
+export function notifyCleanerAskedCancelConfirmation(): NotificationPayload {
+  return {
+    title: 'Booking canceled',
+    body: 'Your booking has been canceled. Since your Tidy Pro asked you to cancel, our team will check with them and email you about your refund. Your tasks are back on your list.',
+    url: siteUrl('/dashboard'),
+  }
+}
+
+export function notifyCleanerAskedCancel(customerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Booking canceled',
+    body: `${customerFirstName} canceled their booking and said you asked them to. Our team will review it and email you about it.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
   }
 }
 
@@ -218,6 +235,14 @@ export function notifyNewReview(bookingId: string): NotificationPayload {
   return {
     title: 'New review',
     body: 'Your customer left you a review. Open the booking to see it.',
+    url: siteUrl(`/pro/bookings/${bookingId}`),
+  }
+}
+
+export function notifyTipReceived(amount: number, bookingId: string): NotificationPayload {
+  return {
+    title: 'You received a tip!',
+    body: `Your customer sent you a $${amount.toFixed(2)} tip. Keep up the great work!`,
     url: siteUrl(`/pro/bookings/${bookingId}`),
   }
 }
@@ -416,6 +441,33 @@ export function notifyRecurringVisitCancelledByTidyPro(cleanerFirstName: string,
   }
 }
 
+// To the Tidy Pro, when the customer cancels one recurring visit not booked yet.
+export function notifyRecurringVisitSkippedByCustomer(customerFirstName: string, datesISO: string[]): NotificationPayload {
+  return {
+    title: datesISO.length > 1 ? 'Recurring visits canceled' : 'Recurring visit canceled',
+    body: `${customerFirstName} canceled their recurring cleaning on ${datesISO.map(shortDate).join(', ')}. Their other visits are still on.`,
+    url: siteUrl('/pro/bookings'),
+  }
+}
+
+// To the Tidy Pro, when the customer cancels the whole recurring booking.
+export function notifyRecurringSeriesCancelledByCustomer(customerFirstName: string): NotificationPayload {
+  return {
+    title: 'Recurring booking canceled',
+    body: `${customerFirstName} canceled their recurring cleaning. No more visits will be booked with you.`,
+    url: siteUrl('/pro/bookings'),
+  }
+}
+
+// To the customer, when their Tidy Pro cancels recurring visits not booked yet.
+export function notifyRecurringVisitsSkippedByTidyPro(cleanerFirstName: string, datesISO: string[]): NotificationPayload {
+  return {
+    title: 'Your Tidy Pro canceled',
+    body: `${cleanerFirstName} canceled your recurring cleaning on ${datesISO.map(shortDate).join(', ')}. You won't be charged for ${datesISO.length > 1 ? 'them' : 'it'}, and your other visits are still on. Need that day? Book it from Home.`,
+    url: siteUrl('/dashboard'),
+  }
+}
+
 export function notifyRecurringSeriesDroppedByTidyPro(cleanerFirstName: string, seriesId: string): NotificationPayload {
   return {
     title: 'Your recurring cleaning needs a new Tidy Pro',
@@ -477,5 +529,48 @@ export function notifyBookingEditedByAdmin(forRole: 'USER' | 'TIDYPRO', changes:
     title: 'Your booking was updated',
     body: `The Tydio team updated your booking: ${changes}.`,
     url: siteUrl(forRole === 'USER' ? `/dashboard/bookings/${bookingId}` : `/pro/bookings/${bookingId}`),
+  }
+}
+
+// ── Additional task(s) requests (lib/bookingTaskAdditions) ──────────────────
+
+export function notifyTaskAdditionRequested(customerFirstName: string, taskCount: number, extraPay: number, bookingId: string): NotificationPayload {
+  return {
+    title: 'Additional task request',
+    body: `${customerFirstName} would like to add ${taskCount === 1 ? 'a task' : `${taskCount} tasks`} to their booking. You'd earn $${extraPay.toFixed(2)} more. Accept or decline in the app.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+export function notifyTaskAdditionAccepted(cleanerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Added tasks accepted',
+    body: `${cleanerFirstName} accepted your added tasks. They're now part of your booking.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
+// To the Tidy Pro, when the customer takes back added tasks before they answered.
+export function notifyTaskAdditionWithdrawn(customerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: 'Added tasks canceled',
+    body: `${customerFirstName} canceled their added tasks request. The booking stays as it was.`,
+    url: siteUrl(`/pro/messages/${bookingId}`),
+  }
+}
+
+// Declined, not answered in time, or taken off when the Tidy Pro backed out: refunded,
+// and the tasks are back on the dashboard.
+export function notifyTaskAdditionRefunded(reason: 'declined' | 'expired' | 'removed', cleanerFirstName: string, refund: number): NotificationPayload {
+  const why =
+    reason === 'declined'
+      ? `${cleanerFirstName} couldn't take on your added tasks`
+      : reason === 'expired'
+        ? `${cleanerFirstName} didn't answer your added tasks before the booking started`
+        : `${cleanerFirstName} can't do your booking anymore, so your added tasks were taken off it`
+  return {
+    title: 'Added tasks refunded',
+    body: `${why}. We've refunded $${refund.toFixed(2)}, and the tasks are back on your dashboard.`,
+    url: siteUrl('/dashboard'),
   }
 }

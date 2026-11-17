@@ -74,6 +74,11 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/075_booking_upcharges.sql` (`booking_upcharges`, `bookings.suspended_for_upcharge_at`). Booking pages, Tidy Pro progress buttons, cancellations and payouts all fail without it
 - [x] Apply `supabase/migrations/076_portfolio_uploads.sql` (`tidypro_portfolio_items.before_photo_path` nullable). Work photo uploads without a before photo fail without it
 - [x] Apply `supabase/migrations/077_recurring_visit_payments.sql` (`recurring_bookings.tidy_pro_accepted_at`; `bookings.amount_due`, `payment_due_at`, `payment_attempted_at`, `payment_failed_at`, `payment_error`, `suspended_for_payment_at`, `auto_accepted`; `incident_refund_level` allows `minus_fee`; acceptance-rate view skips auto-accepted visits). Recurring bookings, booking pages, the Tidy Pro thread and no-show reports fail without it
+- [x] Apply `supabase/migrations/078_booking_task_additions.sql` (`booking_task_additions`). Customers adding tasks to an accepted booking fails without it
+- [x] Apply `supabase/migrations/079_tip_seen_by_pro.sql` (`bookings.tip_seen_by_pro_at`). Saving a tip fails without it (the customer is charged but the tip is not recorded)
+- [x] Apply `supabase/migrations/081_pricing_quotes.sql` (`pricing_quotes` table and the 15-minute `tydio-abandoned-quotes` cron job). Abandoned-cart tracking and the admin Abandoned Carts page fail without it
+- [x] Apply `supabase/migrations/081_incident_cleaner_asked_cancel.sql` (widens `bookings.incident_type`). A customer canceling with "The cleaner asked me to cancel" fails without it
+- [x] Apply `supabase/migrations/080_recurring_skipped_dates.sql` (`recurring_bookings.skipped_dates`). The Bookings tab, Jobs tab and the recurring-visit job fail without it
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel
