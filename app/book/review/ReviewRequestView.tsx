@@ -463,7 +463,7 @@ export default function ReviewRequestView({
             <p className="text-sm font-bold text-slate-900 mb-1">Notes</p>
             <textarea
               aria-label="Notes for your Tidy Pro"
-              placeholder={`Anything else ${cleanerName} should know about the cleaning?`}
+              placeholder={`Anything that helps ${cleanerName} do a great job: rooms to focus on or skip, products to use or avoid, how you like things done…`}
               defaultValue={notes}
               rows={2}
               onBlur={(e) => {

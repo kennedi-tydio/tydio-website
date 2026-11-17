@@ -92,6 +92,8 @@ type Props = {
   durationMinutes: number
   pets: string | null
   notes: string | null
+  // The customer is supplying the cleaning products.
+  suppliesProvided?: boolean
   tasks: ProBookingTaskRow[]
   // Pet enclosure / litter box details and signed photo URLs.
   petTasks?: TidyTask[]
@@ -114,6 +116,7 @@ export default function TaskListView({
   durationMinutes,
   pets,
   notes,
+  suppliesProvided = false,
   tasks: initialTasks,
   petTasks = [],
   laundromatTasks = [],
@@ -218,6 +221,14 @@ export default function TaskListView({
         {scheduledTime && <p className="text-xs text-slate-400 -mt-5 mb-1">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
         <ElapsedTimer sinceMs={arrivedAtMs} className="mb-6" />
 
+        {/* Up top so it's read before any task starts, and stays here until the job is done. */}
+        {notes && (
+          <div className="rounded-2xl border border-brand/30 bg-brand/5 px-4 py-3 mb-5">
+            <p className="text-sm font-bold text-slate-900 mb-1">Notes from {customerName}</p>
+            <p className="text-sm text-slate-700 whitespace-pre-line break-words">{notes}</p>
+          </div>
+        )}
+
         {noneStarted && (
           <div className="rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3 mb-5">
             {wantsBeforePhotos ? (
@@ -307,25 +318,19 @@ export default function TaskListView({
 
         <PetTaskDetails tasks={petTasks} photoUrls={photoUrls} className="mb-6" />
 
-        <p className="text-xs text-slate-400 text-center mb-8">Cleaning supplies will be provided</p>
+        <p className="text-xs text-slate-400 text-center mb-8">
+          {suppliesProvided ? 'Customer will provide their own cleaning supplies' : 'Cleaning supplies will be provided'}
+        </p>
 
-        {(pets || notes) && (
+        {pets && (
           <>
             <p className="text-sm font-bold" style={{ color: 'var(--color-brand)' }}>
               Additional Details
             </p>
-            {pets && (
-              <div className="mt-2">
-                <p className="text-sm font-bold text-slate-900">Pets</p>
-                <p className="text-sm text-slate-600 whitespace-pre-line">{pets}</p>
-              </div>
-            )}
-            {notes && (
-              <div className="mt-2 mb-6">
-                <p className="text-sm font-bold text-slate-900">Notes</p>
-                <p className="text-sm text-slate-600">{notes}</p>
-              </div>
-            )}
+            <div className="mt-2 mb-6">
+              <p className="text-sm font-bold text-slate-900">Pets</p>
+              <p className="text-sm text-slate-600 whitespace-pre-line">{pets}</p>
+            </div>
           </>
         )}
 

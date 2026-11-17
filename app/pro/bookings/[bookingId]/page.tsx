@@ -220,6 +220,7 @@ export default async function ProActiveBookingPage({
       durationMinutes={booking.estimated_duration_minutes ?? 30}
       pets={booking.pets}
       notes={booking.notes}
+      suppliesProvided={booking.will_provide_supplies ?? false}
       tasks={tasks}
       petTasks={petTasks}
       laundromatTasks={laundromatTasks}
