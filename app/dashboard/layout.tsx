@@ -31,6 +31,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         initialPhone={profile?.phone ?? null}
         smsConsent={profile?.sms_consent ?? null}
         pushConsent={profile?.push_consent ?? null}
+        confirmSmsOptOut
       />
       <NotificationConsentBanner
         smsConsent={profile?.sms_consent ?? null}

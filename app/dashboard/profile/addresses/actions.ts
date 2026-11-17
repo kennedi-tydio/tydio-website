@@ -130,7 +130,7 @@ export async function updateAddressEntryInstructionsAction(
     .select(ADDRESS_COLUMNS)
     .single()
 
-  if (error || !data) return { error: userFacingError(error, 'Failed to save entry instructions.') }
+  if (error || !data) return { error: userFacingError(error, 'Failed to save directions.') }
 
   revalidatePath('/dashboard/profile/addresses')
   revalidatePath('/book/review')

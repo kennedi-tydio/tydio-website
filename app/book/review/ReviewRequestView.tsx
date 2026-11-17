@@ -397,17 +397,24 @@ export default function ReviewRequestView({
           </div>
         )}
 
-        <label className="flex items-center gap-3 cursor-pointer mb-6">
-          <div
-            className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${suppliesProvided ? 'border-brand bg-brand' : 'border-slate-300'}`}
-            onClick={() => handleSupplies(!suppliesProvided)}
+        {/* A real (visually hidden) checkbox, so the whole row — box and text — toggles it, and so does the keyboard. */}
+        <label className="relative flex items-center gap-3 cursor-pointer mb-6 py-1">
+          <input
+            type="checkbox"
+            checked={suppliesProvided}
+            onChange={(e) => handleSupplies(e.target.checked)}
+            className="sr-only peer"
+          />
+          <span
+            aria-hidden="true"
+            className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 peer-focus-visible:ring-2 peer-focus-visible:ring-brand peer-focus-visible:ring-offset-2 ${suppliesProvided ? 'border-brand bg-brand' : 'border-slate-300'}`}
           >
             {suppliesProvided && (
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                 <path d="M2 5.5l2.5 2.5 4.5-5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             )}
-          </div>
+          </span>
           <span className="text-sm text-slate-700">You will provide the necessary cleaning supplies</span>
         </label>
 
@@ -426,11 +433,11 @@ export default function ReviewRequestView({
           </div>
           <div className="mb-4">
             <label htmlFor="entry-instructions" className="block text-sm font-bold text-slate-900 mb-1">
-              Entry Instructions
+              Directions &amp; Entry
             </label>
             <textarea
               id="entry-instructions"
-              placeholder="Gate code, where the key is, which door to use…"
+              placeholder="How to get there and get in: parking, which building or door, gate code, where the key is…"
               value={entryInstructions}
               maxLength={MAX_ENTRY_INSTRUCTIONS_LENGTH}
               rows={2}
@@ -447,7 +454,7 @@ export default function ReviewRequestView({
                   className="w-4 h-4 accent-brand"
                 />
                 <span className="text-xs text-slate-600">
-                  {entryInstructions.trim() ? `Save for future bookings at ${addressLabel}` : `Remove the saved instructions for ${addressLabel}`}
+                  {entryInstructions.trim() ? `Save these directions for future bookings at ${addressLabel}` : `Remove the saved directions for ${addressLabel}`}
                 </span>
               </label>
             )}
@@ -456,7 +463,7 @@ export default function ReviewRequestView({
             <p className="text-sm font-bold text-slate-900 mb-1">Notes</p>
             <textarea
               aria-label="Notes for your Tidy Pro"
-              placeholder={`Anything ${cleanerName} should know?`}
+              placeholder={`Anything else ${cleanerName} should know about the cleaning?`}
               defaultValue={notes}
               rows={2}
               onBlur={(e) => {

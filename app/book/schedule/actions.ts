@@ -98,7 +98,8 @@ export async function searchAvailableCleaners(
   const session = await getSession()
   if (!session || session.role !== 'USER') return EMPTY_RESULT
   const schedule = withValidRange(input)
-  if (!schedule.location) return EMPTY_RESULT
+  // Bookings need a full saved address, not just a device location.
+  if (schedule.location?.type !== 'address') return EMPTY_RESULT
   if (schedule.location.latitude == null || schedule.location.longitude == null) {
     return EMPTY_RESULT
   }

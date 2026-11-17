@@ -100,7 +100,7 @@ export function welcomeEmailHtml(opts: { firstName: string; role: Role }): strin
         and we&rsquo;ll email you as soon as you can book your first cleaning.
       </p>
       <p style="${P}">
-        <strong>While you wait</strong>, sign in and finish your home profile (pets, entry instructions)
+        <strong>While you wait</strong>, sign in and finish your home profile (pets, directions &amp; entry)
         so your first booking takes less time.
       </p>`
 

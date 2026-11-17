@@ -116,13 +116,13 @@ export default function AddressesView({ initialAddresses }: { initialAddresses: 
                 {editingEntry?.id === a.id ? (
                   <div className="mt-3">
                     <label className="block">
-                      <span className="block text-xs font-semibold text-slate-700 mb-1">Entry instructions</span>
+                      <span className="block text-xs font-semibold text-slate-700 mb-1">Directions &amp; entry</span>
                       <textarea
                         value={editingEntry.text}
                         maxLength={MAX_ENTRY_INSTRUCTIONS_LENGTH}
                         rows={3}
                         autoFocus
-                        placeholder="Gate code, where the key is, which door to use…"
+                        placeholder="How to get there and get in: parking, which building or door, gate code, where the key is…"
                         onChange={(e) => setEditingEntry({ id: a.id, text: e.target.value })}
                         className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-brand resize-none"
                       />
@@ -171,7 +171,7 @@ export default function AddressesView({ initialAddresses }: { initialAddresses: 
                       disabled={!!editingEntry}
                       className="text-xs font-semibold text-brand mt-1 disabled:opacity-50"
                     >
-                      {a.entry_instructions ? 'Edit entry instructions' : '+ Add entry instructions'}
+                      {a.entry_instructions ? 'Edit directions & entry' : '+ Add directions & entry'}
                     </button>
                   </div>
                 )}

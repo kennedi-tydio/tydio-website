@@ -210,7 +210,7 @@ export default function OnTheWayView({
         {entryInstructions && (
           <div className="mb-5">
             <p className="text-sm font-bold text-slate-900 mb-1 flex items-center justify-between">
-              Entry Instructions
+              Directions &amp; Entry
               <IconChevronRight />
             </p>
             <p className="text-sm text-slate-600">{entryInstructions}</p>

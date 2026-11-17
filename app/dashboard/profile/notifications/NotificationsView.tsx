@@ -8,6 +8,7 @@ import { setEmailNotificationsAction, setSmsConsentAction } from '@/app/actions/
 import { enablePushNotifications, disablePushNotifications, useDevicePushSubscribed, useIsStandalone } from '@/app/components/pushSubscription'
 import ModalShell from '@/app/components/ModalShell'
 import AddToHomeScreenGuide from '@/app/components/AddToHomeScreenGuide'
+import SmsOptOutConfirm from '@/app/components/SmsOptOutConfirm'
 
 function IconBack() {
   return (
@@ -37,6 +38,7 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
   const [working, setWorking] = useState<'sms' | 'push' | 'email' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showInstallGuide, setShowInstallGuide] = useState(false)
+  const [confirmingSmsOptOut, setConfirmingSmsOptOut] = useState(false)
   const standalone = useIsStandalone()
   const deviceSubscribed = useDevicePushSubscribed(standalone)
   const [subscribedHere, setSubscribedHere] = useState<boolean | null>(null)
@@ -47,11 +49,7 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
   async function handleSmsToggle() {
     setError(null)
     if (smsConsent === 'opted_in') {
-      setWorking('sms')
-      const result = await setSmsConsentAction('declined')
-      setWorking(null)
-      if ('error' in result) return setError(result.error)
-      setSmsConsent('declined')
+      setConfirmingSmsOptOut(true)
       return
     }
 
@@ -67,6 +65,16 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
     setSmsConsent('opted_in')
     setAskingForPhone(false)
     router.refresh()
+  }
+
+  async function confirmSmsOptOut() {
+    setError(null)
+    setWorking('sms')
+    const result = await setSmsConsentAction('declined')
+    setWorking(null)
+    setConfirmingSmsOptOut(false)
+    if ('error' in result) return setError(result.error)
+    setSmsConsent('declined')
   }
 
   async function confirmPhoneAndOptIn() {
@@ -202,6 +210,20 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
           </div>
         </div>
       </div>
+      {confirmingSmsOptOut && (
+        <ModalShell
+          panelClassName="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl"
+          labelledBy="sms-optout-title"
+          onClose={() => setConfirmingSmsOptOut(false)}
+        >
+          <SmsOptOutConfirm
+            titleId="sms-optout-title"
+            working={working === 'sms'}
+            onConfirm={confirmSmsOptOut}
+            onCancel={() => setConfirmingSmsOptOut(false)}
+          />
+        </ModalShell>
+      )}
       {showInstallGuide && (
         <ModalShell
           panelClassName="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl"

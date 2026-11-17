@@ -166,7 +166,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
               'For each task, choose the type of cleaning you want: Light touch-up, Standard cleaning, or Heavy cleaning for a deep clean.',
               'Tap Continue booking, then pick a date and browse the Tidy Pros available near you. Tap one to see their reviews and photos of their work.',
               'Choose a time that works for you.',
-              'Review your request. Add entry instructions so your Tidy Pro knows how to get in, choose a payment method, and tap Confirm Request.',
+              'Review your request. Add directions so your Tidy Pro knows how to get there and get in, choose a payment method, and tap Confirm Request.',
             ],
           },
           {
@@ -320,18 +320,18 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         answer: [
           {
             type: 'p',
-            text: 'Add entry instructions, like a gate code, where to park, or where the key is. You can do this two ways:',
+            text: 'Add directions, like where to park, which building or door, a gate code, or where the key is. You can do this two ways:',
           },
           {
             type: 'list',
             items: [
-              'While booking: fill in Entry Instructions on the Review Your Request screen. Check “Save for future bookings” to use them again next time at that address.',
-              'Anytime: go to Profile → Manage Addresses and add them to your address. They’ll fill in automatically when you book there.',
+              'While booking: fill in Directions & Entry on the Review Your Request screen. Check “Save these directions for future bookings” to use them again next time at that address.',
+              'Anytime: go to Profile → Manage Addresses and tap “Add directions & entry” on your address. They’ll fill in automatically when you book there.',
             ],
           },
           {
             type: 'p',
-            text: 'Your Tidy Pro sees your entry instructions once they’re on the way.',
+            text: 'Your Tidy Pro sees your directions once they’re on the way.',
           },
           {
             type: 'p',
@@ -549,7 +549,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           },
           {
             type: 'p',
-            text: 'Our team reviews each report and may refund all, half, or none of what you paid. We’ll email you the outcome. Adding entry instructions helps avoid this.',
+            text: 'Our team reviews each report and may refund all, half, or none of what you paid. We’ll email you the outcome. Adding directions helps avoid this.',
           },
           { type: 'link', before: 'See', target: 'entry-instructions', label: 'How do I tell my Tidy Pro how to get in?' },
         ],
@@ -837,7 +837,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           {
             type: 'steps',
             items: [
-              'Start booking appears one hour before the start time. Tap I’m on the way when you head out, and check the customer’s entry instructions.',
+              'Start booking appears one hour before the start time. Tap I’m on the way when you head out, and check the customer’s directions.',
               'When you get there, tap I’ve arrived. Only tap it once you’re actually at the home. If a customer reports that you weren’t there, our team will contact you both to review it.',
               'Check off each task as you finish it by taking its after photo. An after photo is required for every task. A photo of the whole area you cleaned is fine.',
             ],

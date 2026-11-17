@@ -77,7 +77,7 @@ describe('describeBookingChanges', () => {
       'moved to Thu, Nov 19 at 9:30 AM',
       'length changed to 1 hr 30 min',
       'notes updated',
-      'entry instructions updated',
+      'directions & entry updated',
     ])
   })
 })

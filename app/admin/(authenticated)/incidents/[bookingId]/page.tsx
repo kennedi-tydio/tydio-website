@@ -146,7 +146,7 @@ export default async function AdminIncidentPage({ params }: { params: Promise<{ 
                 ] as [string, React.ReactNode][])
               : []),
             ['Service address', serviceAddressText(booking.scheduled_location as ScheduledLocation | null)],
-            ['Entry instructions', booking.entry_instructions],
+            ['Directions & entry', booking.entry_instructions],
             ['Tasks', (tasks ?? []).map((t) => `${t.task_name} (${t.task_category})`).join('\n') || booking.task_description],
             ['Notes', booking.notes],
           ]}

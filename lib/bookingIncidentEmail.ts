@@ -114,7 +114,7 @@ export async function loadBookingIncident(admin: Admin, bookingId: string, custo
         ['Estimated length', booking.estimated_duration_minutes != null ? `${booking.estimated_duration_minutes} minutes` : null],
         ['Service address', serviceAddress],
         ['Tasks', (tasks ?? []).map((t) => `${t.task_name} (${t.task_category})`).join('\n') || booking.task_description],
-        ['Entry instructions', booking.entry_instructions],
+        ['Directions & entry', booking.entry_instructions],
         ['Notes', booking.notes],
         ['Unusual notes', booking.unusual_notes],
         // The photo of the location the cleaner took before canceling for no access.

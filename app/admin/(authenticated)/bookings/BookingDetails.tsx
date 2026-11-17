@@ -249,7 +249,7 @@ export default function BookingDetails({
         <Field label="Start">{startText(b)}</Field>
         <Field label="Estimated length">{duration(b.estimated_duration_minutes)}</Field>
         <Field label="Service address">{serviceAddressText(b.scheduled_location as ScheduledLocation | null)}</Field>
-        <Field label="Entry instructions">{b.entry_instructions}</Field>
+        <Field label="Directions & entry">{b.entry_instructions}</Field>
         <Field label="Arrived">{dateTime(b.arrived_at, b.time_zone)}</Field>
         <Field label="Booked">{dateTime(b.created_at, b.time_zone)}</Field>
         <Field label="Request">{[b.decision_status, b.auto_accepted ? 'auto-accepted' : null].filter(Boolean).join(', ')}</Field>

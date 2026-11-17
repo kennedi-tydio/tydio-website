@@ -43,7 +43,7 @@ export function parseAdminBookingEdit(fields: {
   const notes = fields.notes.trim()
   const entryInstructions = fields.entryInstructions.trim()
   if (notes.length > NOTES_MAX_LENGTH || entryInstructions.length > NOTES_MAX_LENGTH) {
-    return { error: `Keep notes and entry instructions under ${NOTES_MAX_LENGTH} characters.` }
+    return { error: `Keep notes and directions under ${NOTES_MAX_LENGTH} characters.` }
   }
   return { date, time, durationMinutes, notes: notes || null, entryInstructions: entryInstructions || null }
 }
@@ -72,7 +72,7 @@ export function describeBookingChanges(
   }
   if ((before.estimated_duration_minutes ?? null) !== after.durationMinutes) changes.push(`length changed to ${formatLength(after.durationMinutes)}`)
   if ((before.notes ?? null) !== after.notes) changes.push('notes updated')
-  if ((before.entry_instructions ?? null) !== after.entryInstructions) changes.push('entry instructions updated')
+  if ((before.entry_instructions ?? null) !== after.entryInstructions) changes.push('directions & entry updated')
   return changes
 }
 

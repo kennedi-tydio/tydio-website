@@ -76,7 +76,7 @@ export const CUSTOMER_REPORT_CATEGORIES: readonly ReportCategory[] = [
     reasons: [
       { id: 'customer_unresponsive', label: 'Customer isn’t responding', severity: 'low' },
       { id: 'cannot_enter', label: 'I can’t enter the property', severity: 'low' },
-      { id: 'incorrect_entry_info', label: 'Address or entry instructions are incorrect', severity: 'low' },
+      { id: 'incorrect_entry_info', label: 'Address or directions are incorrect', severity: 'low' },
     ],
   },
   {

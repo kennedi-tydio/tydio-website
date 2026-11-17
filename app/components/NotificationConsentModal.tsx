@@ -13,6 +13,7 @@ import {
 } from '@/app/components/pushSubscription'
 import ModalShell from './ModalShell'
 import SmsOptInPrompt from './SmsOptInPrompt'
+import SmsOptOutConfirm from './SmsOptOutConfirm'
 import { PUSH_REQUIRED } from '@/lib/pushRequirement'
 import AddToHomeScreenGuide from './AddToHomeScreenGuide'
 import { dismissInstallGuide, useInstallGuideDismissed } from './installGuide'
@@ -21,9 +22,11 @@ type Props = {
   initialPhone: string | null
   smsConsent: 'opted_in' | 'declined' | null
   pushConsent: 'opted_in' | 'declined' | null
+  // Ask "Are you sure?" before recording a text opt-out (customers).
+  confirmSmsOptOut?: boolean
 }
 
-export default function NotificationConsentModal({ initialPhone, smsConsent, pushConsent }: Props) {
+export default function NotificationConsentModal({ initialPhone, smsConsent, pushConsent, confirmSmsOptOut = false }: Props) {
   const router = useRouter()
   const standalone = useIsStandalone()
   const installDismissed = useInstallGuideDismissed()
@@ -74,9 +77,14 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
   const [phone, setPhone] = useState(initialPhone ?? '')
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingOptOut, setConfirmingOptOut] = useState(false)
 
-  async function handleSmsResponse(optIn: boolean) {
+  async function handleSmsResponse(optIn: boolean, confirmed = false) {
     setError(null)
+    if (!optIn && confirmSmsOptOut && !confirmed) {
+      setConfirmingOptOut(true)
+      return
+    }
     if (optIn && !phone.trim()) {
       setError('Please enter a phone number.')
       return
@@ -84,6 +92,7 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
     setWorking(true)
     const result = await setSmsConsentAction(optIn ? 'opted_in' : 'declined', optIn ? phone.trim() : undefined)
     setWorking(false)
+    setConfirmingOptOut(false)
     if ('error' in result) {
       setError(result.error)
       return
@@ -146,7 +155,19 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
 
   return (
     <ModalShell panelClassName="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl" labelledBy="consent-title" closeOnBackdrop={false}>
-      {step === 'sms' ? (
+      {step === 'sms' && confirmingOptOut ? (
+        <SmsOptOutConfirm
+          titleId="consent-title"
+          working={working}
+          onConfirm={() => handleSmsResponse(false, true)}
+          onCancel={() => {
+            // "No, send me text updates": opt them in. Without a phone on
+            // file, this returns to the prompt asking for one.
+            setConfirmingOptOut(false)
+            handleSmsResponse(true)
+          }}
+        />
+      ) : step === 'sms' ? (
         <SmsOptInPrompt
           titleId="consent-title"
           showPhone={!initialPhone}

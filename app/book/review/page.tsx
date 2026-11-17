@@ -76,6 +76,8 @@ export default async function ReviewPage() {
   tasks = dropUnmatchedLaundryLinks(repaired.filter((t) => t.completed))
 
   const location = draft.scheduled_location as ScheduledLocation | null
+  // Bookings need a full saved address; send older drafts back to pick one.
+  if (location?.type !== 'address') redirect('/book/schedule')
   const squareFootage = await resolveLocationSquareFootage(admin, session.profileId, location)
 
   let breakdown
@@ -87,8 +89,8 @@ export default async function ReviewPage() {
 
   const savedEntryInstructions = await savedEntryInstructionsForLocation(admin, session.profileId, location)
 
-  const addressName = location?.type === 'address' ? `${profile.first_name ?? 'Your'}'s ${location.label}` : 'Current Location'
-  const addressLine = location?.type === 'address' ? location.line : null
+  const addressName = `${profile.first_name ?? 'Your'}'s ${location.label}`
+  const addressLine = location.line
 
   const isTopTidyPro = tidyProStats ? computeIsTopTidyPro(tidyProStats.rating, tidyProStats.total_accepted_bookings) : false
   const distanceMiles =

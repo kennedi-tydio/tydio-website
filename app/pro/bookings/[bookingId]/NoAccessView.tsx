@@ -125,13 +125,13 @@ export default function NoAccessView({ bookingId, customerName, entryInstruction
         <p className="text-sm text-slate-600 mb-5">
           <span className="font-semibold text-slate-900">You must wait until the timer is up before you cancel the booking.</span>{' '}
           The timer is {NO_ACCESS_WAIT_MINUTES} minutes from the start time or when you pressed &quot;Unable to access
-          location&quot;, whichever is later. Try the entry instructions and message {customerName} in the meantime. Our
+          location&quot;, whichever is later. Try the customer's directions and message {customerName} in the meantime. Our
           team has been notified.
         </p>
 
         {entryInstructions && (
           <div className="mb-5">
-            <p className="text-sm font-bold text-slate-900 mb-1">Entry Instructions</p>
+            <p className="text-sm font-bold text-slate-900 mb-1">Directions &amp; Entry</p>
             <p className="text-sm text-slate-600">{entryInstructions}</p>
           </div>
         )}

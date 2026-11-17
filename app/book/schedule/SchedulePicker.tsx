@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import RecurringBookingOption from './RecurringBookingOption'
 import type { RecurrenceFrequency } from '@/lib/recurrence'
 import Link from 'next/link'
@@ -266,9 +266,11 @@ function SchedulePickerForm({
   const [addresses, setAddresses] = useState<Address[]>(initialAddresses)
   const [activeField, setActiveField] = useState<Field>(null)
   // A previously chosen saved address only carries over once it has a square footage.
+  // Bookings need a full saved address, so an older draft's device location doesn't carry over.
   const [location, setLocation] = useState<ScheduledLocation | null>(() => {
     const loc = initialSchedule.location
-    if (loc?.type === 'address' && !initialAddresses.find((a) => a.id === loc.addressId)?.square_footage) return null
+    if (loc?.type !== 'address') return null
+    if (!initialAddresses.find((a) => a.id === loc.addressId)?.square_footage) return null
     return loc
   })
   // Today, on the customer's own calendar, unless they've already chosen a date or "Any day".
@@ -284,7 +286,6 @@ function SchedulePickerForm({
   const canRecur = date != null && endDate == null
   const [timeMode, setTimeMode] = useState<TimeMode>(initialSchedule.endTime ? 'window' : 'exact')
   const [timePickerError, setTimePickerError] = useState<string | null>(null)
-  const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
   const [results, setResults] = useState<CleanerSearchResult | null>(null)
@@ -295,9 +296,9 @@ function SchedulePickerForm({
   const [savingSqft, setSavingSqft] = useState(false)
   const [sqftError, setSqftError] = useState<string | null>(null)
 
-  const locationLabel = location
-    ? location.type === 'current_location' ? 'Current Location' : location.label
-    : 'Current Location'
+  const locationLabel = location?.type === 'address'
+    ? location.label
+    : addresses.length > 0 ? 'Choose an address' : 'Add an address'
   const dateLabel = date
     ? endDate ? `${formatDateLabel(date)} – ${formatDateLabel(endDate)}` : formatDateLabel(date)
     : 'Any day'
@@ -306,41 +307,36 @@ function SchedulePickerForm({
     : 'Anytime'
   const dateTimeError = validateDateTime(date, endDate, time, endTime, todayISO, nowMinutes)
 
+  // Results only describe the exact values that were searched. Once the
+  // customer changes any of them, clear the results until they search again.
+  const searchKey = JSON.stringify([
+    location?.type === 'address' ? location.addressId : null,
+    date,
+    endDate,
+    time,
+    endTime,
+    canRecur ? recurrence : null,
+  ])
+  const [resultsKey, setResultsKey] = useState(searchKey)
+  if (resultsKey !== searchKey) {
+    setResultsKey(searchKey)
+    setResults(null)
+  }
+  // Read after an in-flight search finishes, so a search whose values were
+  // changed mid-request doesn't show stale results.
+  const latestSearchKey = useRef(searchKey)
+  useEffect(() => {
+    latestSearchKey.current = searchKey
+  }, [searchKey])
+
   function toggleField(field: Exclude<Field, null>) {
     if (field === 'time') setTimePickerError(null)
-    setActiveField((prev) => (prev === field ? null : field))
-  }
-
-  function requestCurrentLocation(): Promise<ScheduledLocation | null> {
-    return new Promise((resolve) => {
-      if (!('geolocation' in navigator)) {
-        setLocationError("Location services aren't available on this device.")
-        resolve(null)
-        return
-      }
-      setLocating(true)
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setLocating(false)
-          setLocationError(null)
-          resolve({ type: 'current_location', latitude: pos.coords.latitude, longitude: pos.coords.longitude })
-        },
-        () => {
-          setLocating(false)
-          setLocationError("We couldn't access your location. Try picking a saved address instead.")
-          resolve(null)
-        },
-        { timeout: 8000 }
-      )
-    })
-  }
-
-  async function handleSelectCurrentLocation() {
-    const loc = await requestCurrentLocation()
-    if (loc) {
-      setLocation(loc)
-      setActiveField(null)
+    // With no saved addresses there's nothing to pick from, so go straight to adding one.
+    if (field === 'location' && addresses.length === 0) {
+      setShowAddressForm(true)
+      return
     }
+    setActiveField((prev) => (prev === field ? null : field))
   }
 
   async function handleSquareFootage(a: Address, value: SquareFootage) {
@@ -371,6 +367,7 @@ function SchedulePickerForm({
       latitude: a.latitude,
       longitude: a.longitude,
     })
+    setLocationError(null)
     setActiveField(null)
   }
 
@@ -469,23 +466,29 @@ function SchedulePickerForm({
   async function handleSearch() {
     if (dateTimeError) return
     setLocationError(null)
-    let loc = location
-    if (!loc) {
-      loc = await requestCurrentLocation()
-      if (!loc) return
-      setLocation(loc)
+    const loc = location
+    if (loc?.type !== 'address') {
+      if (addresses.length === 0) {
+        setLocationError('Add the full address of the home you want cleaned to search for Tidy Pros.')
+        setShowAddressForm(true)
+      } else {
+        setLocationError('Choose the address you want cleaned to search for Tidy Pros.')
+        setActiveField('location')
+      }
+      return
     }
     if (loc.latitude == null || loc.longitude == null) {
-      setLocationError("We don't have a precise location for that address yet — try Current Location or a different saved address.")
+      setLocationError("We couldn't pinpoint that address. Please check it in your saved addresses or choose a different one.")
       return
     }
 
     const schedule: Schedule = { location: loc, date, endDate, time, endTime, recurrence: canRecur ? recurrence : null }
+    const keyAtSearch = searchKey
     setSearching(true)
     try {
       await saveSchedule(draftId, schedule)
       const found = await searchAvailableCleaners(draftId, schedule, Intl.DateTimeFormat().resolvedOptions().timeZone)
-      setResults(found)
+      if (latestSearchKey.current === keyAtSearch) setResults(found)
     } finally {
       setSearching(false)
     }
@@ -514,7 +517,7 @@ function SchedulePickerForm({
             <div className="w-full flex items-center gap-2.5">
               <button type="button" onClick={() => toggleField('location')} className="flex-1 min-w-0 flex items-center gap-2.5 text-left">
                 <IconPin />
-                <span className="text-sm text-slate-800 flex-1 text-left truncate">{locationLabel}</span>
+                <span className={`text-sm flex-1 text-left truncate ${location ? 'text-slate-800' : 'text-slate-500'}`}>{locationLabel}</span>
               </button>
               {location && (
                 <button type="button" onClick={handleClearLocation} className="flex-shrink-0 text-xs font-medium text-slate-400 underline">
@@ -527,17 +530,8 @@ function SchedulePickerForm({
             </div>
             {activeField === 'location' && (
               <div className="mt-3 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={handleSelectCurrentLocation}
-                  disabled={locating}
-                  className="w-full text-left text-sm font-medium px-3 py-2 rounded-lg mb-1"
-                  style={{ backgroundColor: '#e8f9fa', color: '#1a2332' }}
-                >
-                  {locating ? 'Finding you…' : 'Current Location'}
-                </button>
                 {addresses.length > 0 && (
-                  <div className="mt-2 flex flex-col divide-y divide-slate-200">
+                  <div className="flex flex-col divide-y divide-slate-200">
                     {addresses.map((a) => (
                       <div key={a.id}>
                         <button

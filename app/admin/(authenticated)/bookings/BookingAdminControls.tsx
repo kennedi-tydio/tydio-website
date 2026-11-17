@@ -81,7 +81,7 @@ function EditForm({ booking, onClose }: { booking: EditableBooking; onClose: () 
         <textarea name="notes" rows={2} maxLength={2000} defaultValue={booking.notes ?? ''} className={INPUT} />
       </label>
       <label className={LABEL}>
-        Entry instructions
+        Directions & entry
         <textarea name="entry_instructions" rows={2} maxLength={2000} defaultValue={booking.entryInstructions ?? ''} className={INPUT} />
       </label>
       <div className="flex gap-2">

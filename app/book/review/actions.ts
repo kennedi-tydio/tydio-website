@@ -210,6 +210,7 @@ export async function confirmBookingAction(
   const paymentMethodId = draft.selected_payment_method_id ?? (await defaultPaymentMethodId(admin, session.profileId))
   if (!paymentMethodId) return { error: 'Select a payment method before confirming.' }
   const location = draft.scheduled_location as ScheduledLocation | null
+  if (location?.type !== 'address') return { error: 'Choose a saved address for this booking before confirming.' }
   // The time they picked is local to the home, wherever their device thinks it is.
   const bookingTimeZone = await serviceTimeZone(admin, session.profileId, location, timeZone, DEFAULT_BOOKING_TIME_ZONE)
   // A booking inside this window would be auto-canceled as soon as it was made.

@@ -881,18 +881,24 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
             {UNUSUAL_OPTIONS.map(opt => (
               <label
                 key={opt}
-                className="flex items-center gap-3 cursor-pointer"
-                onClick={() => toggleUnusual(opt)}
+                className="relative flex items-center gap-3 cursor-pointer"
               >
-                <div
-                  className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${unusual.includes(opt) ? 'border-brand bg-brand' : 'border-slate-300'}`}
+                <input
+                  type="checkbox"
+                  checked={unusual.includes(opt)}
+                  onChange={() => toggleUnusual(opt)}
+                  className="sr-only peer"
+                />
+                <span
+                  aria-hidden="true"
+                  className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 peer-focus-visible:ring-2 peer-focus-visible:ring-brand peer-focus-visible:ring-offset-2 ${unusual.includes(opt) ? 'border-brand bg-brand' : 'border-slate-300'}`}
                 >
                   {unusual.includes(opt) && (
                     <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                       <path d="M2 5.5l2.5 2.5 4.5-5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   )}
-                </div>
+                </span>
                 <span className="text-sm text-slate-700">{opt}</span>
               </label>
             ))}

@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { label: 'Users', href: '/admin/users' },
   { label: 'Tidy Pros', href: '/admin/tidy-pros' },
   { label: 'Bookings', href: '/admin/bookings' },
+  { label: 'Live Board', href: '/admin/live' },
   { label: 'Cancellations', href: '/admin/cancellations' },
   { label: 'Refunds', href: '/admin/refunds' },
   { label: 'No Pros', href: '/admin/no-pros' },
