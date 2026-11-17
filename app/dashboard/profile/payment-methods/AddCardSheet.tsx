@@ -46,10 +46,10 @@ export default function AddCardSheet({
   }, [])
 
   return (
-    <ModalShell className="fixed inset-0 z-50 flex items-end justify-center" panelClassName="w-full max-w-sm bg-white rounded-t-3xl px-6 pt-6 pb-8 shadow-2xl" onClose={onClose} labelledBy="add-card-title">
+    <ModalShell className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" panelClassName="w-full sm:max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain bg-white rounded-t-3xl sm:rounded-3xl px-5 sm:px-6 pt-6 pb-8 shadow-2xl" onClose={onClose} labelledBy="add-card-title">
       <div className="flex items-center justify-between mb-5">
         <h2 id="add-card-title" className="text-xl font-bold text-slate-900">Add payment method</h2>
-        <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100" aria-label="Close">
+        <button onClick={onClose} className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full hover:bg-slate-100" aria-label="Close">
           <IconClose />
         </button>
       </div>

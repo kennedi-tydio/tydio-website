@@ -115,7 +115,7 @@ export async function editBookingAsAdmin(
       user_unread: true,
       tidy_pro_unread: true,
       // Reminders are timed from the start, so a new time gets them again.
-      ...(timeChanged ? { reminder_sent_at: null, on_the_way_reminder_sent_at: null, unresponsive_alert_sent_at: null } : {}),
+      ...(timeChanged ? { reminder_sent_at: null, on_the_way_reminder_sent_at: null, unresponsive_alert_sent_at: null, customer_arrival_check_sent_at: null } : {}),
     })
     .eq('id', bookingId)
     .eq('status', booking.status)

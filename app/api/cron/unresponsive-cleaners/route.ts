@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { checkUnresponsiveCleaners } from '@/lib/unresponsiveCleaners'
+import { checkArrivalWithCustomers, checkUnresponsiveCleaners } from '@/lib/unresponsiveCleaners'
 
-// Reminds a cleaner who hasn't tapped "I'm on the way" by a booking's start time, then
-// emails the admin if they still haven't 15 minutes later. Safe to run as often as you
+// Reminds a cleaner who hasn't tapped "I'm on the way" by a booking's start time, asks
+// the customer 10 minutes after the start if the cleaner still hasn't marked themselves
+// arrived, and emails the admin if they haven't tapped "I'm on the way" 15 minutes in. Safe to run as often as you
 // like. Runs every minute from the database (see 036_unresponsive_cleaners).
 export async function GET(req: NextRequest) {
   const secret = req.headers.get('x-cron-secret')
@@ -11,6 +12,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const result = await checkUnresponsiveCleaners(createAdminClient())
-  return NextResponse.json({ ok: true, ...result })
+  const admin = createAdminClient()
+  const result = await checkUnresponsiveCleaners(admin)
+  const arrival = await checkArrivalWithCustomers(admin)
+  return NextResponse.json({ ok: true, ...result, arrivalChecks: arrival.asked, arrivalCheckFailures: arrival.failed })
 }

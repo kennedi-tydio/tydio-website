@@ -8,6 +8,8 @@ export const DEFAULT_BOOKING_TIME_ZONE = 'America/New_York'
 // highlighted on their home screen, this long before the scheduled start.
 export const START_BOOKING_WINDOW_MINUTES = 60
 
+export const ON_THE_WAY_TOO_EARLY_MESSAGE = `You can tap "I'm on the way" starting 1 hour before the booking starts.`
+
 export function isValidTimeZone(timeZone: string | null | undefined): timeZone is string {
   if (!timeZone) return false
   try {

@@ -12,7 +12,14 @@ import {
   cancelOtherRequests,
   restoreBookingTasks,
 } from '@/lib/bookingRequestGroups'
-import { NO_ACCESS_WAIT_MINUTES, canReportNoAccess, hasAcceptanceWindowClosed } from '@/lib/bookingTime'
+import {
+  NO_ACCESS_WAIT_MINUTES,
+  ON_THE_WAY_TOO_EARLY_MESSAGE,
+  START_BOOKING_WINDOW_MINUTES,
+  bookingStartInstant,
+  canReportNoAccess,
+  hasAcceptanceWindowClosed,
+} from '@/lib/bookingTime'
 import { startNoAccessCountdown, revalidateNoAccessPaths } from '@/lib/noAccessCountdown'
 import { reportBookingIncident } from '@/lib/bookingIncidents'
 import { canChangeStartTime, proposedTimeInBookingZone, withdrawPendingProposals } from '@/lib/bookingTimeProposals'
@@ -197,13 +204,19 @@ export async function markOnTheWayAction(bookingId: string): Promise<{ success: 
   const admin = createAdminClient()
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, user_id, status, suspended_for_upcharge_at, payment_due_at')
+    .select('id, user_id, status, suspended_for_upcharge_at, payment_due_at, scheduled_date, scheduled_time, time_zone')
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
     .maybeSingle()
 
   if (!booking) return { error: 'Booking not found.' }
   if (booking.status !== 'scheduled') return { error: 'This booking has not been accepted yet.' }
+  // Opens an hour before the start, same as the buttons. An "anytime" booking has no
+  // start time, so it can be started whenever.
+  if (booking.scheduled_date && booking.scheduled_time) {
+    const opensAt = bookingStartInstant(booking.scheduled_date, booking.scheduled_time, booking.time_zone).getTime() - START_BOOKING_WINDOW_MINUTES * 60 * 1000
+    if (Date.now() < opensAt) return { error: ON_THE_WAY_TOO_EARLY_MESSAGE }
+  }
   if (booking.suspended_for_upcharge_at) return { error: UPCHARGE_HOLD_MESSAGE }
   // A recurring visit the customer hasn't paid for yet (lib/recurringPayments).
   if (booking.payment_due_at) return { error: UNPAID_HOLD_MESSAGE }

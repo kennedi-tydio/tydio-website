@@ -27,7 +27,8 @@ vi.mock('@/lib/stripe', () => ({
 import { sendEmail } from '@/lib/email'
 import { sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
-import { checkUnresponsiveCleaners, unresponsiveStepDue } from './unresponsiveCleaners'
+import { arrivalCheckDue, checkUnresponsiveCleaners, unresponsiveStepDue } from './unresponsiveCleaners'
+import { notifyArrivalCheck } from './notifications'
 
 const email = vi.mocked(sendEmail)
 const sms = vi.mocked(sendSmsForPayload)
@@ -168,11 +169,11 @@ describe('checkUnresponsiveCleaners', () => {
 
     expect(result).toEqual({ reminded: 1, alerted: 0, failed: 0 })
     expect(updates[0]).toHaveProperty('on_the_way_reminder_sent_at')
-    expect(sms).toHaveBeenCalledWith('+15550001111', expect.objectContaining({ title: 'Your booking has started' }))
-    expect(push).toHaveBeenCalledWith('p1', expect.objectContaining({ title: 'Your booking has started' }))
+    expect(sms).toHaveBeenCalledWith('+15550001111', expect.objectContaining({ title: 'Did you make it to your booking?' }))
+    expect(push).toHaveBeenCalledWith('p1', expect.objectContaining({ title: 'Did you make it to your booking?' }))
     expect(email).toHaveBeenCalledTimes(1)
     expect(email.mock.calls[0][0].to).toEqual([{ email: 'nia@example.com', name: 'Nia' }])
-    expect(email.mock.calls[0][0].htmlContent).toContain("I'm on the way")
+    expect(email.mock.calls[0][0].htmlContent).toContain('Open the booking')
   })
 
   it('emails the admin with the cleaner, customer, booking, and payment details', async () => {
@@ -210,5 +211,31 @@ describe('checkUnresponsiveCleaners', () => {
 
     expect(result).toEqual({ reminded: 0, alerted: 0, failed: 1 })
     expect(updates.at(-1)).toEqual({ unresponsive_alert_sent_at: null })
+  })
+})
+
+describe('arrivalCheckDue', () => {
+  const booking = { scheduled_date: '2026-11-03', scheduled_time: '10:00', time_zone: zone, customer_arrival_check_sent_at: null }
+
+  it('waits until 10 minutes past the start', () => {
+    expect(arrivalCheckDue(booking, at('15:00:00'))).toBe(false)
+    expect(arrivalCheckDue(booking, at('15:09:59'))).toBe(false)
+    expect(arrivalCheckDue(booking, at('15:10:00'))).toBe(true)
+  })
+
+  it('asks only once', () => {
+    expect(arrivalCheckDue({ ...booking, customer_arrival_check_sent_at: '2026-11-03T15:10:00Z' }, at('15:11:00'))).toBe(false)
+  })
+
+  it('leaves anytime bookings and long-past bookings alone', () => {
+    expect(arrivalCheckDue({ ...booking, scheduled_time: null }, at('15:30:00'))).toBe(false)
+    expect(arrivalCheckDue(booking, at('18:30:00'))).toBe(false)
+  })
+
+  it('names the customer’s no-show button and links to their booking', () => {
+    const payload = notifyArrivalCheck('b1')
+    expect(payload.body).toContain("My Tidy Pro didn't show up")
+    expect(payload.body).toContain('mark themselves as arrived')
+    expect(payload.url).toContain('/dashboard/bookings/b1')
   })
 })

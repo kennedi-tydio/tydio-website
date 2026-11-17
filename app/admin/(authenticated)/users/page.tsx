@@ -346,7 +346,7 @@ export default async function UsersPage({
           defaultValue={favorite}
           className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand"
         >
-          <option value="">All Tidy Pros</option>
+          <option value="">All favorites</option>
           <option value="yes">★ Favorites</option>
         </select>
         <select

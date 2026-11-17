@@ -6,6 +6,7 @@ import Link from 'next/link'
 import type { TidyTask } from '@/app/dashboard/types'
 import TimeSelect from '@/app/components/form/TimeSelect'
 import { useStartBookingWindow } from '@/app/pro/useStartBookingWindow'
+import { ON_THE_WAY_TOO_EARLY_MESSAGE } from '@/lib/bookingTime'
 import { bookedTaskName } from '@/lib/laundry'
 import LaundromatNotice from '@/app/components/LaundromatNotice'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
@@ -737,7 +738,12 @@ export default function ProMessageThreadView({
               <IconCheck /> Accepted
             </div>
           )}
-          {outcome === 'accepted' && isNotStarted && (
+          {outcome === 'accepted' && isNotStarted && startsAtMs != null && !isWithinStartWindow && (
+            <p className="text-center text-xs text-slate-500 mt-3">{ON_THE_WAY_TOO_EARLY_MESSAGE}</p>
+          )}
+          {/* Opens an hour before the start. An "anytime" booking has no start time, so
+              it can be started whenever. */}
+          {outcome === 'accepted' && isNotStarted && (startsAtMs == null || isWithinStartWindow) && (
             <button
               type="button"
               onClick={handleOnTheWay}

@@ -227,7 +227,7 @@ export async function payForVisit(
       payment_error: null,
       suspended_for_payment_at: null,
       payment_attempted_at: now.toISOString(),
-      ...(newSlot ? { scheduled_date: newSlot.date, scheduled_time: newSlot.time, reminder_sent_at: null, on_the_way_reminder_sent_at: null } : {}),
+      ...(newSlot ? { scheduled_date: newSlot.date, scheduled_time: newSlot.time, reminder_sent_at: null, on_the_way_reminder_sent_at: null, customer_arrival_check_sent_at: null } : {}),
       tidy_pro_unread: true,
     })
     .eq('id', visit.id)

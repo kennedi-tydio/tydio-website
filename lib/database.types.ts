@@ -370,6 +370,7 @@ export interface Database {
           tidy_pro_unread: boolean
           reminder_sent_at: string | null
           on_the_way_reminder_sent_at: string | null
+          customer_arrival_check_sent_at: string | null
           unresponsive_alert_sent_at: string | null
           arrived_at: string | null
           no_access_reported_at: string | null
@@ -449,6 +450,7 @@ export interface Database {
           tidy_pro_unread?: boolean
           reminder_sent_at?: string | null
           on_the_way_reminder_sent_at?: string | null
+          customer_arrival_check_sent_at?: string | null
           unresponsive_alert_sent_at?: string | null
           arrived_at?: string | null
           no_access_reported_at?: string | null

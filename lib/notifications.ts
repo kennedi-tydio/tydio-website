@@ -207,10 +207,20 @@ export function notifyBookingDone(bookingId: string): NotificationPayload {
   }
 }
 
+// 10 minutes past the start and the Tidy Pro hasn't marked themselves arrived. The button
+// named here is ReportNoShowButton on the customer's booking page.
+export function notifyArrivalCheck(bookingId: string): NotificationPayload {
+  return {
+    title: 'Did your Tidy Pro arrive?',
+    body: `Did your Tidy Pro arrive? If not, open your booking and tap "My Tidy Pro didn't show up". If they have arrived, ask them to open their Tydio app, mark themselves as arrived, and follow the booking instructions.`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}`),
+  }
+}
+
 export function notifyOnTheWayReminder(bookingId: string): NotificationPayload {
   return {
-    title: 'Your booking has started',
-    body: `Your booking's start time has arrived. If you're on the way, open Tydio, tap "I'm on the way", and follow the booking instructions.`,
+    title: 'Did you make it to your booking?',
+    body: 'Did you make it to your booking? Open the app to follow the booking instructions. This is necessary in order to receive payment.',
     url: siteUrl(`/pro/messages/${bookingId}`),
   }
 }

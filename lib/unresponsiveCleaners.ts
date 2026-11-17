@@ -2,7 +2,9 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 import { bookingStartInstant } from '@/lib/bookingTime'
 import { emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { loadBookingIncident, sendAdminEscalation } from '@/lib/bookingIncidentEmail'
-import { notifyOnTheWayReminder } from '@/lib/notifications'
+import { notifyArrivalCheck, notifyOnTheWayReminder } from '@/lib/notifications'
+import { notifyCustomer } from '@/lib/customerNotifications'
+import { NO_SHOW_REPORT_AFTER_MINUTES } from '@/lib/bookingTime'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 
@@ -54,7 +56,7 @@ async function remindCleaner(admin: Admin, booking: { id: string; tidy_pro_id: s
       htmlContent: emailShell(`
         <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">${escapeHtml(payload.title)}</h2>
         <p style="margin:0 0 20px;font-size:15px;color:#475569;line-height:1.6;">${escapeHtml(payload.body)}</p>
-        <a href="${escapeHtml(payload.url)}" style="display:inline-block;padding:14px 28px;background:#38C7CA;color:white;text-decoration:none;border-radius:12px;font-weight:700;font-size:15px;">I'm on the way</a>
+        <a href="${escapeHtml(payload.url)}" style="display:inline-block;padding:14px 28px;background:#38C7CA;color:white;text-decoration:none;border-radius:12px;font-weight:700;font-size:15px;">Open the booking</a>
       `),
     }).catch((err) => console.error('On the way reminder email failed', err))
   }
@@ -137,4 +139,62 @@ export async function checkUnresponsiveCleaners(
   }
 
   return { reminded, alerted, failed }
+}
+
+// 10 minutes past the start (when the customer's "My Tidy Pro didn't show up" button
+// appears), a Tidy Pro who still hasn't marked themselves arrived, whether or not they
+// tapped "I'm on the way", gets the customer asked: did they arrive? If not, report the
+// no-show; if so, have them mark it in the app. Asked once per booking.
+export const ARRIVAL_CHECK_AFTER_MINUTES = NO_SHOW_REPORT_AFTER_MINUTES
+
+export function arrivalCheckDue(
+  booking: { scheduled_date: string | null; scheduled_time: string | null; time_zone: string | null; customer_arrival_check_sent_at: string | null },
+  now: Date = new Date()
+): boolean {
+  if (!booking.scheduled_date || !booking.scheduled_time || booking.customer_arrival_check_sent_at) return false
+  const start = bookingStartInstant(booking.scheduled_date, booking.scheduled_time, booking.time_zone ?? undefined)
+  const minutesLate = (now.getTime() - start.getTime()) / 60000
+  return minutesLate >= ARRIVAL_CHECK_AFTER_MINUTES && minutesLate <= GIVE_UP_AFTER_MINUTES
+}
+
+// Not arrived yet: hasn't started, or is still on the way.
+const NOT_ARRIVED = 'progress_status.is.null,progress_status.eq.on_the_way'
+
+export async function checkArrivalWithCustomers(admin: Admin, now: Date = new Date()): Promise<{ asked: number; failed: number }> {
+  const { data: candidates } = await admin
+    .from('bookings')
+    .select('id, user_id, scheduled_date, scheduled_time, time_zone, customer_arrival_check_sent_at')
+    .eq('status', 'scheduled')
+    .or(NOT_ARRIVED)
+    .is('customer_arrival_check_sent_at', null)
+    .is('suspended_for_upcharge_at', null)
+    .is('payment_due_at', null)
+    .not('tidy_pro_id', 'is', null)
+    .gte('scheduled_date', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+    .lte('scheduled_date', new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+
+  let asked = 0
+  let failed = 0
+  for (const booking of candidates ?? []) {
+    if (!arrivalCheckDue(booking, now)) continue
+    try {
+      // Claimed first, so however often this runs the customer is asked once.
+      const { data: claimed, error } = await admin
+        .from('bookings')
+        .update({ customer_arrival_check_sent_at: now.toISOString() })
+        .eq('id', booking.id)
+        .eq('status', 'scheduled')
+        .or(NOT_ARRIVED)
+        .is('customer_arrival_check_sent_at', null)
+        .select('id')
+      if (error) throw new Error(error.message)
+      if (!claimed || claimed.length === 0) continue
+      await notifyCustomer(admin, booking.user_id, notifyArrivalCheck(booking.id))
+      asked++
+    } catch (err) {
+      console.error('Customer arrival check failed', booking.id, err)
+      failed++
+    }
+  }
+  return { asked, failed }
 }
