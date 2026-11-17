@@ -4,6 +4,10 @@
 // elsewhere sees the same moment converted into their own.
 export const DEFAULT_BOOKING_TIME_ZONE = 'America/New_York'
 
+// How early a Tidy Pro can start a booking: "Start booking" shows up, and the booking is
+// highlighted on their home screen, this long before the scheduled start.
+export const START_BOOKING_WINDOW_MINUTES = 60
+
 export function isValidTimeZone(timeZone: string | null | undefined): timeZone is string {
   if (!timeZone) return false
   try {

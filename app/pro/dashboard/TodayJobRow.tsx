@@ -22,7 +22,11 @@ export default function TodayJobRow({ job, timeRangeLabel }: { job: TodayJob; ti
     return (
       <Link href={`/pro/bookings/${job.id}`} className="flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors">
         <div className="min-w-0">
-          <p className="text-xs text-slate-400 mb-0.5">Today</p>
+          {job.completed ? (
+            <p className="text-xs font-semibold text-green-700 mb-0.5">{job.needsTidyProReview ? 'Completed · Leave a review' : 'Completed'}</p>
+          ) : (
+            <p className="text-xs text-slate-400 mb-0.5">Today</p>
+          )}
           <p className="text-xs text-slate-400 mb-1">{timeRangeLabel}</p>
           <p className="text-sm font-semibold text-slate-900 truncate">{job.customerName}</p>
           {job.address && <p className="text-xs text-slate-400 truncate">{job.address}</p>}
@@ -54,7 +58,7 @@ export default function TodayJobRow({ job, timeRangeLabel }: { job: TodayJob; ti
     >
       <div className="min-w-0">
         <p className="text-xs font-semibold mb-0.5" style={{ color: 'var(--color-brand)' }}>
-          Now
+          {job.startsSoon ? 'Starting soon' : 'Now'}
         </p>
         <p className="text-xs text-slate-400 mb-1">{timeRangeLabel}</p>
         <p className="text-sm font-semibold text-slate-900 truncate">{job.customerName}</p>

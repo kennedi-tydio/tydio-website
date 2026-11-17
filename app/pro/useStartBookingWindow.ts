@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { START_BOOKING_WINDOW_MINUTES } from '@/lib/bookingTime'
 
-// "Start booking" shows up this long before the scheduled start.
-const START_WINDOW_MS = 60 * 60 * 1000
+const START_WINDOW_MS = START_BOOKING_WINDOW_MINUTES * 60 * 1000
 
 // Whether a not-yet-started booking is close enough to its start for the
 // cleaner to begin it. Re-checks every 30 seconds so the button appears

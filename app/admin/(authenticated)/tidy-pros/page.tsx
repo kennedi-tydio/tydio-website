@@ -3,7 +3,9 @@ import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { ACCEPTANCE_RATE_THRESHOLD, NO_ACCEPTANCE_STATS, formatAcceptanceRate, getAllAcceptanceStats, isAcceptanceRateLow } from '@/lib/acceptanceRate'
 import { backgroundCheckStage, backgroundCheckStatusLabel } from '@/lib/backgroundCheck'
-import { bookingBlockers } from '@/lib/cleanerMatching'
+import { WEEKDAY_KEYS, bookingBlockers, formatCompactTime, type WeekdayKey, type WeeklyAvailability } from '@/lib/cleanerMatching'
+import { DEFAULT_BOOKING_TIME_ZONE, todayInZone } from '@/lib/bookingTime'
+import { formatTimeOffRange, normalizeTimeOff, parseTimeOff } from '@/lib/timeOff'
 import { withPushStatus } from '@/lib/pushRequirement'
 import { TIDY_PRO_SERVICES, normalizeServices, providesServices, serviceLabels } from '@/lib/tidyProServices'
 import { FavoriteStar } from '../users/FavoriteStar'
@@ -45,6 +47,18 @@ function pushStatus(pro: { push_consent: string | null; has_push: boolean } | un
   return { label: 'Push: Not answered', tone: 'text-slate-400' }
 }
 
+const DAY_LABELS: Record<WeekdayKey, string> = { sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' }
+
+// Only the days they work, e.g. "Mon 9am-5pm", in their own time zone.
+function weeklyHours(availability: unknown): { day: string; hours: string }[] {
+  const weekly = (availability as WeeklyAvailability | null) ?? {}
+  return WEEKDAY_KEYS.flatMap((day) => {
+    const ranges = weekly[day] ?? []
+    if (ranges.length === 0) return []
+    return [{ day: DAY_LABELS[day], hours: ranges.map((r) => `${formatCompactTime(r.start)}-${formatCompactTime(r.end)}`).join(', ') }]
+  })
+}
+
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
@@ -62,7 +76,7 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
     admin
       .from('tidypro_profiles')
       .select(
-        'id, city, state, zip_code, travel_radius_miles, services_provided, rating, review_count, is_verified, is_insured, uses_organic_products, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, latitude, longitude, push_consent'
+        'id, city, state, zip_code, travel_radius_miles, services_provided, rating, review_count, is_verified, is_insured, uses_organic_products, cleaner_status, active_for_booking, is_away, profile_photo_url, bio, availability, time_off, time_zone, stripe_onboarding_completed, latitude, longitude, push_consent'
       ),
     getAllAcceptanceStats(admin),
     admin.from('admin_favorite_tidy_pros').select('pro_id'),
@@ -88,6 +102,8 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
       favorite: favoriteIds.has(p.id),
       blockers: pro ? bookingBlockers(pro) : ['No Tidy Pro profile yet'],
       check: checkById.get(p.id),
+      hours: weeklyHours(pro?.availability),
+      timeOff: pro ? normalizeTimeOff(parseTimeOff(pro.time_off), todayInZone(pro.time_zone ?? DEFAULT_BOOKING_TIME_ZONE)) : [],
     }
   })
 
@@ -194,11 +210,12 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
                 <th className={TH}>Acceptance</th>
                 <th className={TH}>Rating</th>
                 <th className={TH}>Area</th>
+                <th className={TH}>Availability</th>
                 <th className={TH}>Checks</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {rows.map(({ profile, pro, name, zip, stats, lowAcceptance, favorite: isFavorite, blockers, check }) => {
+              {rows.map(({ profile, pro, name, zip, stats, lowAcceptance, favorite: isFavorite, blockers, check, hours, timeOff }) => {
                 const bookable = blockers.length === 0
                 const cleanerStatus = pro?.cleaner_status ?? 'applied'
                 const offered = serviceLabels(pro?.services_provided)
@@ -261,6 +278,31 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
                       {pro?.city || pro?.state || zip ? [[pro?.city, pro?.state].filter(Boolean).join(', '), zip].filter(Boolean).join(' ') : <span className="text-slate-400">—</span>}
                       {pro?.travel_radius_miles != null && <div className="text-slate-400">Up to {pro.travel_radius_miles} mi</div>}
                     </td>
+                    <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
+                      {pro?.is_away && <div className="font-semibold text-amber-700 mb-0.5">Away</div>}
+                      {hours.length > 0 ? (
+                        <ul className="space-y-0.5">
+                          {hours.map(({ day, hours: dayHours }) => (
+                            <li key={day}>
+                              <span className="font-medium text-slate-700">{day}</span> {dayHours}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-slate-400">No hours set</span>
+                      )}
+                      {timeOff.length > 0 && (
+                        <div className="mt-1 text-slate-500">
+                          <div className="font-medium text-slate-600">Time off</div>
+                          <ul className="space-y-0.5">
+                            {timeOff.slice(0, 2).map((range) => (
+                              <li key={`${range.start}_${range.end}_${range.startTime ?? ''}_${range.endTime ?? ''}`}>{formatTimeOffRange(range)}</li>
+                            ))}
+                          </ul>
+                          {timeOff.length > 2 && <div className="text-slate-400">+{timeOff.length - 2} more</div>}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-xs whitespace-nowrap">
                       <div className={CHECK_TONE[stage]}>Background: {backgroundCheckStatusLabel(check)}</div>
                       <div className="my-1">
@@ -275,7 +317,7 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
                     {hasFilters ? 'No Tidy Pros match these filters.' : 'No Tidy Pros yet.'}
                   </td>
                 </tr>

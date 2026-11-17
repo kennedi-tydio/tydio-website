@@ -11,6 +11,11 @@ export type TodayJob = {
   durationMinutes: number | null
   progressStatus: string | null
   isActive: boolean
+  // Active, but in the hour before it starts.
+  startsSoon: boolean
+  // Finished, but still listed while reviews are outstanding.
+  completed: boolean
+  needsTidyProReview: boolean
 }
 
 export type UpcomingJob = TodayJob & { date: string | null }
@@ -165,7 +170,11 @@ export default function DashboardHome({
             <p className="text-2xl font-bold text-slate-900">{jobsCompleted}</p>
             <p className="text-xs text-slate-400 mt-1 leading-tight">Jobs Completed</p>
           </div>
-          <div className="rounded-2xl border border-slate-100 shadow-sm py-4 px-2 text-center">
+          <Link
+            href="/pro/profile/preview/reviews?from=dashboard"
+            aria-label={reviewCount > 0 ? `Average rating ${rating.toFixed(1)}. View your reviews` : 'No rating yet. View your reviews'}
+            className="rounded-2xl border border-slate-100 shadow-sm py-4 px-2 text-center hover:bg-slate-50 transition-colors"
+          >
             {reviewCount > 0 ? (
               <p className="flex items-center justify-center gap-1 text-2xl font-bold text-slate-900">
                 <IconStar />{rating.toFixed(1)}
@@ -174,7 +183,8 @@ export default function DashboardHome({
               <p className="text-sm font-bold text-slate-900 leading-tight">No Rating<br />Yet</p>
             )}
             <p className="text-xs text-slate-400 mt-1 leading-tight">Average Rating</p>
-          </div>
+            <p className="text-[10px] font-semibold mt-1" style={{ color: 'var(--color-brand)' }}>View reviews</p>
+          </Link>
         </div>
 
         <AcceptanceRateCard stats={acceptance} />

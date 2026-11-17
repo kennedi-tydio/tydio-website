@@ -8,7 +8,10 @@ import CleanerReviewsView from '@/app/book/schedule/[cleanerId]/reviews/CleanerR
 
 export const metadata: Metadata = { title: 'Reviews — Tydio' }
 
-export default async function ProPreviewReviewsPage() {
+// Opened from the profile preview, or from the rating card on the dashboard (?from=dashboard),
+// and back goes to whichever it was.
+export default async function ProPreviewReviewsPage({ searchParams }: { searchParams: Promise<{ from?: string }> }) {
+  const { from } = await searchParams
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') redirect('/login')
 
@@ -30,7 +33,7 @@ export default async function ProPreviewReviewsPage() {
       rating={rating}
       reviewCount={reviewCount}
       reviews={await listCleanerReviews(admin, session.profileId, { forTidyProThemself: true })}
-      backHref="/pro/profile/preview"
+      backHref={from === 'dashboard' ? '/pro/dashboard' : '/pro/profile/preview'}
     />
   )
 }
