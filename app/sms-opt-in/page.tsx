@@ -40,7 +40,7 @@ export default function SmsOptInPage() {
           <figure className="space-y-3">
             {/* The real prompt component, rendered here for reviewers. Buttons do nothing on this page. */}
             <div className="max-w-sm rounded-3xl bg-white px-6 pt-6 pb-8 shadow-2xl ring-1 ring-slate-200" aria-label="Example of the Tydio text message opt-in prompt">
-              <SmsOptInPrompt showPhone phone="" />
+              <SmsOptInPrompt country="US" phone="" />
             </div>
             <figcaption className="text-sm text-slate-500">
               The exact opt-in prompt Tydio shows in the app after login (shown here as a non-working example).

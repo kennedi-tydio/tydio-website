@@ -17,6 +17,7 @@ import SmsOptOutConfirm from './SmsOptOutConfirm'
 import { PUSH_REQUIRED } from '@/lib/pushRequirement'
 import AddToHomeScreenGuide from './AddToHomeScreenGuide'
 import { dismissInstallGuide, useInstallGuideDismissed } from './installGuide'
+import { joinPhone, splitPhone } from '@/lib/phoneParts'
 
 type Props = {
   initialPhone: string | null
@@ -74,7 +75,8 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
   // Set after "I've added it" so the guide closes on a pointer to the
   // installed app, which is where the push step below appears.
   const [justInstalled, setJustInstalled] = useState(false)
-  const [phone, setPhone] = useState(initialPhone ?? '')
+  const [country, setCountry] = useState(() => splitPhone(initialPhone).country)
+  const [phone, setPhone] = useState(() => splitPhone(initialPhone).number)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmingOptOut, setConfirmingOptOut] = useState(false)
@@ -85,18 +87,28 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
       setConfirmingOptOut(true)
       return
     }
+    // Opting in needs a number. Without one, go back to the opt-in screen,
+    // where the phone field is, instead of saving from "Are you sure?".
     if (optIn && !phone.trim()) {
+      setConfirmingOptOut(false)
       setError('Please enter a phone number.')
       return
     }
+    const fullPhone = optIn ? joinPhone(country, phone) : null
+    if (optIn && !fullPhone) {
+      setConfirmingOptOut(false)
+      setError('Please choose a country code.')
+      return
+    }
     setWorking(true)
-    const result = await setSmsConsentAction(optIn ? 'opted_in' : 'declined', optIn ? phone.trim() : undefined)
+    const result = await setSmsConsentAction(optIn ? 'opted_in' : 'declined', fullPhone ?? undefined)
     setWorking(false)
-    setConfirmingOptOut(false)
+    // A failed save stays on the current screen with the error showing.
     if ('error' in result) {
       setError(result.error)
       return
     }
+    setConfirmingOptOut(false)
     router.refresh()
   }
 
@@ -159,18 +171,17 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
         <SmsOptOutConfirm
           titleId="consent-title"
           working={working}
+          error={error}
           onConfirm={() => handleSmsResponse(false, true)}
-          onCancel={() => {
-            // "No, send me text updates": opt them in. Without a phone on
-            // file, this returns to the prompt asking for one.
-            setConfirmingOptOut(false)
-            handleSmsResponse(true)
-          }}
+          // "No, send me text updates": opt them in right here. Without a
+          // phone number, this returns to the prompt asking for one.
+          onCancel={() => handleSmsResponse(true)}
         />
       ) : step === 'sms' ? (
         <SmsOptInPrompt
           titleId="consent-title"
-          showPhone={!initialPhone}
+          country={country}
+          onCountryChange={setCountry}
           phone={phone}
           onPhoneChange={setPhone}
           error={error}
