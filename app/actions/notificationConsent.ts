@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { userFacingError } from '@/lib/userFacingError'
 import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
+import { customerSmsPhoneUpdate, textingPhone } from '@/lib/smsPhone'
 
 function tableForRole(role: 'USER' | 'TIDYPRO' | 'ADMIN'): 'profiles' | 'tidypro_profiles' | null {
   if (role === 'USER') return 'profiles'
@@ -30,7 +31,20 @@ export async function setSmsConsentAction(
 
   if (consent === 'opted_in') {
     const trimmedPhone = phone?.trim()
-    if (trimmedPhone) {
+    if (table === 'profiles') {
+      // Customers keep the phone on their profile; a different number given
+      // here is saved as their texting number (lib/smsPhone).
+      const { data: existing } = await admin.from('profiles').select('phone, sms_phone').eq('id', session.profileId).maybeSingle()
+      if (trimmedPhone) {
+        const { error } = await admin
+          .from('profiles')
+          .update(customerSmsPhoneUpdate(existing?.phone ?? null, trimmedPhone))
+          .eq('id', session.profileId)
+        if (error) return { error: userFacingError(error) }
+      } else if (!textingPhone(existing)) {
+        return { error: 'Phone number required.' }
+      }
+    } else if (trimmedPhone) {
       await admin.from(table).update({ phone: trimmedPhone }).eq('id', session.profileId)
     } else {
       const { data: existing } = await admin.from(table).select('phone').eq('id', session.profileId).maybeSingle()

@@ -21,6 +21,7 @@ import CancelBookingButton, { type RefundOption } from './CancelBookingButton'
 import BookingAdminControls from './BookingAdminControls'
 import BookingDetails, { type DetailPerson, type DetailTask } from './BookingDetails'
 import { upchargeBlockedReason } from '@/lib/bookingUpcharges'
+import { isSamePhone } from '@/lib/smsPhone'
 
 const TH = 'px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide'
 
@@ -203,7 +204,7 @@ export default async function AdminBookingsPage() {
   const bookingIds = allRows.map((r) => r.id)
   const [{ data: profiles }, { data: proPhones }, { data: bookingTasks }, { data: additions }] = await Promise.all([
     profileIds.length
-      ? admin.from('profiles').select('id, role, first_name, last_name, email, phone').in('id', profileIds)
+      ? admin.from('profiles').select('id, role, first_name, last_name, email, phone, sms_phone').in('id', profileIds)
       : Promise.resolve({ data: [] }),
     profileIds.length ? admin.from('tidypro_profiles').select('id, phone').in('id', profileIds) : Promise.resolve({ data: [] }),
     bookingIds.length
@@ -223,11 +224,17 @@ export default async function AdminBookingsPage() {
   ])
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
   const proPhoneById = new Map((proPhones ?? []).map((p) => [p.id, p.phone]))
-  // Tidy Pros are reached at their Tidy Pro profile's number.
+  // Tidy Pros are reached at their Tidy Pro profile's number. Customers can get
+  // texts at a different number than their profile phone.
   function person(id: string | null): DetailPerson | undefined {
     const p = id ? profileById.get(id) : undefined
     if (!p) return undefined
-    return { name: fullName(p), email: p.email, phone: (p.role === 'TIDYPRO' ? proPhoneById.get(p.id) : null) ?? p.phone }
+    return {
+      name: fullName(p),
+      email: p.email,
+      phone: (p.role === 'TIDYPRO' ? proPhoneById.get(p.id) : null) ?? p.phone,
+      smsPhone: p.role === 'USER' && p.sms_phone && !isSamePhone(p.sms_phone, p.phone) ? p.sms_phone : null,
+    }
   }
   const tasksByBooking = new Map<string, DetailTask[]>()
   for (const t of bookingTasks ?? []) tasksByBooking.set(t.booking_id, [...(tasksByBooking.get(t.booking_id) ?? []), t])

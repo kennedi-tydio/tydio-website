@@ -78,6 +78,8 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/079_tip_seen_by_pro.sql` (`bookings.tip_seen_by_pro_at`). Saving a tip fails without it (the customer is charged but the tip is not recorded)
 - [x] Apply `supabase/migrations/081_pricing_quotes.sql` (`pricing_quotes` table and the 15-minute `tydio-abandoned-quotes` cron job). Abandoned-cart tracking and the admin Abandoned Carts page fail without it
 - [x] Apply `supabase/migrations/081_incident_cleaner_asked_cancel.sql` (widens `bookings.incident_type`). A customer canceling with "The cleaner asked me to cancel" fails without it
+- [x] Apply `supabase/migrations/082_customer_arrival_check.sql` (`bookings.customer_arrival_check_sent_at`). Rescheduling a booking (admin edits, recurring visits) and the customer arrival check fail without it
+- [x] Apply `supabase/migrations/083_customer_sms_phone.sql` (`profiles.sms_phone`). The customer dashboard, Notifications page, admin Users and Bookings tabs, and customer texts fail without it
 - [x] Apply `supabase/migrations/080_recurring_skipped_dates.sql` (`recurring_bookings.skipped_dates`). The Bookings tab, Jobs tab and the recurring-visit job fail without it
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 

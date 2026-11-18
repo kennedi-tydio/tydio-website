@@ -14,7 +14,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const admin = createAdminClient()
   const { data: profile } = await admin
     .from('profiles')
-    .select('phone, sms_consent, push_consent, booking_access_status, suspended_at')
+    .select('phone, sms_phone, sms_consent, push_consent, booking_access_status, suspended_at')
     .eq('id', session.profileId)
     .maybeSingle()
 
@@ -28,7 +28,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <PostHogIdentify profileId={session.profileId} role={session.role} />
       {profile?.suspended_at && <AccountNotice title="Account suspended">{SUSPENDED_MESSAGE}</AccountNotice>}
       <NotificationConsentModal
-        initialPhone={profile?.phone ?? null}
+        initialPhone={profile?.sms_phone || profile?.phone || null}
         smsConsent={profile?.sms_consent ?? null}
         pushConsent={profile?.push_consent ?? null}
         confirmSmsOptOut

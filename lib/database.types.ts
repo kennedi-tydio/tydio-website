@@ -37,6 +37,8 @@ export interface Database {
           email_notifications_enabled: boolean
           stripe_customer_id: string | null
           sms_consent: 'opted_in' | 'declined' | null
+          // A different number for texts than `phone`; null means text `phone`.
+          sms_phone: string | null
           push_consent: 'opted_in' | 'declined' | null
           suspended_at: string | null
           banned_at: string | null
@@ -75,6 +77,7 @@ export interface Database {
           email_notifications_enabled?: boolean
           stripe_customer_id?: string | null
           sms_consent?: 'opted_in' | 'declined' | null
+          sms_phone?: string | null
           push_consent?: 'opted_in' | 'declined' | null
           suspended_at?: string | null
           banned_at?: string | null

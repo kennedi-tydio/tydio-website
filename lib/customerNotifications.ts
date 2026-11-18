@@ -3,6 +3,7 @@ import { emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import type { NotificationPayload } from '@/lib/notifications'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
+import { textingPhone } from '@/lib/smsPhone'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -20,12 +21,14 @@ export async function notifyCustomer(
 ): Promise<void> {
   const { data: customer } = await admin
     .from('profiles')
-    .select('email, first_name, phone, sms_consent, email_notifications_enabled')
+    .select('email, first_name, phone, sms_phone, sms_consent, email_notifications_enabled')
     .eq('id', customerId)
     .maybeSingle()
 
-  if (sms && canSendSms(customer?.sms_consent ?? null, customer?.phone ?? null)) {
-    await sendSmsForPayload(customer!.phone!, payload).catch((err) => console.error('Customer SMS failed', err))
+  // Their texting number if they gave a different one, else their profile phone.
+  const to = textingPhone(customer)
+  if (sms && canSendSms(customer?.sms_consent ?? null, to)) {
+    await sendSmsForPayload(to!, payload).catch((err) => console.error('Customer SMS failed', err))
   }
 
   await sendPushForPayload(customerId, payload).catch((err) => console.error('Customer push failed', err))

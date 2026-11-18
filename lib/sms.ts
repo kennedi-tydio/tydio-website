@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/bannedUsers'
 import { TYDIO_ADMIN_EMAIL } from '@/lib/email'
 import { emailAdminManualText, textBody } from '@/lib/manualTextEmail'
+import { rowsWithPhone } from '@/lib/smsPhone'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -32,13 +33,12 @@ export function smsKeyword(body: string | null | undefined): 'STOP' | 'START' | 
 // query and compared in full after normalizing. A number can belong to both a
 // customer and a Tidy Pro account, and a STOP covers every account using it.
 export async function setSmsConsentForPhone(admin: Admin, phone: string, consent: 'opted_in' | 'declined'): Promise<number> {
-  const target = normalizePhone(phone)
-  if (target.length < 4) return 0
+  // A customer's texting number (profiles.sms_phone) counts as theirs too.
+  const rows = await rowsWithPhone(admin, normalizePhone(phone))
 
   let updated = 0
   for (const table of ['profiles', 'tidypro_profiles'] as const) {
-    const { data } = await admin.from(table).select('id, phone').ilike('phone', `%${target.slice(-4)}`)
-    const ids = (data ?? []).filter(row => row.phone && normalizePhone(row.phone) === target).map(row => row.id)
+    const ids = rows.filter(row => row.table === table).map(row => row.id)
     if (ids.length === 0) continue
     const { error } = await admin.from(table).update({ sms_consent: consent }).in('id', ids)
     if (error) throw new Error(error.message)

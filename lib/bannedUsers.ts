@@ -5,12 +5,9 @@ type Admin = ReturnType<typeof createAdminClient>
 
 export const BANNED_MESSAGE = `You are banned from Tydio. If you think this is a mistake, please email ${TYDIO_ADMIN_EMAIL}.`
 
-// Strips formatting so "+1 (555) 123-4567", "555-123-4567", and "5551234567" all
-// compare as the same number.
-export function normalizePhone(raw: string): string {
-  const digits = raw.replace(/\D/g, '')
-  return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
-}
+import { normalizePhone } from '@/lib/normalizePhone'
+
+export { normalizePhone }
 
 // Checked wherever someone authenticates. A match on either value is enough, so a
 // new email can't get round a ban on the same phone number, or the reverse.

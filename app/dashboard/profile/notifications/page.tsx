@@ -15,7 +15,7 @@ export default async function NotificationsPage() {
   const [{ data: profile }, hasPush] = await Promise.all([
     admin
     .from('profiles')
-    .select('phone, sms_consent, push_consent, email_notifications_enabled')
+    .select('phone, sms_phone, sms_consent, push_consent, email_notifications_enabled')
     .eq('id', session.profileId)
     .maybeSingle(),
     hasPushSubscription(admin, session.profileId),
@@ -23,7 +23,7 @@ export default async function NotificationsPage() {
 
   return (
     <NotificationsView
-      initialPhone={profile?.phone ?? null}
+      initialPhone={profile?.sms_phone || profile?.phone || null}
       initialSmsConsent={profile?.sms_consent ?? null}
       initialPushConsent={profile?.push_consent ?? null}
       initialEmailEnabled={profile?.email_notifications_enabled !== false}

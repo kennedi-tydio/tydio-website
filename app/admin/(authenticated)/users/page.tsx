@@ -11,6 +11,7 @@ import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAcco
 import { UserNote } from './UserNote'
 import { FavoriteStar } from './FavoriteStar'
 import { zipLocation } from '@/lib/zipLocation'
+import { isSamePhone } from '@/lib/smsPhone'
 import { IconLeaf } from '@/app/components/IconLeaf'
 import { IconMoon } from '@/app/components/IconMoon'
 import { onboardingStatusLabel, remainingOnboardingActions } from '@/lib/onboardingProgress'
@@ -37,9 +38,12 @@ const CLEANER_STATUS_COLORS: Record<string, string> = {
 // background_checks.status is a pre-existing check constraint allowing only
 // pending/in_review/passed/failed/expired.
 // Under each contact detail: whether that kind of notification actually reaches them.
-function ChannelStatus({ on, label }: { on: boolean; label: string }) {
+// `forPhone`: a customer's separate texting number, shown as "SMS on for …".
+function ChannelStatus({ on, label, forPhone }: { on: boolean; label: string; forPhone?: string | null }) {
   return on ? (
-    <div className="text-[11px] font-semibold text-green-700 mt-0.5">✓ {label} on</div>
+    <div className="text-[11px] font-semibold text-green-700 mt-0.5">
+      ✓ {label} on{forPhone && <> for <a href={`tel:${forPhone}`} className="underline">{forPhone}</a></>}
+    </div>
   ) : (
     <div className="text-[11px] text-slate-400 mt-0.5">✗ {label} off</div>
   )
@@ -98,7 +102,7 @@ export default async function UsersPage({
 
   let query = admin
     .from('profiles')
-    .select('id, first_name, last_name, email, phone, street_address, city, state, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at, email_notifications_enabled, sms_consent', { count: 'exact' })
+    .select('id, first_name, last_name, email, phone, street_address, city, state, zip_code, role, booking_access_status, email_verified_at, suspended_at, created_at, email_notifications_enabled, sms_consent, sms_phone', { count: 'exact' })
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -483,7 +487,9 @@ export default async function UsersPage({
                 const phone = proProfile?.phone ?? user.phone
                 // Tidy Pros are notified from their Tidy Pro profile's settings, customers from their account's.
                 const emailOn = (user.role === 'TIDYPRO' && proProfile ? proProfile.email_notifications_enabled : user.email_notifications_enabled) !== false
-                const smsOn = (user.role === 'TIDYPRO' && proProfile ? proProfile.sms_consent : user.sms_consent) === 'opted_in' && !!phone
+                // A customer can get texts at a different number than their profile phone.
+                const smsPhone = user.role === 'USER' && user.sms_phone && !isSamePhone(user.sms_phone, phone) ? user.sms_phone : null
+                const smsOn = (user.role === 'TIDYPRO' && proProfile ? proProfile.sms_consent : user.sms_consent) === 'opted_in' && !!(smsPhone || phone)
                 const pushOn = pushIds.has(user.id)
                 const notificationsMissing =
                   NOTIFICATIONS_REQUIRED && user.role !== 'ADMIN' && !meetsNotificationRequirement({ has_push: pushOn, has_sms: smsOn })
@@ -525,7 +531,7 @@ export default async function UsersPage({
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
                       <div>{phone ? <a href={`tel:${phone}`} className="underline">{phone}</a> : '—'}</div>
-                      <ChannelStatus on={smsOn} label="SMS" />
+                      <ChannelStatus on={smsOn} label="SMS" forPhone={smsPhone} />
                     </td>
                     <td className="px-4 py-3 text-xs whitespace-nowrap">
                       {user.role === 'ADMIN' ? (

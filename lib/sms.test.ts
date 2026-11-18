@@ -4,15 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const create = vi.fn<(msg: object) => Promise<object>>(async () => ({}))
 vi.mock('twilio', () => ({ default: () => ({ messages: { create: (msg: object) => create(msg) } }) }))
 
-const tables: Record<string, { id: string; phone: string | null; sms_consent?: string }[]> = {}
+const tables: Record<string, { id: string; phone: string | null; sms_phone?: string | null; sms_consent?: string }[]> = {}
 const fakeAdmin = {
   from: (table: string) => {
-    let pattern = ''
     const chain: any = {
       select: () => chain,
-      ilike: async (_column: string, p: string) => {
-        pattern = p.replace('%', '')
-        return { data: tables[table].filter(r => r.phone?.endsWith(pattern)) }
+      ilike: async (column: 'phone' | 'sms_phone', p: string) => {
+        const pattern = p.replace('%', '')
+        return { data: tables[table].filter(r => r[column]?.endsWith(pattern)) }
       },
       update: (values: { sms_consent: string }) => ({
         in: async (_column: string, ids: string[]) => {
@@ -61,6 +60,13 @@ describe('setSmsConsentForPhone', () => {
     expect(await setSmsConsentForPhone(fakeAdmin, '+15551234567', 'declined')).toBe(2)
     expect(tables.profiles.map(r => r.sms_consent)).toEqual(['declined', 'opted_in'])
     expect(tables.tidypro_profiles[0].sms_consent).toBe('declined')
+  })
+
+  it("matches a customer's separate texting number", async () => {
+    tables.profiles.push({ id: 'c3', phone: '(404) 555-0100', sms_phone: '+12025550123', sms_consent: 'opted_in' })
+    expect(await setSmsConsentForPhone(fakeAdmin, '202-555-0123', 'declined')).toBe(1)
+    expect(tables.profiles.find(r => r.id === 'c3')?.sms_consent).toBe('declined')
+    expect(tables.profiles.filter(r => r.id !== 'c3').map(r => r.sms_consent)).toEqual(['opted_in', 'opted_in'])
   })
 })
 

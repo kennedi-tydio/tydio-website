@@ -9,6 +9,8 @@ import { enablePushNotifications, disablePushNotifications, useDevicePushSubscri
 import ModalShell from '@/app/components/ModalShell'
 import AddToHomeScreenGuide from '@/app/components/AddToHomeScreenGuide'
 import SmsOptOutConfirm from '@/app/components/SmsOptOutConfirm'
+import PhoneWithCountryInput from '@/app/components/form/PhoneWithCountryInput'
+import { joinPhone, splitPhone } from '@/lib/phoneParts'
 
 function IconBack() {
   return (
@@ -20,6 +22,8 @@ function IconBack() {
 
 
 type Props = {
+  // Where their texts go: their texting number if they gave a different one,
+  // else their profile phone (lib/smsPhone).
   initialPhone: string | null
   initialSmsConsent: 'opted_in' | 'declined' | null
   initialPushConsent: 'opted_in' | 'declined' | null
@@ -33,8 +37,12 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
   const [smsConsent, setSmsConsent] = useState(initialSmsConsent)
   const [pushConsent, setPushConsent] = useState(initialPushConsent)
   const [emailEnabled, setEmailEnabled] = useState(initialEmailEnabled)
-  const [phone, setPhone] = useState(initialPhone ?? '')
-  const [askingForPhone, setAskingForPhone] = useState(false)
+  // The number texts go to now, and the editor for changing it (or giving
+  // one when turning texts on without a number on file).
+  const [savedPhone, setSavedPhone] = useState(initialPhone)
+  const [country, setCountry] = useState(() => splitPhone(initialPhone).country)
+  const [phone, setPhone] = useState(() => splitPhone(initialPhone).number)
+  const [editingPhone, setEditingPhone] = useState(false)
   const [working, setWorking] = useState<'sms' | 'push' | 'email' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showInstallGuide, setShowInstallGuide] = useState(false)
@@ -53,17 +61,16 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
       return
     }
 
-    if (!phone.trim() && !initialPhone) {
-      setAskingForPhone(true)
+    if (!savedPhone) {
+      setEditingPhone(true)
       return
     }
 
     setWorking('sms')
-    const result = await setSmsConsentAction('opted_in', phone.trim() || undefined)
+    const result = await setSmsConsentAction('opted_in')
     setWorking(null)
     if ('error' in result) return setError(result.error)
     setSmsConsent('opted_in')
-    setAskingForPhone(false)
     router.refresh()
   }
 
@@ -77,19 +84,34 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
     setSmsConsent('declined')
   }
 
+  // Saves the number from the editor and turns texts on. Their profile phone
+  // stays as is; a different number is kept as their texting number.
   async function confirmPhoneAndOptIn() {
     if (!phone.trim()) {
       setError('Please enter a phone number.')
       return
     }
+    const fullPhone = joinPhone(country, phone)
+    if (!fullPhone) {
+      setError('Please choose a country code.')
+      return
+    }
     setError(null)
     setWorking('sms')
-    const result = await setSmsConsentAction('opted_in', phone.trim())
+    const result = await setSmsConsentAction('opted_in', fullPhone)
     setWorking(null)
     if ('error' in result) return setError(result.error)
     setSmsConsent('opted_in')
-    setAskingForPhone(false)
+    setSavedPhone(fullPhone)
+    setEditingPhone(false)
     router.refresh()
+  }
+
+  function cancelPhoneEdit() {
+    setError(null)
+    setCountry(splitPhone(savedPhone).country)
+    setPhone(splitPhone(savedPhone).number)
+    setEditingPhone(false)
   }
 
   async function handlePushToggle() {
@@ -152,6 +174,14 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
             <div>
               <p className="font-semibold text-slate-900 text-sm">Text notifications</p>
               <p className="text-xs text-slate-400 mt-0.5">Booking updates and messages by text</p>
+              {smsConsent === 'opted_in' && savedPhone && !editingPhone && (
+                <p className="text-xs text-slate-600 mt-1">
+                  Texts go to <span className="font-medium">{savedPhone}</span>.{' '}
+                  <button type="button" onClick={() => setEditingPhone(true)} className="text-sky-600 underline underline-offset-2">
+                    Change
+                  </button>
+                </p>
+              )}
               {smsConsent !== 'opted_in' && (
                 <p className="text-xs text-slate-400 mt-1">
                   If you replied STOP to one of our texts, reply START to that text to turn them back on.
@@ -161,26 +191,36 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
             <ToggleSwitch on={smsConsent === 'opted_in'} onClick={handleSmsToggle} disabled={working === 'sms'} label="Text notifications" />
           </div>
 
-          {askingForPhone && (
+          {editingPhone && (
             <div className="px-5 py-4">
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Phone number"
-                aria-label="Phone number"
-                autoComplete="tel"
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm mb-3"
+              <p className="text-xs font-medium text-slate-700 mb-2">Number for text messages</p>
+              <PhoneWithCountryInput
+                country={country}
+                onCountryChange={setCountry}
+                number={phone}
+                onNumberChange={setPhone}
+                className="mb-2"
               />
-              <button
-                type="button"
-                onClick={confirmPhoneAndOptIn}
-                disabled={working === 'sms'}
-                className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
-                style={{ backgroundColor: 'var(--color-brand)' }}
-              >
-                {working === 'sms' ? 'Saving…' : 'Save'}
-              </button>
+              <p className="text-xs text-slate-400 mb-3">This doesn&apos;t change the phone number on your profile.</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={cancelPhoneEdit}
+                  disabled={working === 'sms'}
+                  className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmPhoneAndOptIn}
+                  disabled={working === 'sms'}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--color-brand)' }}
+                >
+                  {working === 'sms' ? 'Saving…' : 'Save'}
+                </button>
+              </div>
             </div>
           )}
 

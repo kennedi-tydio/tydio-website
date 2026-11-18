@@ -68,7 +68,7 @@ async function recordBan(
   fields: { appeal_token?: string; appeal_denied_at?: string } & BanExtras
 ): Promise<{ id: string; banned_at: string; email: string; first_name: string | null; cancellations: AccountCancellationResult }> {
   const [{ data: profile }, { data: tidyPro }] = await Promise.all([
-    admin.from('profiles').select('email, first_name, last_name, phone').eq('id', profileId).maybeSingle(),
+    admin.from('profiles').select('email, first_name, last_name, phone, sms_phone').eq('id', profileId).maybeSingle(),
     admin.from('tidypro_profiles').select('phone').eq('id', profileId).maybeSingle(),
   ])
   if (!profile) throw new BanAppealError('This account no longer exists.')
@@ -77,7 +77,7 @@ async function recordBan(
   const { data: existing } = await admin.from('banned_users').select('id').eq('email', email).limit(1)
   if (existing?.length) throw new BanAppealError(ALREADY_BANNED_MESSAGE)
 
-  const phones = [profile.phone, tidyPro?.phone].filter((p): p is string => Boolean(p)).map(normalizePhone)
+  const phones = [profile.phone, profile.sms_phone, tidyPro?.phone].filter((p): p is string => Boolean(p)).map(normalizePhone)
   const { data: ban, error: banError } = await admin
     .from('banned_users')
     .insert({

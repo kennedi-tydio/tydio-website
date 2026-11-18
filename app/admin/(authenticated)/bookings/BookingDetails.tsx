@@ -10,7 +10,8 @@ import { LAUNDRY_SERVICE_LABEL, LAUNDROMAT_LABEL, bookedTaskName } from '@/lib/l
 // Bookings tab is expanded: where and when, who, every task as the customer
 // described it, what it costs and who gets what, and the Stripe records.
 
-export type DetailPerson = { name: string; email: string | null; phone: string | null }
+// smsPhone: a customer's separate texting number, when it differs from `phone`.
+export type DetailPerson = { name: string; email: string | null; phone: string | null; smsPhone?: string | null }
 
 export type DetailBooking = {
   id: string
@@ -264,6 +265,7 @@ export default function BookingDetails({
         <Field label="Customer">{customer?.name}</Field>
         <Field label="Customer email">{customer?.email}</Field>
         <Field label="Customer phone">{customer?.phone}</Field>
+        {customer?.smsPhone && <Field label="Customer SMS number">{customer.smsPhone}</Field>}
         <Field label="Tidy Pro">{tidyPro?.name ?? 'Not assigned'}</Field>
         <Field label="Tidy Pro email">{tidyPro?.email}</Field>
         <Field label="Tidy Pro phone">{tidyPro?.phone}</Field>

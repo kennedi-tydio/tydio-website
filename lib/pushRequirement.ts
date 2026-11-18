@@ -39,15 +39,17 @@ export async function pushSubscribedIds(admin: Admin, profileIds: string[]): Pro
 export async function smsReadyIds(admin: Admin, profileIds: string[]): Promise<Set<string>> {
   if (profileIds.length === 0) return new Set()
   const [{ data: people, error }, { data: pros, error: prosError }] = await Promise.all([
-    admin.from('profiles').select('id, role, phone, sms_consent').in('id', profileIds),
+    admin.from('profiles').select('id, role, phone, sms_phone, sms_consent').in('id', profileIds),
     admin.from('tidypro_profiles').select('id, phone, sms_consent').in('id', profileIds),
   ])
   if (error || prosError) throw new Error(`Failed to load text message status: ${(error ?? prosError)!.message}`)
   const proById = new Map((pros ?? []).map((p) => [p.id, p]))
   const ready = new Set<string>()
   for (const person of people ?? []) {
+    // Customers may have a separate texting number (profiles.sms_phone).
     const source = person.role === 'TIDYPRO' ? proById.get(person.id) : person
-    if (source?.sms_consent === 'opted_in' && source.phone) ready.add(person.id)
+    const phone = source && 'sms_phone' in source ? source.sms_phone || source.phone : source?.phone
+    if (source?.sms_consent === 'opted_in' && phone) ready.add(person.id)
   }
   return ready
 }

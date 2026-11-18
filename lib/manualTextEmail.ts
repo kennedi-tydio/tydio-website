@@ -5,6 +5,7 @@ import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/emai
 import { bookingStartInstant } from '@/lib/bookingTime'
 import { detailSection, serviceAddressText } from '@/lib/bookingIncidentEmail'
 import { normalizePhone } from '@/lib/bannedUsers'
+import { rowsWithPhone } from '@/lib/smsPhone'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -44,7 +45,7 @@ type Person = { id: string; role: string | null; name: string; phone: string | n
 async function peopleByIds(admin: Admin, ids: string[]): Promise<Map<string, Person>> {
   if (ids.length === 0) return new Map()
   const [{ data: profiles }, { data: pros }] = await Promise.all([
-    admin.from('profiles').select('id, role, first_name, last_name, email, phone').in('id', ids),
+    admin.from('profiles').select('id, role, first_name, last_name, email, phone, sms_phone').in('id', ids),
     admin.from('tidypro_profiles').select('id, phone').in('id', ids),
   ])
   const proPhone = new Map((pros ?? []).map((p) => [p.id, p.phone]))
@@ -55,8 +56,9 @@ async function peopleByIds(admin: Admin, ids: string[]): Promise<Map<string, Per
         id: p.id,
         role: p.role,
         name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Unknown',
-        // Tidy Pros are texted at their Tidy Pro profile's number.
-        phone: (p.role === 'TIDYPRO' ? proPhone.get(p.id) : null) ?? p.phone,
+        // Tidy Pros are texted at their Tidy Pro profile's number, customers at
+        // their texting number when they gave a different one.
+        phone: p.role === 'TIDYPRO' ? (proPhone.get(p.id) ?? p.phone) : p.sms_phone || p.phone,
         email: p.email,
       },
     ])
@@ -68,10 +70,7 @@ async function peopleWithPhone(admin: Admin, phone: string): Promise<Person[]> {
   const target = normalizePhone(phone)
   if (target.length < 4) return []
   const ids = new Set<string>()
-  for (const table of ['profiles', 'tidypro_profiles'] as const) {
-    const { data } = await admin.from(table).select('id, phone').ilike('phone', `%${target.slice(-4)}`)
-    for (const row of data ?? []) if (row.phone && normalizePhone(row.phone) === target) ids.add(row.id)
-  }
+  for (const row of await rowsWithPhone(admin, target)) ids.add(row.id)
   return [...(await peopleByIds(admin, [...ids])).values()]
 }
 
