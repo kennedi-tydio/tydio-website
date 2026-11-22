@@ -5,7 +5,7 @@ import Link from "next/link";
 // booking starts; everyone else creates an account first. Tidy Pros book from a
 // separate customer account, so they aren't shown it.
 export default function ReadyToBookCta({ role }: { role: "USER" | "TIDYPRO" | "ADMIN" | null }) {
-  if (role === "TIDYPRO" || role === "ADMIN") return <LaunchNote className="py-10 bg-slate-50 border-t border-slate-100" />;
+  if (role === "TIDYPRO" || role === "ADMIN") return null;
 
   const signedIn = role === "USER";
 
@@ -26,16 +26,7 @@ export default function ReadyToBookCta({ role }: { role: "USER" | "TIDYPRO" | "A
         >
           Ready to book
         </Link>
-        <LaunchNote className="mt-8" />
       </div>
     </section>
-  );
-}
-
-function LaunchNote({ className }: { className?: string }) {
-  return (
-    <p className={`text-center text-sm font-semibold text-slate-700 ${className ?? ""}`}>
-      Now live in Atlanta
-    </p>
   );
 }
