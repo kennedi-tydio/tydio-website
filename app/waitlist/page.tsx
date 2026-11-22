@@ -93,10 +93,6 @@ export default async function WaitlistPage({ searchParams }: { searchParams: Pro
           </Link>
         )}
       </div>
-
-      <p className="mt-6 text-xs text-slate-400 text-center max-w-xs">
-        Tydio Lite is an early access version of the full Tydio app.
-      </p>
     </div>
   )
 }
