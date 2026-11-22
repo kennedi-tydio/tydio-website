@@ -23,6 +23,9 @@ const fakeAdmin = {
         filters.push([column, value])
         return chain
       },
+      gte: () => chain,
+      order: () => chain,
+      limit: () => chain,
       maybeSingle: async () => ({ data: rows[table].find(r => filters.every(([c, v]) => r[c] === v)) ?? null }),
       insert: async (row: Record<string, any>) => {
         inserted.push(row)
@@ -33,7 +36,7 @@ const fakeAdmin = {
   },
 } as any
 
-import { canCall, startMaskedCall, toE164 } from './maskedCalls'
+import { CALL_RINGING_MESSAGE, canCall, displayPhone, startMaskedCall, toE164 } from './maskedCalls'
 
 // 10:00 in New York on June 1, 2026 is 14:00 UTC.
 const booking = {
@@ -51,6 +54,7 @@ beforeEach(() => {
   rows.bookings = [{ ...booking }]
   rows.profiles = [{ id: 'c1', phone: '(555) 123-4567' }]
   rows.tidypro_profiles = [{ id: 't1', phone: '555-999-0000' }]
+  rows.booking_calls = []
   inserted.length = 0
   rateLimited = false
   create.mockClear()
@@ -89,9 +93,16 @@ describe('toE164', () => {
   })
 })
 
+describe('displayPhone', () => {
+  it("shows US numbers the way a phone's caller ID does", () => {
+    expect(displayPhone('+15550000000')).toBe('(555) 000-0000')
+    expect(displayPhone('+442079460958')).toBe('+442079460958')
+  })
+})
+
 describe('startMaskedCall', () => {
   it("rings the caller from Tydio's number without putting the other side's number anywhere", async () => {
-    expect(await startMaskedCall(fakeAdmin, 'b1', { role: 'USER', profileId: 'c1' })).toEqual({ success: true })
+    expect(await startMaskedCall(fakeAdmin, 'b1', { role: 'USER', profileId: 'c1' })).toEqual({ success: true, from: '(555) 000-0000' })
     expect(create).toHaveBeenCalledTimes(1)
     const call = create.mock.calls[0][0]
     expect(call.to).toBe('+15551234567')
@@ -135,6 +146,18 @@ describe('startMaskedCall', () => {
     rateLimited = true
     expect(await startMaskedCall(fakeAdmin, 'b1', { role: 'USER', profileId: 'c1' })).toHaveProperty('error')
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('refuses while their last call is still ringing', async () => {
+    rows.booking_calls = [{ booking_id: 'b1', caller_role: 'USER', status: 'queued' }]
+    expect(await startMaskedCall(fakeAdmin, 'b1', { role: 'USER', profileId: 'c1' })).toEqual({ error: CALL_RINGING_MESSAGE })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("lets them call again once the last call ended without connecting", async () => {
+    rows.booking_calls = [{ booking_id: 'b1', caller_role: 'TIDYPRO', status: 'completed' }]
+    expect(await startMaskedCall(fakeAdmin, 'b1', { role: 'TIDYPRO', profileId: 't1' })).toHaveProperty('success', true)
+    expect(create).toHaveBeenCalledTimes(1)
   })
 
   it("doesn't count a call Twilio failed to start", async () => {

@@ -349,7 +349,7 @@ export async function respondToTimeProposalAction(
 
 // Rings the customer's phone from Tydio's number, then connects them to their Tidy Pro.
 // Neither side sees the other's number.
-export async function startCallAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+export async function startCallAction(bookingId: string): Promise<{ success: true; from: string } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
   return startMaskedCall(createAdminClient(), bookingId, { role: 'USER', profileId: session.profileId })

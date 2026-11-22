@@ -16,10 +16,13 @@ export const RATE_LIMITS = {
   emailPerIp: { limit: 10, windowMinutes: 60 },
   // Each estimate is an OpenAI call.
   taskEstimatePerUser: { limit: 100, windowMinutes: 60 },
-  // Each masked call is two paid Twilio call legs.
-  maskedCallPerBooking: { limit: 1, windowMinutes: 1 },
+  // Each masked call is two paid Twilio call legs. Only one rings at a time (see
+  // startMaskedCall); this caps retries so a stuck tap can't run up the bill.
+  maskedCallPerBooking: { limit: 6, windowMinutes: 30 },
   // An admin-sent reminder; stops a double click from emailing a cleaner twice.
   backgroundCheckFollowUpPerCleaner: { limit: 1, windowMinutes: 1 },
+  // The admin's "not enough in Stripe to cover this promo" email, per customer and code.
+  promoFundingAlert: { limit: 1, windowMinutes: 60 },
 } satisfies Record<string, RateLimit>
 
 export const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a few minutes and try again.'

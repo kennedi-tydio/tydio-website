@@ -42,8 +42,9 @@ export async function POST(req: NextRequest) {
 
   if (req.nextUrl.searchParams.get('step') !== 'connect') {
     const siteUrl = publicSiteUrl() ?? req.nextUrl.origin
-    const gather = response.gather({ numDigits: 1, timeout: 8, action: bridgeUrl(siteUrl, bookingId, callerRole, 'connect') })
-    gather.say(VOICE, `This is Tydio, connecting your call to ${them}. Press 1 to connect.`)
+    // Said twice, since people often pick up mid-sentence or don't expect to press a key.
+    const gather = response.gather({ numDigits: 1, timeout: 10, action: bridgeUrl(siteUrl, bookingId, callerRole, 'connect') })
+    gather.say({ ...VOICE, loop: 2 }, `This is Tydio, connecting your call to ${them}. Press 1 now to connect.`)
     response.say(VOICE, 'We did not hear from you. Goodbye.')
     response.hangup()
     return twiml(response)

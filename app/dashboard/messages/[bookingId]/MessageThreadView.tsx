@@ -243,7 +243,7 @@ export default function MessageThreadView({
     setCallNote(
       'error' in result
         ? { message: result.error, error: true }
-        : { message: "We're calling your phone now. Answer and press 1 to be connected.", error: false }
+        : { message: `We're calling your phone now from ${result.from}. Answer it and press 1 to be connected.`, error: false }
     )
   }
 

@@ -72,6 +72,36 @@ export async function partyPhone(admin: Admin, booking: CallableBooking, role: C
   return toE164(data?.phone)
 }
 
+// Twilio's final call statuses; anything else (queued, ringing, in-progress) means
+// the caller's phone is still being rung or the call is still going.
+const FINISHED_CALL_STATUSES = ['completed', 'busy', 'failed', 'no-answer', 'canceled']
+
+// A call Twilio never reported back on is treated as over after this long, so a
+// missed status callback can't lock someone out of calling.
+const CALL_IN_PROGRESS_MAX_MINUTES = 2
+
+export const CALL_RINGING_MESSAGE = 'A call to your phone is still ringing. Answer it and press 1 to be connected.'
+
+// Tydio's number as people see it on their phone, so they know to pick up.
+export function displayPhone(e164: string | undefined): string {
+  const match = e164?.match(/^\+1(\d{3})(\d{3})(\d{4})$/)
+  return match ? `(${match[1]}) ${match[2]}-${match[3]}` : (e164 ?? 'Tydio')
+}
+
+async function callStillRinging(admin: Admin, bookingId: string, role: CallerRole): Promise<boolean> {
+  const since = new Date(Date.now() - CALL_IN_PROGRESS_MAX_MINUTES * 60 * 1000).toISOString()
+  const { data } = await admin
+    .from('booking_calls')
+    .select('status')
+    .eq('booking_id', bookingId)
+    .eq('caller_role', role)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return !!data && !FINISHED_CALL_STATUSES.includes(data.status ?? '')
+}
+
 export function bridgeUrl(siteUrl: string, bookingId: string, leg: CallerRole, step?: 'connect'): string {
   const query = new URLSearchParams({ booking: bookingId, leg, ...(step ? { step } : {}) })
   return `${siteUrl}/api/webhooks/twilio/voice?${query}`
@@ -81,7 +111,7 @@ export async function startMaskedCall(
   admin: Admin,
   bookingId: string,
   caller: { role: CallerRole; profileId: string }
-): Promise<{ success: true } | { error: string }> {
+): Promise<{ success: true; from: string } | { error: string }> {
   const booking = await loadCallableBooking(admin, bookingId)
   const ownerId = caller.role === 'USER' ? booking?.user_id : booking?.tidy_pro_id
   if (!booking || ownerId !== caller.profileId) return { error: 'Booking not found.' }
@@ -97,9 +127,12 @@ export async function startMaskedCall(
     return { error: `${them} doesn't have a phone number we can call. Send them a message instead.` }
   }
 
+  // Only one call at a time, but once it has ended (unanswered, or answered without
+  // pressing 1) they can try again straight away. The rate limit is just a cost cap.
+  if (await callStillRinging(admin, bookingId, caller.role)) return { error: CALL_RINGING_MESSAGE }
   const rateKey = `call:${bookingId}:${caller.role}`
   if (await isRateLimited(admin, rateKey, RATE_LIMITS.maskedCallPerBooking)) {
-    return { error: 'A call is already on its way to your phone. Wait a minute before trying again.' }
+    return { error: "You've started several calls in a short time. Wait a few minutes and try again, or send a message." }
   }
 
   const siteUrl = publicSiteUrl()
@@ -126,5 +159,5 @@ export async function startMaskedCall(
     return { error: "We couldn't start the call. Please try again." }
   }
 
-  return { success: true }
+  return { success: true, from: displayPhone(process.env.TWILIO_PHONE_NUMBER) }
 }

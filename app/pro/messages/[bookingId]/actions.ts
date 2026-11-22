@@ -519,7 +519,7 @@ export async function reportNoAccessAction(bookingId: string, formData: FormData
 
 // Rings the Tidy Pro's phone from Tydio's number, then connects them to the customer.
 // Neither side sees the other's number.
-export async function startCallAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+export async function startCallAction(bookingId: string): Promise<{ success: true; from: string } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
   return startMaskedCall(createAdminClient(), bookingId, { role: 'TIDYPRO', profileId: session.profileId })
