@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { broadTaskMessage, combinedTaskMessage, vagueFloorMessage } from './taskSpecificity'
+import { broadTaskMessage, combinedTaskMessage, vagueFloorMessage, isSpecificFloorTask } from './taskSpecificity'
 
 describe('broadTaskMessage', () => {
   it.each([
@@ -27,6 +27,8 @@ describe('broadTaskMessage', () => {
     'Clean the microwave inside',
     'Clean bathroom mirror',
     'Clean the shower',
+    'Clean bathtub',
+    'Clean the tub',
     'Vacuum the bedroom floor',
     'Do the dishes',
     'Do laundry',
@@ -53,13 +55,13 @@ describe('broadTaskMessage', () => {
     'asks how the floor should be cleaned for "%s"',
     (name) => {
       expect(broadTaskMessage(name, 'Kitchen')).toBe(
-        'That’s too vague for a Tidy Task. Add a “Sweep floor” task and a “Mop floor” task separately.'
+        'That’s too vague for a Tidy Task. Edit the task to say how the floor should be cleaned, like “Sweep floor”, “Mop floor” or “Vacuum floor”.'
       )
     }
   )
 
   it.each(['Floor cleaning', 'Clean the floors', 'Clean the entire home floors'])('catches "%s" in Entire home', (name) => {
-    expect(vagueFloorMessage(name, 'Entire home')).toContain('“Sweep floor” task and a “Mop floor” task')
+    expect(vagueFloorMessage(name, 'Entire home')).toContain('Edit the task to say how the floor should be cleaned')
     expect(vagueFloorMessage('Sweep floors', 'Entire home')).toBeNull()
   })
 
@@ -110,5 +112,18 @@ describe('combinedTaskMessage', () => {
     '',
   ])('accepts "%s"', (name) => {
     expect(combinedTaskMessage(name)).toBeNull()
+  })
+})
+
+describe('isSpecificFloorTask', () => {
+  it('treats sweep, mop and vacuum floor tasks as specific', () => {
+    for (const n of ['Mop floor', 'Mop the kitchen floor', 'Sweep floor', 'Vacuum floors', 'Mopping floors']) {
+      expect(isSpecificFloorTask(n)).toBe(true)
+      expect(vagueFloorMessage(n, 'Kitchen')).toBeNull()
+    }
+  })
+  it('does not treat a vague floor task as specific', () => {
+    expect(isSpecificFloorTask('Clean the floor')).toBe(false)
+    expect(isSpecificFloorTask('Floor cleaning')).toBe(false)
   })
 })

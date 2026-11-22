@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { tierFromEstimatedMinutes, type Tier } from './pricingRules'
+import { isSpecificFloorTask } from './taskSpecificity'
 import {
   ENCLOSURE_DEFAULT_SCOPE,
   LITTER_OPTION_LABEL,
@@ -17,6 +18,11 @@ function getOpenAI(): OpenAI {
   if (!openai) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   return openai
 }
+
+// A provider that hangs counts as down: the caller falls back to a Tidy Pro
+// quote (lib/taskQuotes.ts) instead of leaving the customer waiting.
+const TASK_ESTIMATE_TIMEOUT_MS = 15_000
+const PET_CHECK_TIMEOUT_MS = 30_000
 
 const DIRT_LEVEL_LABELS: Record<string, string> = {
   light: 'Light touch-up',
@@ -65,7 +71,9 @@ A valid Tidy Task MUST be:
 1. A specific cleaning or tidying activity (wiping, scrubbing, vacuuming, mopping, dusting, organizing, sanitizing, etc.)
 2. Completable in under 30 minutes
 3. ONE specific job on a specific item or surface — not a whole room, area or home. A task that only names a place ("Clean bathroom", "Tidy the kitchen", "Deep clean bedroom", "Clean the house", "Do the living room") is INVALID even if the room is small, because it doesn't say what work to do. For these, the reason should ask the customer to add each specific job as its own task, with 2 examples for that room.
-   It must also be clear what work to do: a vague task that doesn't say how ("Floor cleaning", "Clean the floor") is INVALID; for a vague floor task, the reason must be exactly: "That’s too vague for a Tidy Task. Add a “Sweep floor” task and a “Mop floor” task separately."
+   A task that names a specific item, fixture or appliance IS specific and VALID, even with a general verb like "clean" ("Clean bathtub", "Clean the toilet", "Clean the mirror", "Clean the stovetop", "Clean the shower door"). Never reject a task just because it says "clean".
+   It must also be clear what work to do: a vague task that doesn't say how ("Floor cleaning", "Clean the floor") is INVALID. A floor task that says sweep, mop or vacuum ("Mop floor", "Sweep floor", "Vacuum floor", "Mop the kitchen floor") is specific and VALID: never call it vague, and never reject a mop task for not including sweeping (or a sweep task for not including mopping) — the customer adds that as a separate task. For a vague floor task, the reason must be exactly: "That’s too vague for a Tidy Task. Edit the task to say how the floor should be cleaned, like “Sweep floor”, “Mop floor” or “Vacuum floor”."
+   For any other task that is one job but too vague or unclear to know what to do, the reason should ask the customer to edit the task to be more specific, with 2 examples of what to change it to. Don't tell them to add separate tasks unless the task names a whole room/area or more than one job.
    And it must be only ONE job: a task that combines two or more separate jobs ("Sweep and mop the floor", "Wipe counters and scrub the sink", "Clean the toilet and the tub", "Dust shelves and vacuum the rug") is INVALID; the reason should ask the customer to add each job as its own task, naming them. A finishing step of the same job doesn't count as a second job ("Wash and dry the dishes", "Fold and put away clothes", "Wipe and sanitize the counters").
 4. Done inside the home. Fully outdoor jobs (raking leaves, cleaning gutters, mowing, weeding, gardening, shoveling snow, sweeping a patio/deck/porch/driveway, pressure washing, cleaning a pool or grill, washing a car, exterior windows) are INVALID. The ONE exception is taking out the trash/recycling, which is valid. For outdoor tasks, the reason must be exactly: "Tydio doesn’t provide that service right now. Taking out the trash is the only outdoor task we offer."
 
@@ -84,7 +92,7 @@ A valid Tidy Task MUST be:
    For these, the reason should be one short sentence saying Tydio doesn't offer that service right now. Ordinary surface cleaning is still valid: wiping mildew off shower tile, scrubbing grout, vacuuming a couch or rug, cleaning around a toilet.
 
 INVALID examples: "Paint the walls", "Fix the leaky sink", "Cook dinner", "Build a shelf", "Grocery shopping", "Shampoo the carpet", "Walk the dog", "Clean up vomit", "Declutter the garage", "Clean bathroom", "Tidy up the kitchen", "Clean my bedroom", "Sweep and mop floor", "Floor cleaning"
-VALID examples: "Vacuum the rug", "Wipe down counters", "Scrub the toilet", "Clean the microwave inside", "Dust the shelves", "Mop the floor"
+VALID examples: "Vacuum the rug", "Wipe down counters", "Scrub the toilet", "Clean bathtub", "Clean the bathroom mirror", "Clean the microwave inside", "Dust the shelves", "Mop the floor", "Mop floor", "Sweep floor", "Vacuum floor"
 
 When estimating time, weigh the reported mess level and any additional issues (pet mess, mold/mildew, hard water stains, etc.) alongside the task and notes — a heavily soiled task, or one with extra issues noted, takes meaningfully longer than a light touch-up of that same task.
 
@@ -100,16 +108,22 @@ Respond with JSON only: { "valid": boolean, "reason": string, "estimated_minutes
     ],
     response_format: { type: 'json_object' },
     max_tokens: 100,
-  })
+  }, { timeout: TASK_ESTIMATE_TIMEOUT_MS, maxRetries: 1 })
 
   const raw = completion.choices[0].message.content ?? '{"valid":true,"reason":"","estimated_minutes":15}'
   const parsed = JSON.parse(raw) as { valid: boolean; reason: string; estimated_minutes?: number }
 
-  const estimatedMinutes = Number.isFinite(parsed.estimated_minutes) ? (parsed.estimated_minutes as number) : null
+  // The model sometimes calls "Mop floor" vague anyway. A sweep, mop or
+  // vacuum floor task says how the floor is cleaned, so a "vague" rejection of
+  // one is overruled (other rejections, like too long, still stand).
+  const wronglyVague =
+    !parsed.valid && isSpecificFloorTask(input.name) && /vague|how the floor|more specific/i.test(parsed.reason ?? '')
+  let estimatedMinutes = Number.isFinite(parsed.estimated_minutes) ? (parsed.estimated_minutes as number) : null
+  if (wronglyVague && (estimatedMinutes == null || estimatedMinutes <= 0)) estimatedMinutes = 15
   const tier = estimatedMinutes != null ? tierFromEstimatedMinutes(estimatedMinutes) : null
 
   // A task over 30 minutes is invalid regardless of what the model itself claimed.
-  const valid = parsed.valid && tier != null
+  const valid = (parsed.valid || wronglyVague) && tier != null
   const reason = valid
     ? ''
     : parsed.reason || 'This task takes too long for a Tidy Task. Please split it into smaller tasks.'
@@ -227,7 +241,7 @@ export async function checkPetTaskPhotos(input: PetTaskCheckInput): Promise<PetT
     // Same photos should get the same answer.
     temperature: 0,
     max_tokens: 500,
-  })
+  }, { timeout: PET_CHECK_TIMEOUT_MS, maxRetries: 1 })
 
   const raw = completion.choices[0].message.content
   if (!raw) throw new Error('Empty response from the photo check')

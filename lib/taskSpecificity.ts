@@ -150,7 +150,7 @@ export function broadTaskMessage(name: string, room?: string | null): string | n
 // say what the work is: swept, mopped or vacuumed.
 const FLOORS = ['floor', 'floors', 'flooring', 'ground']
 const FLOOR_MESSAGE =
-  'That’s too vague for a Tidy Task. Add a “Sweep floor” task and a “Mop floor” task separately.'
+  'That’s too vague for a Tidy Task. Edit the task to say how the floor should be cleaned, like “Sweep floor”, “Mop floor” or “Vacuum floor”.'
 
 // "Floor cleaning", "Clean the kitchen floor", "Floors". A room may come
 // before the floor; a specific verb ("Mop the floor") isn't vague. Checked in
@@ -169,6 +169,14 @@ export function vagueFloorMessage(name: string, room?: string | null): string | 
     new RegExp(`^${floor}$`),
   ]
   return vague.some((re) => re.test(n)) ? FLOOR_MESSAGE : null
+}
+
+// "Mop floor", "Sweep the kitchen floor", "Vacuum floors": these already say
+// how the floor is cleaned, so they're never too vague. (The sweep/mop note in
+// Add Task tells the customer the other one is a separate task.)
+export function isSpecificFloorTask(name: string): boolean {
+  const n = normalize(name)
+  return /\b(?:sweep|sweeping|swept|mop|mopping|mopped|vacuum|vacuuming|vacuumed)\b/.test(n)
 }
 
 // ── More than one task in one ──────────────────────────────────────────────
