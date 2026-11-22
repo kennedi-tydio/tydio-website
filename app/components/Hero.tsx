@@ -13,7 +13,7 @@ export default function Hero() {
         {/* Badge */}
         <div className="inline-flex items-center gap-2 bg-sky-50 border border-sky-100 text-sky-600 text-xs font-semibold px-4 py-1.5 rounded-full mb-8">
           <span className="w-1.5 h-1.5 bg-sky-400 rounded-full" />
-          Now accepting early access
+          Now live in Atlanta
         </div>
 
         {/* Headline */}

@@ -80,7 +80,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         answer: [
           {
             type: 'p',
-            text: 'Tydio is available in Georgia right now. When you sign up, we check your ZIP code. If you live outside our service area, you’ll join the waitlist, and we’ll let you know when Tydio comes to your area.',
+            text: 'Tydio is live in Atlanta, Georgia. When you sign up, we check your ZIP code. If you live outside our service area, you’ll join the waitlist, and we’ll let you know when Tydio comes to your area.',
           },
           {
             type: 'p',

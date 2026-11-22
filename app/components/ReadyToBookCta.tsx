@@ -18,7 +18,7 @@ export default function ReadyToBookCta({ role }: { role: "USER" | "TIDYPRO" | "A
         <p className="mt-3 text-slate-500 text-lg">
           {signedIn
             ? "Add the tasks you want done, pick a time, and choose your Tidy Pro."
-            : "Create an account to save your spot. We're opening in Georgia first and letting people in a few at a time, and we'll email you as soon as you can book."}
+            : "Tydio is now live in Atlanta. Create an account to get started, and we'll email you as soon as you can book."}
         </p>
         <Link
           href={signedIn ? "/dashboard" : "/signup"}
@@ -35,7 +35,7 @@ export default function ReadyToBookCta({ role }: { role: "USER" | "TIDYPRO" | "A
 function LaunchNote({ className }: { className?: string }) {
   return (
     <p className={`text-center text-sm font-semibold text-slate-700 ${className ?? ""}`}>
-      Officially launching in Atlanta November 22, 2026
+      Now live in Atlanta
     </p>
   );
 }
