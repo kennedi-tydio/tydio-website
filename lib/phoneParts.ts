@@ -32,3 +32,25 @@ export function joinPhone(country: string, number: string): string | null {
   if (!dial) return null
   return `+${dial}${trimmed.replace(/\D/g, '')}`
 }
+
+// A saved phone as shown in a plain phone field: the number without its
+// country code, so "+15551234567" shows as "(555) 123-4567". Editing a field
+// that starts with "+1" is how Tidy Pros ended up saving invalid numbers.
+// The country code lives on the SMS opt-in pop-up (PhoneWithCountryInput).
+export function localPhone(raw: string | null | undefined): string {
+  const { country, number } = splitPhone(raw)
+  const digits = number.replace(/\D/g, '')
+  if (country !== DEFAULT_COUNTRY || number.startsWith('+') || digits.length !== 10) return number
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
+// For phone fields with no country-code picker (signup): drops a leading "+"
+// or "+1", and the 1 from an 11-digit "1 555 123 4567", as the number is
+// typed or autofilled. A Tidy Pro once typed a number that couldn't be used
+// because autofill put "+1" in front of it.
+export function withoutCountryCode(value: string): string {
+  const stripped = value.replace(/^\s*\+\s*1?[\s.-]*/, '')
+  const digits = stripped.replace(/\D/g, '')
+  if (digits.length === 11 && digits.startsWith('1')) return stripped.replace(/^\s*1[\s.-]*/, '')
+  return stripped
+}

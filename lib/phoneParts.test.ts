@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { joinPhone, splitPhone } from './phoneParts'
+import { joinPhone, localPhone, splitPhone, withoutCountryCode } from './phoneParts'
 
 describe('splitPhone', () => {
   it('defaults to the US with an empty number', () => {
@@ -47,5 +47,35 @@ describe('joinPhone', () => {
       const { country, number } = splitPhone(saved)
       expect(joinPhone(country, number)).toBe(saved)
     }
+  })
+})
+
+describe('localPhone', () => {
+  it('drops the +1 and formats a US number', () => {
+    expect(localPhone('+15551234567')).toBe('(555) 123-4567')
+    expect(localPhone('1 555 123 4567')).toBe('(555) 123-4567')
+    expect(localPhone('555-123-4567')).toBe('(555) 123-4567')
+  })
+  it('drops other country codes too', () => {
+    expect(localPhone('+447911123456')).toBe('7911123456')
+  })
+  it('leaves empty and unmatched numbers alone', () => {
+    expect(localPhone(null)).toBe('')
+    expect(localPhone('')).toBe('')
+    expect(localPhone('+999123')).toBe('+999123')
+  })
+})
+
+describe('withoutCountryCode', () => {
+  it('drops a typed or autofilled +1', () => {
+    expect(withoutCountryCode('+1 (555) 123-4567')).toBe('(555) 123-4567')
+    expect(withoutCountryCode('+15551234567')).toBe('5551234567')
+    expect(withoutCountryCode('+')).toBe('')
+    expect(withoutCountryCode('1 555 123 4567')).toBe('555 123 4567')
+  })
+  it('leaves a plain number alone while typing', () => {
+    expect(withoutCountryCode('(555) 123-4567')).toBe('(555) 123-4567')
+    expect(withoutCountryCode('1')).toBe('1')
+    expect(withoutCountryCode('555123456')).toBe('555123456')
   })
 })

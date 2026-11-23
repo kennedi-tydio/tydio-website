@@ -275,7 +275,7 @@ export default function EditProfileView({
 
         <label className={`${FIELD_CLASS} mb-6`}>
           <span className={LABEL_CLASS}>Phone number</span>
-          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={INPUT_CLASS} />
+          <input type="tel" autoComplete="tel-national" placeholder="(555) 000-0000" value={phone} onChange={(e) => setPhone(e.target.value)} className={INPUT_CLASS} />
         </label>
 
         {/* Saved as soon as a pair is added or removed, not by the Save button. */}

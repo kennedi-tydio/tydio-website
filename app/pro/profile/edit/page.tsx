@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getUnreadMessageCountForTidyPro } from '@/lib/bookings'
 import { loadPortfolio, PORTFOLIO_MAX_ITEMS } from '@/lib/tidyProPortfolio'
+import { localPhone } from '@/lib/phoneParts'
 import EditProfileView from './EditProfileView'
 
 export const metadata: Metadata = { title: 'Your Profile — Tydio' }
@@ -32,7 +33,7 @@ export default async function ProEditProfilePage() {
     firstName: profile.first_name ?? '',
     lastName: profile.last_name ?? '',
     bio: tidyPro?.bio ?? '',
-    phone: tidyPro?.phone ?? profile.phone ?? '',
+    phone: localPhone(tidyPro?.phone ?? profile.phone),
     location: [tidyPro?.city, tidyPro?.state].filter(Boolean).join(', '),
     photoUrl: tidyPro?.profile_photo_url ?? null,
     allergies: Array.isArray(tidyPro?.allergies) ? (tidyPro.allergies as string[]) : [],

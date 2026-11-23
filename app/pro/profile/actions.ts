@@ -69,7 +69,10 @@ export async function updateProfileAction(input: {
     .from('tidypro_profiles')
     .update({
       bio: input.bio.trim() || null,
-      phone,
+      // Pros are texted at this number. The field shows it without a country
+      // code (lib/phoneParts localPhone) and only takes 10-digit numbers, so
+      // add +1 back here to keep it the same as the SMS opt-in pop-up saves.
+      phone: `+1${normalizedPhone}`,
       allergies,
       uses_organic_products: input.usesOrganicProducts === true,
     })

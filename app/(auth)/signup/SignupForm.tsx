@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { signupAction, type SignupState } from './actions'
 import type { FormEvent } from 'react'
 import { GoogleButton, OrDivider } from '../GoogleButton'
+import { withoutCountryCode } from '@/lib/phoneParts'
 
 function SubmitButton({ isPro, ready }: { isPro: boolean; ready: boolean }) {
   const { pending } = useFormStatus()
@@ -189,17 +190,35 @@ export default function SignupForm({
 
       {/* Email */}
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium text-slate-700" htmlFor="email">Email</label>
-        <input id="email" name="email" type="email" autoComplete="email" required
-          defaultValue={google?.email} readOnly={Boolean(google)}
-          className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 read-only:bg-slate-50 read-only:text-slate-500" />
+        {google ? (
+          <>
+            {/* Not an input: phone autofill writes into read-only fields too. */}
+            <span className="text-sm font-medium text-slate-700" id="email-label">Email</span>
+            <input type="hidden" name="email" value={google.email} />
+            <p aria-labelledby="email-label"
+              className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm bg-slate-50 text-slate-500 break-all">
+              {google.email}
+            </p>
+          </>
+        ) : (
+          <>
+            <label className="text-sm font-medium text-slate-700" htmlFor="email">Email</label>
+            <input id="email" name="email" type="email" autoComplete="email" required
+              className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          </>
+        )}
       </div>
 
       {/* Phone + Zip */}
       <div className="flex gap-3">
         <div className="flex-1 flex flex-col gap-1.5">
           <label className="text-sm font-medium text-slate-700" htmlFor="phone">Phone</label>
-          <input id="phone" name="phone" type="tel" autoComplete="tel" required={isPro}
+          <input id="phone" name="phone" type="tel" autoComplete="tel-national" required={isPro}
+            onChange={(e) => {
+              // No +1: the country code is chosen on the SMS opt-in pop-up.
+              const cleaned = withoutCountryCode(e.currentTarget.value)
+              if (cleaned !== e.currentTarget.value) e.currentTarget.value = cleaned
+            }}
             placeholder="(555) 000-0000"
             className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400" />
         </div>

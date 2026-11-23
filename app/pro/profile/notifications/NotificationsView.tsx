@@ -8,6 +8,8 @@ import { setEmailNotificationsAction, setSmsConsentAction } from '@/app/actions/
 import { enablePushNotifications, disablePushNotifications, useDevicePushSubscribed, useIsStandalone } from '@/app/components/pushSubscription'
 import ModalShell from '@/app/components/ModalShell'
 import AddToHomeScreenGuide from '@/app/components/AddToHomeScreenGuide'
+import PhoneWithCountryInput from '@/app/components/form/PhoneWithCountryInput'
+import { joinPhone, splitPhone } from '@/lib/phoneParts'
 
 function IconBack() {
   return (
@@ -32,7 +34,9 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
   const [smsConsent, setSmsConsent] = useState(initialSmsConsent)
   const [pushConsent, setPushConsent] = useState(initialPushConsent)
   const [emailEnabled, setEmailEnabled] = useState(initialEmailEnabled)
-  const [phone, setPhone] = useState(initialPhone ?? '')
+  // Country code and number are separate fields, as on the SMS opt-in pop-up.
+  const [country, setCountry] = useState(() => splitPhone(initialPhone).country)
+  const [phone, setPhone] = useState(() => splitPhone(initialPhone).number)
   const [askingForPhone, setAskingForPhone] = useState(false)
   const [working, setWorking] = useState<'sms' | 'push' | 'email' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -61,7 +65,7 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
     }
 
     setWorking('sms')
-    const result = await setSmsConsentAction('opted_in', phone.trim() || undefined)
+    const result = await setSmsConsentAction('opted_in', phone.trim() ? joinPhone(country, phone) ?? undefined : undefined)
     setWorking(null)
     if ('error' in result) return setError(result.error)
     setSmsConsent('opted_in')
@@ -74,9 +78,14 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
       setError('Please enter a phone number.')
       return
     }
+    const fullPhone = joinPhone(country, phone)
+    if (!fullPhone) {
+      setError('Please choose a country code.')
+      return
+    }
     setError(null)
     setWorking('sms')
-    const result = await setSmsConsentAction('opted_in', phone.trim())
+    const result = await setSmsConsentAction('opted_in', fullPhone)
     setWorking(null)
     if ('error' in result) return setError(result.error)
     setSmsConsent('opted_in')
@@ -155,14 +164,12 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
 
           {askingForPhone && (
             <div className="px-5 py-4">
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Phone number"
-                aria-label="Phone number"
-                autoComplete="tel"
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm mb-3"
+              <PhoneWithCountryInput
+                country={country}
+                onCountryChange={setCountry}
+                number={phone}
+                onNumberChange={setPhone}
+                className="mb-3"
               />
               <button
                 type="button"

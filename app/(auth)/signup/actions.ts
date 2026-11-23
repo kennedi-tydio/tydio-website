@@ -101,6 +101,12 @@ function signupInsertError(error: { code?: string; message: string } | null, rol
   return userFacingError(error, "We couldn't create your account. Please try again.")
 }
 
+// Tidy Pros are texted at tidypro_profiles.phone. The signup field takes the
+// number without a country code, so save it with +1, as the Edit Profile page does.
+function proTextingPhone(phone: string | null): string | null {
+  return phone ? `+1${normalizePhone(phone)}` : null
+}
+
 export async function signupAction(
   _prev: SignupState,
   formData: FormData
@@ -142,6 +148,9 @@ export async function signupAction(
   }
   if (role === 'TIDYPRO' && !phone) {
     return { error: 'Phone number is required for Tidy Pro applicants.' }
+  }
+  if (phone && normalizePhone(phone).length !== 10) {
+    return { error: 'Please enter a valid 10-digit phone number, without the +1.' }
   }
   if (!termsAccepted) {
     return { error: 'You must agree to the Terms & Conditions.' }
@@ -229,7 +238,7 @@ export async function signupAction(
       await clearPendingGoogleSignup()
     }
     if (role === 'TIDYPRO') {
-      await admin.from('tidypro_profiles').insert({ id: newId, phone })
+      await admin.from('tidypro_profiles').insert({ id: newId, phone: proTextingPhone(phone) })
     }
     await emailAdminSignup({ role, firstName, lastName, email, phone, zip, inServiceArea: false })
     // Waitlisted accounts skip email verification, so they join the marketing
@@ -278,7 +287,7 @@ export async function signupAction(
   }
 
   if (role === 'TIDYPRO') {
-    await admin.from('tidypro_profiles').insert({ id: profile.id, phone })
+    await admin.from('tidypro_profiles').insert({ id: profile.id, phone: proTextingPhone(phone) })
   }
   await emailAdminSignup({ role, firstName, lastName, email, phone, zip, inServiceArea: true })
 
