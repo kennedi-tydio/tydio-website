@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { listCleanerReviews } from '@/lib/cleanerReviews'
+import { isHiddenFromCustomer } from '@/lib/privateTidyPros'
 import CleanerReviewsView from './CleanerReviewsView'
 
 export const metadata: Metadata = { title: 'Reviews — Tydio' }
@@ -16,6 +17,7 @@ export default async function CleanerReviewsPage({
   if (!session || session.role !== 'USER') redirect('/login')
 
   const { cleanerId } = await params
+  if (isHiddenFromCustomer(cleanerId, session.profileId)) redirect('/book/schedule')
   const admin = createAdminClient()
 
   const [{ data: tidyPro, error }, { data: profile }] = await Promise.all([

@@ -3,6 +3,7 @@ import { adminStepLabel, missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 import { providesServices, type TidyProService } from '@/lib/tidyProServices'
 import { withPushStatus } from '@/lib/pushRequirement'
 import { blockedIdsFor } from '@/lib/userBlocks'
+import { isHiddenFromCustomer } from '@/lib/privateTidyPros'
 import { isDateInTimeOff, overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
 import { datesInRange, hasStartInWindowOnSomeWeekday, openStartTimes, type Busy, type StartWindow } from '@/lib/bookingSlots'
 
@@ -193,7 +194,8 @@ export async function findAvailableCleaners(
     // Check just this Tidy Pro, by the same rules.
     onlyCleanerId?: string
     // The customer searching. Tidy Pros they've blocked, or who've blocked them
-    // (lib/userBlocks), are left out.
+    // (lib/userBlocks), are left out, as are private Tidy Pros they can't see
+    // (lib/privateTidyPros). Without one, private Tidy Pros are left out.
     customerId?: string | null
   },
   admin: AdminClient
@@ -212,7 +214,7 @@ export async function findAvailableCleaners(
   if (!candidates || candidates.length === 0) return []
 
   const blocked = params.customerId ? await blockedIdsFor(admin, params.customerId) : null
-  const unblocked = blocked ? candidates.filter((c) => !blocked.has(c.id)) : candidates
+  const unblocked = candidates.filter((c) => !blocked?.has(c.id) && !isHiddenFromCustomer(c.id, params.customerId))
   if (unblocked.length === 0) return []
 
   const nearby = (await withPushStatus(admin, unblocked))

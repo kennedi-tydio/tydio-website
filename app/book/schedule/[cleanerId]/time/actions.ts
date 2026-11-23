@@ -4,6 +4,8 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { userFacingError } from '@/lib/userFacingError'
 import { bookingBlockedByAccess } from '@/lib/accountSuspension'
+import { isHiddenFromCustomer } from '@/lib/privateTidyPros'
+import { BLOCKED_BOOKING_MESSAGE } from '@/lib/userBlocks'
 
 export async function confirmSelectionAction(
   draftId: string,
@@ -17,6 +19,7 @@ export async function confirmSelectionAction(
   const admin = createAdminClient()
   const noAccess = await bookingBlockedByAccess(admin, session.profileId)
   if (noAccess) return { error: noAccess }
+  if (isHiddenFromCustomer(cleanerId, session.profileId)) return { error: BLOCKED_BOOKING_MESSAGE }
 
   const { error } = await admin
     .from('booking_drafts')

@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
 import CleanerDetailView from './CleanerDetailView'
 import { loadPortfolio } from '@/lib/tidyProPortfolio'
+import { isHiddenFromCustomer } from '@/lib/privateTidyPros'
 
 export const metadata: Metadata = { title: 'Tidy Pro — Tydio' }
 
@@ -21,6 +22,7 @@ export default async function CleanerDetailPage({
   if (!session || session.role !== 'USER') redirect('/login')
 
   const { cleanerId } = await params
+  if (isHiddenFromCustomer(cleanerId, session.profileId)) redirect('/book/schedule')
   const admin = createAdminClient()
 
   const { data: tidyPro, error } = await admin

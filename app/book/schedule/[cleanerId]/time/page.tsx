@@ -11,6 +11,7 @@ import type { TidyTask } from '@/app/dashboard/types'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
 import { parseTimeOff } from '@/lib/timeOff'
 import { normalizeScheduleRange } from '@/lib/bookingSlots'
+import { isHiddenFromCustomer } from '@/lib/privateTidyPros'
 import ChooseTimeView, { type BusyRange } from './ChooseTimeView'
 
 export const metadata: Metadata = { title: 'Choose a Time — Tydio' }
@@ -24,6 +25,7 @@ export default async function ChooseTimePage({
   if (!session || session.role !== 'USER') redirect('/login')
 
   const { cleanerId } = await params
+  if (isHiddenFromCustomer(cleanerId, session.profileId)) redirect('/book/schedule')
   const admin = createAdminClient()
   // Waitlisted customers can't book, so they can't pick a time either.
   if (await bookingBlockedByAccess(admin, session.profileId)) redirect('/dashboard')

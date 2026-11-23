@@ -13,6 +13,7 @@ import { overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
 import { SERVICES_NOT_OFFERED_MESSAGE, providesServices, requiredServicesForTasks } from '@/lib/tidyProServices'
 import { hasAcceptanceWindowClosed } from '@/lib/bookingTime'
 import { BLOCKED_BOOKING_MESSAGE, isBlockedBetween } from '@/lib/userBlocks'
+import { isHiddenFromCustomer } from '@/lib/privateTidyPros'
 import { dropUnmatchedLaundryLinks } from '@/lib/laundry'
 import { restoreBookingTasks } from '@/lib/bookingRequestGroups'
 import { placeBooking } from '@/lib/placeBooking'
@@ -147,6 +148,7 @@ export async function createQuoteRequest(admin: Admin, input: QuoteRequestInput)
   const tasks = dropUnmatchedLaundryLinks(input.taskList.filter((t) => t.completed))
   if (!hasQuoteTasks(tasks)) return { error: 'None of these tasks need a quote. Please confirm your request instead.' }
 
+  if (isHiddenFromCustomer(input.tidyProId, input.customerId)) return { error: BLOCKED_BOOKING_MESSAGE }
   if (await isBlockedBetween(admin, input.customerId, input.tidyProId)) return { error: BLOCKED_BOOKING_MESSAGE }
 
   const problem = await tidyProCanTake(admin, input, tasks)

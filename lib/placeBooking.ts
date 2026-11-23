@@ -24,6 +24,7 @@ import { findPromoForCustomer } from '@/lib/promoCodesData'
 import type { TidyTask } from '@/app/dashboard/types'
 import { hasQuoteTasks } from '@/lib/taskQuotes'
 import { BLOCKED_BOOKING_MESSAGE, isBlockedBetween } from '@/lib/userBlocks'
+import { isHiddenFromCustomer } from '@/lib/privateTidyPros'
 
 export const QUOTE_NEEDED_MESSAGE = 'Some of your tasks need a quote from your Tidy Pro first. Send your request for a quote instead.'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
@@ -99,6 +100,7 @@ export async function placeBooking(
 
   // Either of them blocked the other (lib/userBlocks): no request is sent, and a
   // recurring visit isn't booked with them. Checked before anything is charged.
+  if (isHiddenFromCustomer(input.tidyProId, input.customerId)) return { error: BLOCKED_BOOKING_MESSAGE }
   if (await isBlockedBetween(admin, input.customerId, input.tidyProId)) return { error: BLOCKED_BOOKING_MESSAGE }
 
   const { data: profile } = await admin

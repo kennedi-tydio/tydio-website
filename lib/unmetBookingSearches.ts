@@ -366,6 +366,7 @@ export async function notifyCustomersOfNewCleaner(
           durationMinutes: search.duration_minutes,
           requiredServices: normalizeServices(search.required_services),
           onlyCleanerId: cleanerId,
+          customerId: search.customer_user_id,
         },
         admin
       )
