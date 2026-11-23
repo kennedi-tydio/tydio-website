@@ -35,6 +35,27 @@ export function grossUpForStripeFee(netAmount: number, percentage: number = STRI
   return Math.round(((netAmount + STRIPE_FIXED_FEE) / (1 - percentage)) * 100) / 100
 }
 
+// A flat Trust & Support fee Tydio adds once to every booking payment (a new booking,
+// an approved quote, each recurring visit). Tips, upcharges, added tasks and
+// replacement-price differences don't carry it. Shown with Stripe's fee as one line,
+// "Stripe and Trust & Support fee", and nonrefundable along with it: a "minus the fee"
+// refund keeps both. Bookings record it in pricing_breakdown.trust_support_fee and on
+// the PaymentIntent's metadata, so bookings paid before it existed are handled as before.
+export const TRUST_SUPPORT_FEE = 1.99
+
+// What the customer's card is charged for a booking: its price plus the Trust & Support
+// fee, grossed up for Stripe's fee so Tydio nets the full $1.99.
+export function bookingChargeTotal(servicePrice: number, percentage: number = STRIPE_PERCENTAGE_FEE): number {
+  return grossUpForStripeFee(servicePrice + TRUST_SUPPORT_FEE, percentage)
+}
+
+// The Trust & Support fee a booking was charged, from its pricing_breakdown: 0 for
+// bookings paid before the fee existed.
+export function trustSupportFeeOf(breakdown: unknown): number {
+  const fee = (breakdown as { trust_support_fee?: unknown } | null)?.trust_support_fee
+  return typeof fee === 'number' && Number.isFinite(fee) ? fee : 0
+}
+
 // The inverse of grossUpForStripeFee: what a charge was before Stripe's fee
 // was added on top. Can be a cent off the original, so callers showing both
 // halves should derive the fee as `charge - net` to keep the sum exact.
@@ -216,6 +237,9 @@ export interface PricingBreakdown {
   full_service_type?: 'standard' | 'deep'
   full_service_customer_total?: number
   full_service_take_home_total?: number
+  // Set when the booking is paid with the Trust & Support fee (TRUST_SUPPORT_FEE). Not
+  // part of total_customer_charge here; it's added with Stripe's fee at checkout.
+  trust_support_fee?: number
 }
 
 // Structured pricing context an AI service may be given to estimate/validate
@@ -335,7 +359,7 @@ export function servicePriceForCleaner(
 
 // A cleaner earns 80% of the booking's price before Stripe's fee (task price plus
 // their surcharges); Tydio keeps the other 20%. The card processing fee is passed
-// through to Stripe and isn't split. Tips are separate and go to them in full.
+// through to Stripe and isn't split, and the Trust & Support fee is Tydio's. Tips are separate and go to them in full.
 export function cleanerPayoutForServicePrice(servicePrice: number): number {
   return round2(servicePrice * CLEANER_PAYOUT_RATE)
 }

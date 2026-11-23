@@ -83,8 +83,8 @@ export function cleanerCancelledNote(reason: string | null): string | null {
 }
 
 export function customerCancelledNote(reason: string | null): string | null {
-  if (reason === NO_RESPONSE_REASON) return 'No Tidy Pro accepted by an hour before the booking time, so it was canceled and your payment refunded, minus the nonrefundable Stripe fee.'
-  if (reason === ALL_DECLINED_REASON) return 'The Tidy Pros you asked declined, so your booking was canceled and your payment refunded, minus the nonrefundable Stripe fee.'
+  if (reason === NO_RESPONSE_REASON) return 'No Tidy Pro accepted by an hour before the booking time, so it was canceled and your payment refunded, minus the nonrefundable Stripe and Trust & Support fee.'
+  if (reason === ALL_DECLINED_REASON) return 'The Tidy Pros you asked declined, so your booking was canceled and your payment refunded, minus the nonrefundable Stripe and Trust & Support fee.'
   if (reason === CLEANER_CANCELLED_REASON) return 'Your Tidy Pro canceled less than an hour before the booking, so your payment has been refunded in full.'
   if (reason === NO_ACCESS_REASON) return 'Your Tidy Pro couldn’t get into your home, so the booking was canceled. Our team will review it and email you about any refund.'
   if (reason === CLEANER_NO_SHOW_REASON) return 'You reported that your Tidy Pro didn’t arrive, so the booking was canceled. Our team will review it and email you about your refund.'
@@ -327,16 +327,19 @@ async function refundAfterDifferences(
   return refund.id
 }
 
-// Refunds what the customer paid minus the fee Stripe actually took on this charge. That
-// record can take a moment to appear right after a charge, so until it does, the fee is
-// worked out from the card's country. Keyed to the payment, so however many paths reach
+// Refunds what the customer paid minus the fee Stripe actually took on this charge, and
+// minus the Trust & Support fee when the payment carried one (its metadata says so;
+// payments made before it existed don't). Stripe's record can take a moment to appear
+// right after a charge, so until it does, its fee is worked out from the card's country. Keyed to the payment, so however many paths reach
 // this, it's only refunded once.
 export async function refundBookingPayment(paymentIntentId: string): Promise<string> {
   const intent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] })
   const charge = typeof intent.latest_charge === 'object' ? intent.latest_charge : null
   const balance = charge && typeof charge.balance_transaction === 'object' ? charge.balance_transaction : null
   const percentage = stripePercentageForCardCountry(charge?.payment_method_details?.card?.country)
-  const feeCents = balance?.fee ?? Math.round(stripeProcessingFee(intent.amount_received / 100, percentage) * 100)
+  const stripeFeeCents = balance?.fee ?? Math.round(stripeProcessingFee(intent.amount_received / 100, percentage) * 100)
+  const trustSupportFee = Number(intent.metadata?.trust_support_fee)
+  const feeCents = stripeFeeCents + (Number.isFinite(trustSupportFee) && trustSupportFee > 0 ? Math.round(trustSupportFee * 100) : 0)
 
   const plan = await afterDifferenceRefunds(intent, 'minus_fee')
   if (plan && 'done' in plan) return plan.done
@@ -577,7 +580,7 @@ export type AdminRefund = 'full' | 'minus_fee' | 'half' | 'custom' | 'none'
 
 export const ADMIN_REFUND_LABELS: Record<AdminRefund, string> = {
   full: 'Full refund, Stripe fee included',
-  minus_fee: 'Full refund minus Stripe fee',
+  minus_fee: 'Full refund minus Stripe and Trust & Support fee',
   half: 'Half refund (50%)',
   custom: 'Custom amount',
   none: 'No refund',
@@ -727,7 +730,7 @@ async function emailAdminCancellation(
   const amount = refunded != null ? `: $${refunded.toFixed(2)}` : ''
   const outcome = {
     full: `Full refund${amount}, including the Stripe processing fee.`,
-    minus_fee: `Refund${amount}. Stripe’s processing fee isn’t refundable, so it was kept back.`,
+    minus_fee: `Refund${amount}. The Stripe and Trust & Support fee isn’t refundable, so it was kept back.`,
     half: `Partial refund (50%)${amount}.`,
     custom: `Partial refund${amount}.`,
     none: 'No refund.',

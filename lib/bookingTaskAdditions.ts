@@ -3,7 +3,7 @@ import { stripe } from '@/lib/stripe'
 import { getOrCreateStripeCustomerId } from '@/lib/stripe/customer'
 import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
 import { cardFailureMessage } from '@/lib/stripe/paymentFailure'
-import { cleanerPayoutForServicePrice, grossUpForStripeFee, stripePercentageForCardCountry } from '@/lib/pricingRules'
+import { bookingChargeTotal, cleanerPayoutForServicePrice, grossUpForStripeFee, stripePercentageForCardCountry } from '@/lib/pricingRules'
 import { DEFAULT_BOOKING_TIME_ZONE, LATE_CANCEL_WINDOW_HOURS, hasBookingStarted, isValidTimeZone } from '@/lib/bookingTime'
 import { hasBookingConflict } from '@/lib/cleanerMatching'
 import { overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
@@ -675,7 +675,8 @@ async function addTasksToSeries(
         amount_due: amountDue,
         customer_subtotal: round2(Number(visit.customer_subtotal ?? 0) + quote.amount),
         cleaner_pay: round2(Number(visit.cleaner_pay ?? 0) + quote.cleanerPay),
-        total_customer_charge: grossUpForStripeFee(amountDue, percentage),
+        // Shown until the visit is charged: its price plus the Trust & Support and Stripe fees.
+        total_customer_charge: bookingChargeTotal(amountDue, percentage),
         tidy_pro_unread: true,
       })
       .eq('id', visit.id)

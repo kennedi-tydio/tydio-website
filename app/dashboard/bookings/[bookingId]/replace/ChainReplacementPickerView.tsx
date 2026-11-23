@@ -153,7 +153,7 @@ export default function ChainReplacementPickerView({
 
         {options.length > 0 && (
           <p className="text-xs text-slate-500 leading-relaxed mt-5">
-            If nobody accepts by an hour before your booking, it&apos;s canceled and everything you&apos;ve paid is refunded, minus the nonrefundable Stripe fee.
+            If nobody accepts by an hour before your booking, it&apos;s canceled and everything you&apos;ve paid is refunded, minus the nonrefundable Stripe and Trust & Support fee.
           </p>
         )}
 
@@ -183,7 +183,7 @@ export default function ChainReplacementPickerView({
         {askingReason && (
           <CancelReasonSheet reasons={CUSTOMER_CANCEL_REASONS} onConfirm={handleCancelBooking} onClose={() => setAskingReason(false)} />
         )}
-        <p className="text-xs text-slate-400 text-center">The Stripe processing fee is nonrefundable.</p>
+        <p className="text-xs text-slate-400 text-center">The Stripe and Trust & Support fee is nonrefundable.</p>
       </div>
     </main>
   )

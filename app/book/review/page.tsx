@@ -9,7 +9,7 @@ import { selectionLabel } from '@/lib/fullService'
 import { bookableSelection, buildSnapshot, fullServiceMinutes, quoteForTidyPro } from '@/lib/fullServiceBooking'
 import { computeIsTopTidyPro, haversineDistanceMiles, type CleanerMatch } from '@/lib/cleanerMatching'
 import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
-import { grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
+import { bookingChargeTotal, servicePriceForCleaner } from '@/lib/pricingRules'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import ReviewRequestView from './ReviewRequestView'
@@ -159,7 +159,7 @@ export default async function ReviewPage() {
   const promoDiscount = promo && 'promo' in promo ? promoDiscountAmount(servicePrice, promo.promo) : 0
   const discountedPrice = Math.round((servicePrice - promoDiscount) * 100) / 100
 
-  const totalPrice = grossUpForStripeFee(discountedPrice, cardPercentage)
+  const totalPrice = bookingChargeTotal(discountedPrice, cardPercentage)
   const processingFee = Math.round((totalPrice - discountedPrice) * 100) / 100
 
   // For abandoned-cart tracking: the final price they were just shown.

@@ -100,8 +100,8 @@ export default function RecurringBookingCard({ series }: { series: RecurringRow 
           reasons={CUSTOMER_CANCEL_REASONS}
           copy={{
             series:
-              'No more visits will be booked. Visits already booked are canceled too: one you’ve paid for is refunded minus the nonrefundable Stripe fee, and one not charged yet is free.',
-            bookedVisit: 'A booked visit you’ve paid for is refunded minus the nonrefundable Stripe fee, and one not charged yet is free.',
+              'No more visits will be booked. Visits already booked are canceled too: one you’ve paid for is refunded minus the nonrefundable Stripe and Trust & Support fee, and one not charged yet is free.',
+            bookedVisit: 'A booked visit you’ve paid for is refunded minus the nonrefundable Stripe and Trust & Support fee, and one not charged yet is free.',
             laterVisit: 'Visits not booked yet won’t be booked, and you won’t be charged for them.',
             lateVisit: 'A visit less than 2 hours away refunds 50%.',
             rest: 'Your other visits stay on.',

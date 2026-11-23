@@ -10,6 +10,9 @@ import {
   distanceSurcharge,
   calculatePrice,
   grossUpForStripeFee,
+  bookingChargeTotal,
+  TRUST_SUPPORT_FEE,
+  trustSupportFeeOf,
   netOfStripeFee,
   cleanerPayoutForServicePrice,
   refundableAmount,
@@ -233,6 +236,22 @@ describe('fee by card', () => {
     expect(domestic).toBe(37.74)
     expect(international).toBe(38.34)
     expect(refundableAmount(international, 0.044)).toBeCloseTo(36.35, 1)
+  })
+})
+
+describe('bookingChargeTotal', () => {
+  it('adds the $1.99 Trust & Support fee, grossed up so Tydio nets all of it', () => {
+    expect(TRUST_SUPPORT_FEE).toBe(1.99)
+    // The homepage example (app/components/Pricing.tsx).
+    expect(bookingChargeTotal(59.79)).toBe(63.93)
+    const charge = bookingChargeTotal(100)
+    expect(Math.abs(netOfStripeFee(charge) - (100 + TRUST_SUPPORT_FEE))).toBeLessThanOrEqual(0.01)
+  })
+
+  it('reads the fee off a booking, 0 when it was placed before the fee', () => {
+    expect(trustSupportFeeOf({ trust_support_fee: 1.99 })).toBe(1.99)
+    expect(trustSupportFeeOf({})).toBe(0)
+    expect(trustSupportFeeOf(null)).toBe(0)
   })
 })
 

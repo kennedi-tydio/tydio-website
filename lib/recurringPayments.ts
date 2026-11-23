@@ -3,7 +3,7 @@ import { stripe } from '@/lib/stripe'
 import { getOrCreateStripeCustomerId } from '@/lib/stripe/customer'
 import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
 import { cardFailureMessage } from '@/lib/stripe/paymentFailure'
-import { grossUpForStripeFee } from '@/lib/pricingRules'
+import { bookingChargeTotal, TRUST_SUPPORT_FEE } from '@/lib/pricingRules'
 import { bookingStartInstant, DEFAULT_BOOKING_TIME_ZONE, isValidTimeZone, todayInZone, hourInZone } from '@/lib/bookingTime'
 import { hasBookingConflict, minutesSinceMidnight, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import { openStartTimes } from '@/lib/bookingSlots'
@@ -65,7 +65,7 @@ async function customerFirstName(admin: Admin, customerId: string): Promise<stri
 }
 
 const UNPAID_VISIT_COLUMNS =
-  'id, user_id, tidy_pro_id, status, progress_status, scheduled_date, scheduled_time, time_zone, estimated_duration_minutes, amount_due, payment_due_at, payment_attempted_at, payment_failed_at, suspended_for_payment_at, recurring_booking_id'
+  'id, user_id, tidy_pro_id, status, progress_status, scheduled_date, scheduled_time, time_zone, estimated_duration_minutes, amount_due, payment_due_at, payment_attempted_at, payment_failed_at, suspended_for_payment_at, recurring_booking_id, pricing_breakdown'
 
 type UnpaidVisit = {
   id: string
@@ -83,6 +83,7 @@ type UnpaidVisit = {
   payment_failed_at: string | null
   suspended_for_payment_at: string | null
   recurring_booking_id: string | null
+  pricing_breakdown: unknown
 }
 
 function zoneOf(visit: { time_zone: string | null }): string {
@@ -94,9 +95,10 @@ function startOf(visit: UnpaidVisit): Date | null {
   return bookingStartInstant(visit.scheduled_date, visit.scheduled_time.slice(0, 5), zoneOf(visit))
 }
 
-// What a card is charged for a visit: its price plus Stripe's fee for that card.
+// What a card is charged for a visit: its price plus the Trust & Support fee and
+// Stripe's fee for that card.
 export async function visitChargeForCard(amountDue: number, stripePaymentMethodId: string): Promise<number> {
-  return grossUpForStripeFee(amountDue, await stripePercentageForPaymentMethod(stripePaymentMethodId))
+  return bookingChargeTotal(amountDue, await stripePercentageForPaymentMethod(stripePaymentMethodId))
 }
 
 // Whether the Tidy Pro can take the visit at a new date and time: inside their weekly
@@ -202,6 +204,8 @@ export async function payForVisit(
           profile_id: visit.user_id,
           booking_id: visit.id,
           kind: 'recurring_visit',
+          // Kept back with Stripe's fee on a "minus the fee" refund (lib/bookingRequestGroups).
+          trust_support_fee: TRUST_SUPPORT_FEE.toFixed(2),
           ...(visit.recurring_booking_id ? { recurring_booking_id: visit.recurring_booking_id } : {}),
         },
       },
@@ -222,6 +226,8 @@ export async function payForVisit(
       // Tasks added to the visit were charged separately and are part of its total.
       total_customer_charge: Math.round((charge + addOnCharges) * 100) / 100,
       amount_due: null,
+      // A visit booked before the fee existed carries it once it's paid now.
+      pricing_breakdown: { ...((visit.pricing_breakdown as Record<string, unknown> | null) ?? {}), trust_support_fee: TRUST_SUPPORT_FEE } as never,
       payment_due_at: null,
       payment_failed_at: null,
       payment_error: null,

@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { stripe } from '@/lib/stripe'
-import { grossUpForStripeFee, lateCancelRefund, netOfStripeFee, stripePercentageForCardCountry } from '@/lib/pricingRules'
+import { bookingChargeTotal, lateCancelRefund, netOfStripeFee, stripePercentageForCardCountry, trustSupportFeeOf } from '@/lib/pricingRules'
 import { isAwaitingReplacements } from '@/lib/bookingRequestGroups'
 import { hasBookingStarted, isLateCancellation, noShowReportableAt } from '@/lib/bookingTime'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
@@ -53,7 +53,7 @@ export default async function CurrentBookingPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, tidy_pro_id, tidy_pro_name, tidy_pro_photo_url, status, tip, decision_status, progress_status, notes, pets, will_provide_supplies, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, total_customer_charge, cleaner_marked_complete_at, stripe_payment_intent_id, stripe_refund_id, request_group_id, cancelled_reason, time_zone, suspended_for_upcharge_at, amount_due, payment_due_at, payment_failed_at, payment_error, suspended_for_payment_at, recurring_booking_id, task_list'
+      'id, tidy_pro_id, tidy_pro_name, tidy_pro_photo_url, status, tip, decision_status, progress_status, notes, pets, will_provide_supplies, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, total_customer_charge, cleaner_marked_complete_at, stripe_payment_intent_id, stripe_refund_id, request_group_id, cancelled_reason, time_zone, suspended_for_upcharge_at, amount_due, payment_due_at, payment_failed_at, payment_error, suspended_for_payment_at, recurring_booking_id, task_list, pricing_breakdown'
     )
     .eq('id', bookingId)
     .eq('user_id', session.profileId)
@@ -143,14 +143,16 @@ export default async function CurrentBookingPage({
   // Tasks the customer added (lib/bookingTaskAdditions) are shown apart from extra charges.
   const addedTasksAmount = Math.round(paidUpcharges.filter((u) => u.taskAdditionId).reduce((sum, u) => sum + u.amount * 100, 0)) / 100
   const extraChargeAmount = Math.round((upchargeAmount - addedTasksAmount) * 100) / 100
-  // The total is stored with Stripe's fee already added on top (see
-  // grossUpForStripeFee), so split it back out for the order summary.
-  const bookingPrice = netOfStripeFee(Math.max(0, totalPrice - upchargeCharges), cardFeePercentage)
+  // The total is stored with Stripe's fee (and, on bookings that carry it, the Trust &
+  // Support fee) already added on top (see bookingChargeTotal), so split them back out
+  // for the order summary.
+  const trustSupportFee = trustSupportFeeOf(booking.pricing_breakdown)
+  const bookingPrice = Math.max(0, Math.round((netOfStripeFee(Math.max(0, totalPrice - upchargeCharges), cardFeePercentage) - trustSupportFee) * 100) / 100)
   const orderLines: OrderLine[] = [
     { label: 'Booking', amount: bookingPrice },
     ...(addedTasksAmount > 0 ? [{ label: 'Added tasks', amount: addedTasksAmount }] : []),
     ...(extraChargeAmount > 0 ? [{ label: 'Extra charge', amount: extraChargeAmount }] : []),
-    { label: 'Processing fee', amount: Math.round((totalPrice - bookingPrice - upchargeAmount) * 100) / 100 },
+    { label: trustSupportFee > 0 ? 'Stripe and Trust & Support fee' : 'Processing fee', amount: Math.round((totalPrice - bookingPrice - upchargeAmount) * 100) / 100 },
   ]
 
   // Shown on the cancel button, so the customer knows before they tap it. A recurring
@@ -228,7 +230,7 @@ export default async function CurrentBookingPage({
     (booking.payment_failed_at || booking.suspended_for_payment_at)
   ) {
     const amountDue = Number(booking.amount_due)
-    const cards = await chargeableCards(admin, session.profileId, (percentage) => grossUpForStripeFee(amountDue, percentage))
+    const cards = await chargeableCards(admin, session.profileId, (percentage) => bookingChargeTotal(amountDue, percentage))
     const { date: newDate, time: newTime } = await searchParams
     const newSlot =
       booking.suspended_for_payment_at && typeof newDate === 'string' && typeof newTime === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(newDate) && /^\d{2}:\d{2}$/.test(newTime)

@@ -316,7 +316,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           },
           {
             type: 'p',
-            text: 'A card processing fee is added at checkout, and top-rated Tidy Pros add $5.',
+            text: 'A Stripe and Trust & Support fee is added at checkout ($1.99 plus Stripe’s card fee), and top-rated Tidy Pros add $5.',
           },
           {
             type: 'p',
@@ -530,14 +530,14 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           {
             type: 'list',
             items: [
-              'Still waiting for a Tidy Pro to accept, or more than 2 hours before the start: you’re refunded in full, except for the card processing fee.',
+              'Still waiting for a Tidy Pro to accept, or more than 2 hours before the start: you’re refunded in full, except for the Stripe and Trust & Support fee.',
               'Within 2 hours of the start: you’re refunded 50%. Of the rest, 80% goes to your Tidy Pro, who reserved that time for you, and 20% to Tydio.',
               'Once your Tidy Pro has arrived, the booking can’t be canceled.',
             ],
           },
           {
             type: 'p',
-            text: 'If no Tidy Pro accepts your booking in time (at least an hour before it starts), we cancel it for you and refund everything except the processing fee.',
+            text: 'If no Tidy Pro accepts your booking in time (at least an hour before it starts), we cancel it for you and refund everything except the Stripe and Trust & Support fee.',
           },
           {
             type: 'p',
@@ -569,7 +569,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           },
           {
             type: 'p',
-            text: 'Canceling a request refunds everything except the card processing fee. Refunds go back to your original payment method and can take 5 to 10 business days to appear.',
+            text: 'Canceling a request refunds everything except the Stripe and Trust & Support fee. Refunds go back to your original payment method and can take 5 to 10 business days to appear.',
           },
           {
             type: 'note',
@@ -600,11 +600,11 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         answer: [
           {
             type: 'p',
-            text: 'We’ll notify you with a link to choose a replacement or cancel. For Tidy Tasks, you can choose up to 3 other Tidy Pros at no extra charge, and your payment carries over to whoever accepts first. For a Standard or Deep Cleaning, you choose one Tidy Pro at a time and see their price first: if it’s higher, the difference is charged when you confirm, and if it’s lower, the difference is refunded. If they decline too, you can choose someone else, up until an hour before your booking. Rather not? Cancel instead, and you’re refunded everything except the processing fee.',
+            text: 'We’ll notify you with a link to choose a replacement or cancel. For Tidy Tasks, you can choose up to 3 other Tidy Pros at no extra charge, and your payment carries over to whoever accepts first. For a Standard or Deep Cleaning, you choose one Tidy Pro at a time and see their price first: if it’s higher, the difference is charged when you confirm, and if it’s lower, the difference is refunded. If they decline too, you can choose someone else, up until an hour before your booking. Rather not? Cancel instead, and you’re refunded everything except the Stripe and Trust & Support fee.',
           },
           {
             type: 'p',
-            text: 'If nobody accepts by one hour before the start time, the booking is canceled and you’re refunded everything except the processing fee. If a Tidy Pro cancels less than an hour before the start, you get a full refund, including the fee.',
+            text: 'If nobody accepts by one hour before the start time, the booking is canceled and you’re refunded everything except the Stripe and Trust & Support fee. If a Tidy Pro cancels less than an hour before the start, you get a full refund, including the fee.',
           },
         ],
       },
@@ -704,23 +704,23 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: 'refund-policy',
         question: 'What is your refund policy?',
-        keywords: 'refund money back policy cancel cancellation late fee processing fee charged twice wrong charge no show',
+        keywords: 'refund money back policy cancel cancellation late fee processing fee trust support fee charged twice wrong charge no show',
         answer: [
           {
             type: 'p',
-            text: 'The card processing fee shown at checkout isn’t refundable, except where noted below. Here’s what you get back:',
+            text: 'The Stripe and Trust & Support fee shown at checkout isn’t refundable, except where noted below. Here’s what you get back:',
           },
           {
             type: 'list',
             items: [
-              'You cancel before a Tidy Pro accepts, or more than 2 hours before the start: everything except the processing fee.',
+              'You cancel before a Tidy Pro accepts, or more than 2 hours before the start: everything except the Stripe and Trust & Support fee.',
               'You cancel within 2 hours of the start: 50% of what you paid. Of the rest, 80% goes to your Tidy Pro, who reserved that time for you, and 20% to Tydio.',
-              'No Tidy Pro accepts in time (at least an hour before the start): we cancel it and refund everything except the processing fee.',
-              'Your Tidy Pro declines or cancels and you don’t choose a replacement: everything except the processing fee.',
-              'Your Tidy Pro cancels less than an hour before the start: everything, including the processing fee.',
-              'Your Tidy Pro doesn’t show up and you report it 10 minutes after the start: everything except the processing fee, right away.',
+              'No Tidy Pro accepts in time (at least an hour before the start): we cancel it and refund everything except the Stripe and Trust & Support fee.',
+              'Your Tidy Pro declines or cancels and you don’t choose a replacement: everything except the Stripe and Trust & Support fee.',
+              'Your Tidy Pro cancels less than an hour before the start: everything, including the Stripe and Trust & Support fee.',
+              'Your Tidy Pro doesn’t show up and you report it 10 minutes after the start: everything except the Stripe and Trust & Support fee, right away.',
               'Your Tidy Pro can’t get into your home: our team reviews it and refunds all, half, or none of it.',
-              'You’re charged in error, or charged but your booking wasn’t created: everything, including the processing fee.',
+              'You’re charged in error, or charged but your booking wasn’t created: everything, including the Stripe and Trust & Support fee.',
             ],
           },
           {

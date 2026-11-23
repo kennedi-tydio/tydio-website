@@ -7,7 +7,7 @@ import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootag
 import { computeIsTopTidyPro, hasBookingConflict, haversineDistanceMiles } from '@/lib/cleanerMatching'
 import type { CleanerMatch } from '@/lib/cleanerMatching'
 import { overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
-import { cleanerPayoutForServicePrice, grossUpForStripeFee, servicePriceForCleaner } from '@/lib/pricingRules'
+import { bookingChargeTotal, cleanerPayoutForServicePrice, servicePriceForCleaner, TRUST_SUPPORT_FEE } from '@/lib/pricingRules'
 import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
 import { stripePercentageForCardCountry } from '@/lib/pricingRules'
 import { cardFailureMessage } from '@/lib/stripe/paymentFailure'
@@ -137,11 +137,16 @@ export async function placeBooking(
 
   let breakdown
   try {
-    breakdown = combineWithFullService(
-      taskPart,
-      fullServiceSnapshot,
-      bookingDurationMinutes(tasks, squareFootage, fullServiceSnapshot?.duration_minutes ?? 0)
-    )
+    breakdown = {
+      ...combineWithFullService(
+        taskPart,
+        fullServiceSnapshot,
+        bookingDurationMinutes(tasks, squareFootage, fullServiceSnapshot?.duration_minutes ?? 0)
+      ),
+      // Charged on top with Stripe's fee (bookingChargeTotal); recorded so refunds and the
+      // order summary know this booking carries it.
+      trust_support_fee: TRUST_SUPPORT_FEE,
+    }
   } catch {
     return { error: 'Could not price one of your tasks.' }
   }
@@ -236,7 +241,7 @@ export async function placeBooking(
       breakdown,
       fullServiceSnapshot,
       servicePrice,
-      totalPrice: grossUpForStripeFee(servicePrice, percentage),
+      totalPrice: bookingChargeTotal(servicePrice, percentage),
       petsText,
       cleanerName,
       tidyProPhotoUrl: tidyProStats?.profile_photo_url ?? null,
@@ -265,11 +270,11 @@ export async function placeBooking(
   }
   const chargedServicePrice = Math.round((servicePrice - (promo?.discount ?? 0)) * 100) / 100
 
-  // Stripe's fee for this card, added up front. If the card can't be read, stop rather
+  // The Trust & Support fee plus Stripe's fee for this card, added up front. If the card can't be read, stop rather
   // than guess and charge the wrong amount.
   let totalPrice: number
   try {
-    totalPrice = grossUpForStripeFee(chargedServicePrice, await stripePercentageForPaymentMethod(savedPaymentMethod.stripe_payment_method_id))
+    totalPrice = bookingChargeTotal(chargedServicePrice, await stripePercentageForPaymentMethod(savedPaymentMethod.stripe_payment_method_id))
   } catch {
     return { error: 'We could not verify your card. Please try again.' }
   }
@@ -288,6 +293,8 @@ export async function placeBooking(
         confirm: true,
         metadata: {
           profile_id: input.customerId,
+          // Kept back with Stripe's fee on a "minus the fee" refund (lib/bookingRequestGroups).
+          trust_support_fee: TRUST_SUPPORT_FEE.toFixed(2),
           ...(promo ? { promo_code: promo.code, promo_discount: promo.discount.toFixed(2) } : {}),
           ...(input.stripeMetadata ?? {}),
         },

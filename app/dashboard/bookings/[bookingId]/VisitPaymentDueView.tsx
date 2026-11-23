@@ -59,6 +59,7 @@ export default function VisitPaymentDueView({ bookingId, amountDue, cards, defau
       cards={cards}
       defaultCardId={defaultCardId}
       itemLabel="Booking"
+      feeLabel="Stripe and Trust & Support fee"
       amountCents={amountCents}
       onPay={(card, attemptId) => payRecurringVisitAction(bookingId, card.id, card.chargeCents, attemptId, newSlot ? { date: newSlot.date, time: newSlot.time } : null)}
       onPaid={() => {

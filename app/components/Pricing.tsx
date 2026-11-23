@@ -4,7 +4,9 @@
 // 50 / 240 × $215 = $44.79 before surcharges. None of these are Entire home
 // or floor sweep/mop tasks, so no home size multiplier applies.
 // Cleaning fees combine the cleaning-level surcharges and extra issues
-// ($5 standard + $10 heavy). Update if pricing changes.
+// ($5 standard + $10 heavy). The last line is the $1.99 Trust & Support fee plus
+// Stripe's US card fee on the whole charge: bookingChargeTotal($59.79) = $63.93.
+// Update if pricing changes.
 const exampleTasks = [
   { name: "Vacuum living room", detail: "Light touch-up" },
   { name: "Wipe down kitchen counters", detail: "Standard cleaning" },
@@ -14,6 +16,7 @@ const exampleTasks = [
 const exampleLines = [
   { label: "Base price", value: "$44.79" },
   { label: "Cleaning fees", value: "+$15.00" },
+  { label: "Stripe and Trust & Support fee", value: "+$4.14" },
 ];
 
 export default function Pricing() {
@@ -65,7 +68,7 @@ export default function Pricing() {
             </dl>
             <div className="border-t border-slate-200 pt-4 flex items-center justify-between">
               <span className="text-slate-500 text-sm">Total</span>
-              <span className="text-2xl font-black text-sky-500">$59.79</span>
+              <span className="text-2xl font-black text-sky-500">$63.93</span>
             </div>
             <p className="text-xs text-slate-400">
               Instead of paying $250+ for a full clean you didn&apos;t need.
@@ -74,8 +77,8 @@ export default function Pricing() {
         </div>
 
         <p className="text-center text-slate-400 text-sm mt-8 max-w-2xl mx-auto">
-          Exact price confirmed before booking. No surprises. A card processing fee is added at checkout,
-          and top-rated or farther-away Tidy Pros may add $5.
+          Exact price confirmed before booking. No surprises. The Stripe and Trust &amp; Support fee ($1.99 plus
+          Stripe&apos;s card fee) is added at checkout, and top-rated or farther-away Tidy Pros may add $5.
         </p>
       </div>
     </section>

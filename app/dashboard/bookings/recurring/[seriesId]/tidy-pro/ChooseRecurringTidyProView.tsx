@@ -125,7 +125,7 @@ export default function ChooseRecurringTidyProView({
 
         {options.length > 0 && (
           <p className="text-xs text-slate-500 leading-relaxed mt-5">
-            Prices are per visit, before your card&apos;s processing fee. Each visit is charged when it&apos;s booked, a week ahead.
+            Prices are per visit, before the Stripe and Trust &amp; Support fee. Each visit is charged when it&apos;s booked, a week ahead.
           </p>
         )}
 

@@ -631,8 +631,8 @@ export default function MessageThreadView({
             </Link>
             <p className="text-xs text-slate-500 text-center leading-relaxed mt-2">
               {replacesOneAtATime
-                ? 'Your payment is held for your booking. You’ll see each Tidy Pro’s price before you confirm, and we’ll charge or refund the difference. If you cancel, you’re refunded minus the nonrefundable Stripe fee.'
-                : 'You won’t be charged again. Your payment is held for your booking. If you cancel, you’re refunded minus the nonrefundable Stripe fee.'}
+                ? 'Your payment is held for your booking. You’ll see each Tidy Pro’s price before you confirm, and we’ll charge or refund the difference. If you cancel, you’re refunded minus the nonrefundable Stripe and Trust & Support fee.'
+                : 'You won’t be charged again. Your payment is held for your booking. If you cancel, you’re refunded minus the nonrefundable Stripe and Trust & Support fee.'}
             </p>
             <button
               type="button"

@@ -1,7 +1,7 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { detailSection, formatInZone, loadBookingIncident, sendAdminEscalation } from '@/lib/bookingIncidentEmail'
-import { halfRefund, halfRefundCleanerPay, netOfStripeFee } from '@/lib/pricingRules'
+import { halfRefund, halfRefundCleanerPay, netOfStripeFee, trustSupportFeeOf } from '@/lib/pricingRules'
 import { canSendSms, sendSmsForPayload } from '@/lib/sms'
 import { sendPushForPayload } from '@/lib/push'
 import type { NotificationPayload } from '@/lib/notifications'
@@ -46,10 +46,11 @@ export function isRefundLevel(value: string): value is RefundLevel {
   return value === 'full' || value === 'half' || value === 'none'
 }
 
-export function incidentRefundAmount(level: SettledRefundLevel, totalCharge: number): number {
+// trustSupportFee: what the booking was charged for it (kept with Stripe's fee).
+export function incidentRefundAmount(level: SettledRefundLevel, totalCharge: number, trustSupportFee = 0): number {
   if (level === 'full') return totalCharge
   // An estimate at a US card's rate; the real amount is what Stripe refunds.
-  if (level === 'minus_fee') return netOfStripeFee(totalCharge)
+  if (level === 'minus_fee') return Math.max(0, Math.round((netOfStripeFee(totalCharge) - trustSupportFee) * 100) / 100)
   if (level === 'half') return halfRefund(totalCharge)
   return 0
 }
@@ -268,7 +269,7 @@ export async function resolveBookingIncident(
 ): Promise<{ success: true; refund: number; cleanerPay: number; warning?: string } | { error: string }> {
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, user_id, tidy_pro_id, incident_type, incident_resolved_at, stripe_payment_intent_id, total_customer_charge, cleaner_pay, scheduled_date, time_zone')
+    .select('id, user_id, tidy_pro_id, incident_type, incident_resolved_at, stripe_payment_intent_id, total_customer_charge, cleaner_pay, scheduled_date, time_zone, pricing_breakdown')
     .eq('id', bookingId)
     .maybeSingle()
 
@@ -276,7 +277,7 @@ export async function resolveBookingIncident(
   if (booking.incident_resolved_at) return { error: 'This incident has already been settled.' }
 
   const cleanerPay = incidentCleanerPay(level, booking.cleaner_pay ?? 0)
-  let refund = booking.stripe_payment_intent_id ? incidentRefundAmount(level, booking.total_customer_charge ?? 0) : 0
+  let refund = booking.stripe_payment_intent_id ? incidentRefundAmount(level, booking.total_customer_charge ?? 0, trustSupportFeeOf(booking.pricing_breakdown)) : 0
 
   const { data: claimed, error: claimError } = await admin
     .from('bookings')

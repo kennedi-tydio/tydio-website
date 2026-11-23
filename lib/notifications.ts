@@ -76,7 +76,7 @@ export function notifyRequestFilled(bookingId: string): NotificationPayload {
 export function notifyReplacementsDeclined(): NotificationPayload {
   return {
     title: 'Booking canceled',
-    body: 'The Tidy Pros you asked declined, so your booking has been canceled and your payment refunded, minus the nonrefundable Stripe fee. Your tasks are back on your list.',
+    body: 'The Tidy Pros you asked declined, so your booking has been canceled and your payment refunded, minus the nonrefundable Stripe and Trust & Support fee. Your tasks are back on your list.',
     url: siteUrl('/dashboard'),
   }
 }
@@ -84,7 +84,7 @@ export function notifyReplacementsDeclined(): NotificationPayload {
 export function notifyBookingCancelledConfirmation(): NotificationPayload {
   return {
     title: 'Booking canceled',
-    body: 'Your booking has been canceled and your payment refunded, minus the nonrefundable Stripe fee. Your tasks are back on your list.',
+    body: 'Your booking has been canceled and your payment refunded, minus the nonrefundable Stripe and Trust & Support fee. Your tasks are back on your list.',
     url: siteUrl('/dashboard'),
   }
 }
@@ -118,7 +118,7 @@ export function notifyAdminCancelledBooking(refund: 'full' | 'minus_fee' | 'half
   const amount = refunded != null ? `$${refunded.toFixed(2)}` : 'your payment'
   const outcome = {
     full: `${amount} has been refunded in full`,
-    minus_fee: `${amount} has been refunded, minus the nonrefundable Stripe fee`,
+    minus_fee: `${amount} has been refunded, minus the nonrefundable Stripe and Trust & Support fee`,
     half: `${amount} has been refunded, half of what you paid`,
     custom: `${amount} has been refunded`,
     none: 'your payment was not refunded. We’ve emailed you the reason',
@@ -184,7 +184,7 @@ export function notifyNoShowReported(bookingId: string): NotificationPayload {
 export function notifyBookingExpired(): NotificationPayload {
   return {
     title: 'Booking canceled',
-    body: 'No Tidy Pro accepted by an hour before your booking time, so it has been canceled and your payment refunded, minus the nonrefundable Stripe fee. Your tasks are back on your list.',
+    body: 'No Tidy Pro accepted by an hour before your booking time, so it has been canceled and your payment refunded, minus the nonrefundable Stripe and Trust & Support fee. Your tasks are back on your list.',
     url: siteUrl('/dashboard'),
   }
 }

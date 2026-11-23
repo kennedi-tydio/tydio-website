@@ -14,6 +14,7 @@ import { VerifiedCheck } from '@/app/components/VerifiedCheck'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
 import LaundromatNotice from '@/app/components/LaundromatNotice'
 import FullServiceSummary, { type SummaryLine } from '@/app/components/FullServiceSummary'
+import LateCancelNotice, { useStartsWithinLateCancelWindow } from '@/app/components/LateCancelNotice'
 import { NOTES_COPY, type FullServiceSelection } from '@/lib/fullService'
 import type { CleanerMatch } from '@/lib/cleanerMatching'
 import { usePersistedPicks, writePicks } from '@/app/components/TidyProPickList'
@@ -187,6 +188,7 @@ export default function ReviewRequestView({
   quoteTaskCount,
 }: Props) {
   const quoteMode = quoteTaskCount > 0
+  const startsSoon = useStartsWithinLateCancelWindow(date, time)
   const router = useRouter()
   const pathname = usePathname()
   const [notes, setNotes] = useState(initialNotes)
@@ -377,7 +379,7 @@ export default function ReviewRequestView({
 
   return (
     <main id="main-content" className="min-h-svh bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-6 pb-40 max-w-sm mx-auto w-full safe-area-inset-bottom">
+      <div className={`flex-1 overflow-y-auto px-5 pt-6 ${startsSoon && !quoteMode ? 'pb-64' : 'pb-40'} max-w-sm mx-auto w-full safe-area-inset-bottom`}>
         <button type="button" onClick={() => router.back()} aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
             <path d="M10 12L6 8l4-4" stroke="#1a2332" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -748,7 +750,7 @@ export default function ReviewRequestView({
 
             {!quoteMode && (<>
             <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100">
-              <span className="text-sm text-slate-800">Stripe processing fee</span>
+              <span className="text-sm text-slate-800">Stripe and Trust &amp; Support fee</span>
               <span className="text-sm font-semibold text-slate-900">${processingFee.toFixed(2)}</span>
             </div>
 
@@ -761,7 +763,7 @@ export default function ReviewRequestView({
               </span>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed px-4 pb-3.5">
-              The ${processingFee.toFixed(2)} Stripe processing fee is nonrefundable. If your booking is canceled, you&apos;ll be refunded ${discountedPrice.toFixed(2)}. If you cancel an accepted booking less than 2 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(totalPrice).toFixed(2)}).
+              The ${processingFee.toFixed(2)} Stripe and Trust &amp; Support fee is nonrefundable. If your booking is canceled, you&apos;ll be refunded ${discountedPrice.toFixed(2)}. If you cancel an accepted booking less than 2 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(totalPrice).toFixed(2)}).
             </p>
             </>)}
           </div>
@@ -792,6 +794,7 @@ export default function ReviewRequestView({
               {confirmError}
             </p>
           ) : null}
+          {!quoteMode && startsSoon && <LateCancelNotice refund={lateCancelRefund(totalPrice)} className="mb-3" />}
           {quoteMode ? (
             <button
               type="button"

@@ -6,7 +6,7 @@ import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import { expireIfDue, loadForCustomer, priceQuoteTasks, quoteRequestTasks } from '@/lib/quoteRequests'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 import { stripePercentageForPaymentMethod } from '@/lib/stripe/cardFees'
-import { grossUpForStripeFee } from '@/lib/pricingRules'
+import { bookingChargeTotal } from '@/lib/pricingRules'
 import { findPromoForCustomer } from '@/lib/promoCodesData'
 import { describePromoDiscount, promoDiscountAmount } from '@/lib/promoCodes'
 import { bookableSelection } from '@/lib/fullServiceBooking'
@@ -66,7 +66,7 @@ export default async function CustomerQuotePage({ params }: { params: Promise<{ 
       const percentage = card?.stripe_payment_method_id
         ? await stripePercentageForPaymentMethod(card.stripe_payment_method_id).catch(() => undefined)
         : undefined
-      const total = grossUpForStripeFee(discounted, percentage)
+      const total = bookingChargeTotal(discounted, percentage)
       pricing = {
         servicePrice: priced.servicePrice,
         promo: promo && 'promo' in promo ? { code: promo.promo.code, label: describePromoDiscount(promo.promo), discount } : null,

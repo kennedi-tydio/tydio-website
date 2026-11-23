@@ -10,6 +10,7 @@ import { laundryDetailLabel } from '@/lib/laundry'
 import { petDetailLabel } from '@/lib/petTasks'
 import { QUOTE_TASK_LABEL } from '@/lib/taskQuotes'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
+import LateCancelNotice, { useStartsWithinLateCancelWindow } from '@/app/components/LateCancelNotice'
 import { approveQuoteAction, declineQuoteAction, removeQuotePromoAction } from './actions'
 
 export type QuotePricing = {
@@ -82,6 +83,7 @@ export default function QuoteView(props: Props) {
   const [paymentFailed, setPaymentFailed] = useState(false)
   const [promoFailed, setPromoFailed] = useState(false)
   const [confirmDecline, setConfirmDecline] = useState(false)
+  const startsSoon = useStartsWithinLateCancelWindow(props.date, props.time)
 
   const paymentHref = `/dashboard/profile/payment-methods?quoteId=${quoteId}`
   const open = status === 'requested' || status === 'quoted'
@@ -130,7 +132,7 @@ export default function QuoteView(props: Props) {
 
   return (
     <main id="main-content" className="min-h-svh bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-6 pb-48 max-w-sm mx-auto w-full safe-area-inset-bottom">
+      <div className={`flex-1 overflow-y-auto px-5 pt-6 ${startsSoon && status === 'quoted' ? 'pb-72' : 'pb-48'} max-w-sm mx-auto w-full safe-area-inset-bottom`}>
         <Link href="/dashboard/messages" aria-label="Back to messages" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
             <path d="M10 12L6 8l4-4" stroke="#1a2332" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -280,10 +282,10 @@ export default function QuoteView(props: Props) {
                   </button>
                 </div>
               )}
-              <Row label="Stripe processing fee" value={`$${pricing.processingFee.toFixed(2)}`} />
+              <Row label="Stripe and Trust & Support fee" value={`$${pricing.processingFee.toFixed(2)}`} />
               <Row label="Total" value={`$${pricing.totalPrice.toFixed(2)}`} strong />
               <p className="text-xs text-slate-500 leading-relaxed px-4 pb-3.5">
-                The ${pricing.processingFee.toFixed(2)} Stripe processing fee is nonrefundable. If your booking is canceled or {cleanerName}{' '}
+                The ${pricing.processingFee.toFixed(2)} Stripe and Trust &amp; Support fee is nonrefundable. If your booking is canceled or {cleanerName}{' '}
                 doesn&apos;t accept it, you&apos;ll be refunded ${pricing.discountedPrice.toFixed(2)}. If you cancel an accepted booking less than
                 2 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(pricing.totalPrice).toFixed(2)}).
               </p>
@@ -333,6 +335,7 @@ export default function QuoteView(props: Props) {
               </div>
             ) : status === 'quoted' ? (
               <div className="flex flex-col gap-2">
+                {startsSoon && pricing && <LateCancelNotice refund={lateCancelRefund(pricing.totalPrice)} className="mb-1" />}
                 {paymentFailed || !selectedCard ? (
                   <Link
                     href={paymentHref}
