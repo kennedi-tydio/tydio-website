@@ -94,6 +94,8 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/096_manual_payout_hold.sql` (`bookings.payout_held_at`, `payout_hold_note`). Completing a booking, Tidy Pro payouts and the admin Bookings page fail without it
 - [x] Apply `supabase/migrations/092_user_blocks.sql` (`user_blocks` table). Blocking from the report sheet fails without it
 - [x] Apply `supabase/migrations/095_customer_bio_preferences.sql` (`profiles.bio`, `cleaning_preferences`). Customer Profile → Edit and the customer profile Tidy Pros see fail without it
+- [x] Apply `supabase/migrations/098_portfolio_pair_sources.sql` (`tidypro_portfolio_items.source_key`). Adding before/after pairs to a Tidy Pro's profile fails without it
+- [x] Apply `supabase/migrations/099_replacement_chain.sql` (`booking_request_groups.chain`, `bookings.charged_price`, `booking_upcharges.replacement_difference`). Placing any booking fails without it
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel
