@@ -19,6 +19,14 @@ export type FullServiceType = 'standard' | 'deep'
 // components see the same value (it's fixed at build time).
 export const FULL_SERVICE_CUSTOMER_ENABLED = process.env.NEXT_PUBLIC_FULL_SERVICE_CUSTOMER_ENABLED === 'true'
 
+// Who can start and fill in a Standard / Deep Cleaning (the dashboard cards
+// and the wizard). Like Tidy Tasks, waitlisted and paused customers can set
+// one up ahead of time; only booking_allowed can go on to /book and pay
+// (the schedule, review and checkout pages check that themselves).
+export function canPrepareFullService(bookingAccessStatus: string | null | undefined): boolean {
+  return bookingAccessStatus === 'booking_allowed' || bookingAccessStatus === 'waitlisted' || bookingAccessStatus === 'paused'
+}
+
 export const FULL_SERVICE_TYPES: FullServiceType[] = ['standard', 'deep']
 
 export const FULL_SERVICE_LABEL: Record<FullServiceType, string> = {

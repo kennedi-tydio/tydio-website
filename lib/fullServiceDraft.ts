@@ -8,6 +8,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   FULL_SERVICE_CUSTOMER_ENABLED,
   WIZARD_STEPS,
+  canPrepareFullService,
   isCompleteSelection,
   normalizeFullServiceSelection,
   type FullServiceSelection,
@@ -31,7 +32,8 @@ export function furthestStep(a: WizardStep, b: WizardStep): WizardStep {
   return stepIndex(a) >= stepIndex(b) ? a : b
 }
 
-// For a wizard page: signed-in customer who can book, with a selection on
+// For a wizard page: signed-in customer who can book or is waiting to (see
+// canPrepareFullService), with a selection on
 // their latest draft. Later steps need the rooms chosen first.
 export async function loadWizardDraft(step: WizardStep): Promise<WizardDraft> {
   const session = await getSession()
@@ -49,7 +51,7 @@ export async function loadWizardDraft(step: WizardStep): Promise<WizardDraft> {
       .limit(1)
       .maybeSingle(),
   ])
-  if (profile?.booking_access_status !== 'booking_allowed') redirect('/dashboard')
+  if (!canPrepareFullService(profile?.booking_access_status)) redirect('/dashboard')
 
   const selection = normalizeFullServiceSelection(draft?.full_service, { keepEstimate: true })
   if (!draft || !selection) redirect('/dashboard')

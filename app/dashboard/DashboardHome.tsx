@@ -7,7 +7,7 @@ import { saveTasks, deleteDraft, removeTaskPhotoAction } from './actions'
 import AddTaskModal from './AddTaskModal'
 import TidyTaskList from './TidyTaskList'
 import FullServiceCards from './FullServiceCards'
-import { FULL_SERVICE_CUSTOMER_ENABLED, type FullServiceSelection } from '@/lib/fullService'
+import { FULL_SERVICE_CUSTOMER_ENABLED, canPrepareFullService, type FullServiceSelection } from '@/lib/fullService'
 import type { TidyTask } from './types'
 import ModalShell from '@/app/components/ModalShell'
 import { LAUNDRY_ADDED_MESSAGE, type LaundryService } from '@/lib/laundry'
@@ -463,7 +463,7 @@ export default function DashboardHome({
           </div>
         )}
 
-        {FULL_SERVICE_CUSTOMER_ENABLED && bookingAccessStatus === 'booking_allowed' && (
+        {FULL_SERVICE_CUSTOMER_ENABLED && canPrepareFullService(bookingAccessStatus) && (
           <FullServiceCards selection={fullService} />
         )}
 

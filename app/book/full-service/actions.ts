@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   FULL_SERVICE_CUSTOMER_ENABLED,
+  canPrepareFullService,
   emptySelection,
   isFullServiceType,
   isWizardStep,
@@ -27,9 +28,11 @@ async function latestDraft(admin: Admin, profileId: string) {
   return data
 }
 
-async function canBook(admin: Admin, profileId: string): Promise<boolean> {
+// Waitlisted / paused customers can set a cleaning up too; booking it is
+// checked on /book.
+async function canPrepare(admin: Admin, profileId: string): Promise<boolean> {
   const { data } = await admin.from('profiles').select('booking_access_status').eq('id', profileId).single()
-  return data?.booking_access_status === 'booking_allowed'
+  return canPrepareFullService(data?.booking_access_status)
 }
 
 // "Book a Standard Cleaning" / "Book a Deep Cleaning" on the dashboard. Keeps
@@ -41,7 +44,7 @@ export async function startFullServiceAction(type: string): Promise<{ error?: st
   if (!FULL_SERVICE_CUSTOMER_ENABLED || !isFullServiceType(type)) return { error: 'This isn’t available yet.' }
 
   const admin = createAdminClient()
-  if (!(await canBook(admin, session.profileId))) return { error: 'You can’t book Tidy Pros yet.' }
+  if (!(await canPrepare(admin, session.profileId))) return { error: 'You can’t book Tidy Pros yet.' }
 
   const draft = await latestDraft(admin, session.profileId)
   const current = normalizeFullServiceSelection(draft?.full_service, { keepEstimate: true })

@@ -5,7 +5,7 @@ import { isPetTask } from '@/lib/petTasks'
 import { laundryDetailLabel } from '@/lib/laundry'
 import FullServiceSummary from '@/app/components/FullServiceSummary'
 import type { FullServiceSelection } from '@/lib/fullService'
-import { RoomIcon } from '@/app/dashboard/TidyTaskList'
+import { RoomIcon } from '@/app/components/RoomIcon'
 
 type GroupedTask = { name: string; detail: string | null; count: number }
 type RoomGroup = { room: string; tasks: GroupedTask[] }
@@ -40,11 +40,14 @@ export default function BookingSummary({
   fullService,
   firstName,
   photoUrls,
+  canBook,
 }: {
   tasks: TidyTask[]
   fullService: FullServiceSelection | null
   firstName: string
   photoUrls: Record<string, string>
+  // False while waitlisted / paused: they can't go on to find Tidy Pros yet.
+  canBook: boolean
 }) {
   const lines = groupTasks(tasks)
 
@@ -101,13 +104,31 @@ export default function BookingSummary({
 
       <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 px-5 py-4 safe-area-inset-bottom">
         <div className="max-w-sm mx-auto">
-          <Link
-            href="/book/schedule"
-            className="block w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide text-center"
-            style={{ backgroundColor: '#1a2332' }}
-          >
-            Continue
-          </Link>
+          {canBook ? (
+            <Link
+              href="/book/schedule"
+              className="block w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide text-center"
+              style={{ backgroundColor: '#1a2332' }}
+            >
+              Continue
+            </Link>
+          ) : (
+            <>
+              <p className="text-sm text-slate-600 text-center leading-relaxed mb-3">
+                You&apos;re on the Tydio waitlist, so you can&apos;t find a Tidy Pro yet. Your booking is saved on your
+                Home page, and we&apos;ll let you know when booking opens in your area.
+              </p>
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                className="block w-full py-4 rounded-2xl text-white font-semibold text-base tracking-wide text-center opacity-50 cursor-not-allowed"
+                style={{ backgroundColor: 'var(--color-slate-400)' }}
+              >
+                Continue
+              </button>
+            </>
+          )}
         </div>
       </div>
     </main>

@@ -6,6 +6,7 @@ import { dropUnmatchedLaundryLinks } from '@/lib/laundry'
 import { resolveStatePricing, ensurePriceableTasks } from '@/app/dashboard/taskPricing'
 import { priceTasksPart } from '@/lib/bookingPricing'
 import { bookableSelection } from '@/lib/fullServiceBooking'
+import { canPrepareFullService } from '@/lib/fullService'
 import type { TidyTask } from '@/app/dashboard/types'
 import BookingSummary from './BookingSummary'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
@@ -39,7 +40,10 @@ export default async function BookPage() {
 
   if (profileError) throw new Error(`Failed to load booking profile: ${profileError.message}`)
   if (!profile) redirect('/login')
-  if (profile.booking_access_status !== 'booking_allowed') redirect('/dashboard')
+  // Waitlisted / paused customers can see their booking summary, but its
+  // Continue (finding Tidy Pros on /book/schedule) stays off until they can book.
+  if (!canPrepareFullService(profile.booking_access_status)) redirect('/dashboard')
+  const canBook = profile.booking_access_status === 'booking_allowed'
   if (draftError) throw new Error(`Failed to load booking draft: ${draftError.message}`)
 
   // `completed` marks a task as checked/selected in the dashboard list —
@@ -88,6 +92,7 @@ export default async function BookPage() {
       fullService={fullService}
       firstName={profile.first_name ?? 'Your'}
       photoUrls={photoUrls}
+      canBook={canBook}
     />
   )
 }
