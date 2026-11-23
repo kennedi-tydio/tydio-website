@@ -17,7 +17,7 @@ function dollars(value: number): string {
 }
 
 // The "Booking fees" line on a booking's price: Stripe's card processing fee and the
-// Trust & Support fee shown together (see bookingChargeTotal), with a "What's included?"
+// Trust & Support fee shown together (see bookingChargeTotal), with an ⓘ
 // toggle that splits them out. `amount` is the whole line in dollars. `variant: 'dl'`
 // renders dt/dd for use inside a <dl>.
 export default function BookingFeesRow({
@@ -52,14 +52,15 @@ export default function BookingFeesRow({
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-controls={panelId}
-          className="inline-flex items-center gap-1 ml-1 text-xs font-medium underline underline-offset-2 text-slate-500 hover:text-slate-700"
+          aria-label="What booking fees include"
+          title="What booking fees include"
+          className="inline-flex items-center justify-center align-middle -my-1.5 w-6 h-6 rounded-full text-slate-400 hover:text-slate-700"
         >
-          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
             <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
             <path d="M8 7v4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <circle cx="8" cy="4.75" r="0.9" fill="currentColor" />
           </svg>
-          What&apos;s included?
         </button>
       </Label>
       <Value className={`tabular-nums ${valueClassName}`}>

@@ -60,7 +60,7 @@ export function groupByCategory(tasks: BookingTaskRow[]): { category: string; ta
 }
 
 // bookingFees: the "Booking fees" line (Stripe's fee plus Trust & Support), shown with
-// its "What's included?" toggle.
+// its ⓘ toggle.
 export type OrderLine = { label: string; amount: number; bookingFees?: boolean }
 
 // The shared body of the Upcoming / Past booking screens: who, when, where,
