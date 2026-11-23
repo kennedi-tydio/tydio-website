@@ -4,7 +4,7 @@ import PetTaskDetails from '@/app/components/PetTaskDetails'
 import { isPetTask } from '@/lib/petTasks'
 import { laundryDetailLabel } from '@/lib/laundry'
 import FullServiceSummary from '@/app/components/FullServiceSummary'
-import type { FullServiceSelection } from '@/lib/fullService'
+import { FULL_SERVICE_LABEL, type FullServiceSelection } from '@/lib/fullService'
 import { RoomIcon } from '@/app/components/RoomIcon'
 
 type GroupedTask = { name: string; detail: string | null; count: number }
@@ -41,6 +41,7 @@ export default function BookingSummary({
   firstName,
   photoUrls,
   canBook,
+  allTasksIncluded,
 }: {
   tasks: TidyTask[]
   fullService: FullServiceSelection | null
@@ -48,6 +49,8 @@ export default function BookingSummary({
   photoUrls: Record<string, string>
   // False while waitlisted / paused: they can't go on to find Tidy Pros yet.
   canBook: boolean
+  // Every saved Tidy Task is already covered by the Standard / Deep Cleaning.
+  allTasksIncluded: boolean
 }) {
   const lines = groupTasks(tasks)
 
@@ -73,7 +76,15 @@ export default function BookingSummary({
           </>
         )}
 
-        {fullService && lines.length > 0 && <h2 className="text-sm font-bold text-slate-900 mb-2">Tidy Tasks</h2>}
+        {fullService && (lines.length > 0 || allTasksIncluded) && (
+          <h2 className="text-sm font-bold text-slate-900 mb-2">Tidy Tasks</h2>
+        )}
+
+        {fullService && allTasksIncluded && (
+          <p className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 mb-6">
+            No Tidy Tasks to add. Your saved tasks are already included in your {FULL_SERVICE_LABEL[fullService.type]}.
+          </p>
+        )}
 
         {lines.length > 0 && (
         <div className="rounded-2xl border border-slate-100 bg-white shadow-sm divide-y divide-slate-100 overflow-hidden mb-6">

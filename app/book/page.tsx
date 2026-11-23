@@ -7,6 +7,7 @@ import { resolveStatePricing, ensurePriceableTasks } from '@/app/dashboard/taskP
 import { priceTasksPart } from '@/lib/bookingPricing'
 import { bookableSelection } from '@/lib/fullServiceBooking'
 import { canPrepareFullService } from '@/lib/fullService'
+import { canAddWithCleaning } from '@/lib/fullServiceScope'
 import type { TidyTask } from '@/app/dashboard/types'
 import BookingSummary from './BookingSummary'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
@@ -86,6 +87,15 @@ export default async function BookPage() {
 
   const photoUrls = await signedTaskPhotoUrls(admin, tasks)
 
+  // Standard / Deep Cleaning with no Tidy Tasks because every saved task is
+  // one the cleaning already covers (the Tidy Tasks step hides those). A
+  // customer with no saved tasks at all doesn't get this note.
+  const allTasksIncluded =
+    !!fullService &&
+    tasks.length === 0 &&
+    allTasks.length > 0 &&
+    allTasks.every((t) => !canAddWithCleaning(t, fullService))
+
   return (
     <BookingSummary
       tasks={tasks}
@@ -93,6 +103,7 @@ export default async function BookPage() {
       firstName={profile.first_name ?? 'Your'}
       photoUrls={photoUrls}
       canBook={canBook}
+      allTasksIncluded={allTasksIncluded}
     />
   )
 }

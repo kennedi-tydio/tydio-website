@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptySelection, type FullServiceSelection } from './fullService'
-import { decideOverlap, matchAddOn, roomTypesForTaskRoom, sameRoomQuestion, scopeOf } from './fullServiceScope'
+import { canAddWithCleaning, decideOverlap, matchAddOn, roomTypesForTaskRoom, sameRoomQuestion, scopeOf } from './fullServiceScope'
 
 const rooms = (r: FullServiceSelection['rooms'], type: 'standard' | 'deep' = 'standard'): FullServiceSelection => ({
   ...emptySelection(type),
@@ -132,5 +132,16 @@ describe('decideOverlap', () => {
 
   it('does nothing without a cleaning', () => {
     expect(decideOverlap(task('Scrub toilet', 'Bathroom'), null)).toEqual({ kind: 'none' })
+  })
+})
+
+describe('canAddWithCleaning', () => {
+  it('rules out only tasks a whole-home cleaning already covers', () => {
+    const whole = emptySelection('standard')
+    expect(canAddWithCleaning(task('Mop floors', 'Kitchen'), whole)).toBe(false)
+    expect(canAddWithCleaning(task('Water the plants', 'Living room'), whole)).toBe(true)
+    expect(canAddWithCleaning(task('Clean inside fridge', 'Kitchen'), whole)).toBe(true)
+    expect(canAddWithCleaning(task('Scrub grout', 'Bathroom'), whole)).toBe(true)
+    expect(canAddWithCleaning(task('Mop floors', 'Kitchen'), rooms({ kitchen: 1 }))).toBe(true)
   })
 })

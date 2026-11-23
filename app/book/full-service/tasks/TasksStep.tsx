@@ -7,8 +7,8 @@ import TidyTaskList from '@/app/dashboard/TidyTaskList'
 import OverlapPrompt from '@/app/components/OverlapPrompt'
 import { saveTasks } from '@/app/dashboard/actions'
 import type { TidyTask } from '@/app/dashboard/types'
-import { ADD_TASKS_COPY, type AddOnKey, type FullServiceSelection } from '@/lib/fullService'
-import { decideOverlap, type OverlapDecision } from '@/lib/fullServiceScope'
+import { ADD_TASKS_COPY, FULL_SERVICE_LABEL, type AddOnKey, type FullServiceSelection } from '@/lib/fullService'
+import { canAddWithCleaning, decideOverlap, type OverlapDecision } from '@/lib/fullServiceScope'
 import WizardFrame from '../WizardFrame'
 import { saveFullServiceStepAction } from '../actions'
 
@@ -119,6 +119,10 @@ export default function TasksStep({
   }
 
   const selectedCount = tasks.filter((t) => t.completed).length
+  // Hide tasks this cleaning already covers and that can't be added anyway.
+  // They stay on the saved list (Home still shows them); a selected one stays
+  // visible so it can be deselected.
+  const visibleTasks = tasks.filter((t) => t.completed || canAddWithCleaning(t, selection))
 
   return (
     <WizardFrame
@@ -138,8 +142,21 @@ export default function TasksStep({
         </p>
       )}
 
-      <p className="text-xs text-slate-500 mb-2">Tap a task to add it to this booking.</p>
-      <TidyTaskList tasks={tasks} onToggle={handleToggle} />
+      {visibleTasks.length === 0 && tasks.length > 0 ? (
+        // Every saved task is one this cleaning already covers. A customer with
+        // no saved tasks still gets TidyTaskList's "No tasks yet".
+        <div className="rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
+          <p className="font-semibold text-slate-900 mb-1">No tasks to add</p>
+          <p className="text-sm text-slate-400">
+            Your saved tasks are already included in your {FULL_SERVICE_LABEL[selection.type]}.
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-xs text-slate-500 mb-2">Tap a task to add it to this booking.</p>
+          <TidyTaskList tasks={visibleTasks} onToggle={handleToggle} />
+        </>
+      )}
 
       <button
         type="button"

@@ -1,5 +1,7 @@
 // Duplicate-cleaning checks for Tidy Tasks added alongside a Standard / Deep
-// Cleaning. Tasks are never hidden or removed: when one looks like it's for a
+// Cleaning. Tasks are never removed from the saved list (ones that can't be
+// added at all are hidden on the booking's task step; see canAddWithCleaning).
+// When one looks like it's for a
 // room the cleaning already covers, the customer is asked (same room or a
 // different one), so they don't pay twice for the same work but can still book
 // it for another room. Laundry, laundromat, pet enclosure and litter box tasks
@@ -158,6 +160,14 @@ export function decideOverlap(task: OverlapTask, sel: FullServiceSelection | nul
   const booked = roomTypes.filter((r) => (sel.rooms[r] ?? 0) > 0)
   if (booked.length === 0) return { kind: 'none' }
   return { kind: 'ask_same_room', roomNoun: roomType(booked[0]).noun, serviceLabel }
+}
+
+// False when the task can't be booked alongside this cleaning at all: the
+// whole home is being cleaned and the task's wording says it's covered, so the
+// prompt offers no way to add it. The full-service Tidy Tasks list hides these.
+export function canAddWithCleaning(task: OverlapTask, sel: FullServiceSelection | null | undefined): boolean {
+  const d = decideOverlap(task, sel)
+  return !(d.kind === 'included_entire_home' && !d.allowAddAnyway)
 }
 
 export function sameRoomQuestion(d: Extract<OverlapDecision, { kind: 'ask_same_room' }>): string {
