@@ -22,7 +22,7 @@ function IconBack() {
 
 function IconMessage() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-slate-400)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
     </svg>
   )
@@ -162,9 +162,6 @@ export default function OnTheWayView({
           <div className="flex items-center gap-2">
             <EmergencyButton addressLine={addressLine} />
             <ReportCustomerButton bookingId={bookingId} />
-            <Link href={`/pro/messages/${bookingId}`} aria-label="Message" className="w-9 h-9 flex items-center justify-center">
-              <IconMessage />
-            </Link>
           </div>
         </div>
 
@@ -173,6 +170,14 @@ export default function OnTheWayView({
           <div className="min-w-0">
             <p className="text-xs text-slate-400">Heading to</p>
             <h1 className="text-lg font-bold text-slate-900 truncate">{customerName}</h1>
+            <Link
+              href={`/pro/messages/${bookingId}`}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full border-2 px-3.5 py-1.5 text-sm font-semibold text-slate-900"
+              style={{ borderColor: 'var(--color-brand)' }}
+            >
+              <span style={{ color: 'var(--color-brand)' }}><IconMessage /></span>
+              Send message
+            </Link>
           </div>
         </div>
 
