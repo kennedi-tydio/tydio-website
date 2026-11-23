@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'Tydio',
     short_name: 'Tydio',
     description: 'On-demand micro-cleaning — book a task in 60 seconds.',
-    start_url: '/',
+    start_url: '/login',
     display: 'standalone',
     background_color: '#ffffff',
     theme_color: '#38C7CA',
