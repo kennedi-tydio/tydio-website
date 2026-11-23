@@ -155,8 +155,8 @@ export default function EditProfileView({
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-44 max-w-sm mx-auto w-full">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
+      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-44 max-w-sm mx-auto w-full safe-area-inset-bottom">
         <div className="flex items-center justify-between mb-4">
           <Link
             href="/pro/profile"
@@ -357,7 +357,7 @@ export default function EditProfileView({
         {justSaved && <p className="text-xs font-semibold text-green-600 mt-3">Your profile has been saved.</p>}
       </div>
 
-      <div className="fixed bottom-20 inset-x-0 pointer-events-none">
+      <div className="fixed above-bottom-nav inset-x-0 pointer-events-none">
         <div className="max-w-sm mx-auto px-5 flex justify-end">
           <button
             type="button"
@@ -371,7 +371,7 @@ export default function EditProfileView({
         </div>
       </div>
 
-      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100">
+      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 safe-area-inset-bottom">
         <div className="flex justify-around items-center py-2 max-w-sm mx-auto px-2">
           {[
             { icon: <IconHome />, label: 'Home', href: '/pro/dashboard', active: false, badge: 0 },

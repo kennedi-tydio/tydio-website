@@ -7,7 +7,8 @@ import path from 'node:path'
 //   npx vitest run --config scripts/stripe-test-mode/vitest.config.ts <spec>
 export default defineConfig(({ mode }) => ({
   plugins: [tsconfigPaths({ root: path.resolve(__dirname, '../..') })],
-  resolve: { alias: { 'server-only': path.resolve(__dirname, 'empty.ts') } },
+  // '@' spelled out too: vite-tsconfig-paths stopped resolving it for this config.
+  resolve: { alias: { 'server-only': path.resolve(__dirname, 'empty.ts'), '@': path.resolve(__dirname, '../..') } },
   test: {
     root: path.resolve(__dirname, '../..'),
     include: ['scripts/stripe-test-mode/**/*.e2e.ts'],

@@ -3,6 +3,7 @@ import { serviceAddressText } from '@/lib/bookingIncidentEmail'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import { COMPLETED_VISIBLE_HOURS, LIVE_STAGES, liveCard, type LiveCard, type LiveStage } from '@/lib/liveBoard'
 import AutoRefresh from './AutoRefresh'
+import LiveTaskProgress, { type LiveCleaningPhoto, type LiveTaskRow } from './LiveTaskProgress'
 
 const REFRESH_SECONDS = 30
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -40,7 +41,7 @@ export default async function AdminLiveBoardPage() {
       .eq('status', 'completed')
       .gte('cleaner_marked_complete_at', new Date(now.getTime() - COMPLETED_VISIBLE_HOURS * 60 * 60 * 1000).toISOString()),
   ])
-  const loadError = scheduled.error?.message ?? completed.error?.message ?? null
+  const bookingsError = scheduled.error?.message ?? completed.error?.message ?? null
 
   const cards = [...(scheduled.data ?? []), ...(completed.data ?? [])]
     .map((b) => ({ booking: b, card: liveCard(b, now) }))
@@ -49,15 +50,43 @@ export default async function AdminLiveBoardPage() {
     .sort((a, b) => Number(a.card.onTrack) - Number(b.card.onTrack) || (a.card.startsAt?.getTime() ?? 0) - (b.card.startsAt?.getTime() ?? 0))
 
   const profileIds = [...new Set(cards.flatMap(({ booking }) => [booking.user_id, booking.tidy_pro_id]).filter((id): id is string => !!id))]
-  const [{ data: profiles }, { data: proPhones }] = await Promise.all([
+  const bookingIds = cards.map(({ booking }) => booking.id)
+  const [{ data: profiles }, { data: proPhones }, { data: tasks, error: tasksError }, { data: cleaningPhotos }] = await Promise.all([
     profileIds.length ? admin.from('profiles').select('id, first_name, last_name, phone').in('id', profileIds) : Promise.resolve({ data: [] }),
     profileIds.length ? admin.from('tidypro_profiles').select('id, phone').in('id', profileIds) : Promise.resolve({ data: [] }),
+    // The same task rows (and completion photos) the customer's progress screen shows.
+    bookingIds.length
+      ? admin
+          .from('booking_tasks')
+          .select('id, booking_id, task_name, task_category, is_completed, before_photo_url, completion_photo_url')
+          .in('booking_id', bookingIds)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    // A Standard / Deep Cleaning's photos of the whole cleaning.
+    bookingIds.length
+      ? admin
+          .from('booking_cleaning_photos')
+          .select('booking_id, kind, photo_url')
+          .in('booking_id', bookingIds)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [] }),
   ])
+  const cleaningPhotosByBooking = new Map<string, LiveCleaningPhoto[]>()
+  for (const p of cleaningPhotos ?? []) {
+    cleaningPhotosByBooking.set(p.booking_id, [...(cleaningPhotosByBooking.get(p.booking_id) ?? []), { kind: p.kind, url: p.photo_url }])
+  }
+  const tasksByBooking = new Map<string, LiveTaskRow[]>()
+  for (const t of tasks ?? []) {
+    const list = tasksByBooking.get(t.booking_id) ?? []
+    list.push(t)
+    tasksByBooking.set(t.booking_id, list)
+  }
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
   const proPhoneById = new Map((proPhones ?? []).map((p) => [p.id, p.phone]))
 
   const byStage = new Map<LiveStage, typeof cards>(LIVE_STAGES.map((s) => [s.key, []]))
   for (const c of cards) byStage.get(c.card.stage)!.push(c)
+  const loadError = bookingsError ?? (tasksError ? `tasks: ${tasksError.message}` : null)
   const lateCount = cards.filter((c) => !c.card.onTrack).length
 
   return (
@@ -134,6 +163,7 @@ export default async function AdminLiveBoardPage() {
                         )}
                         {b.incident_type && <dd className="text-amber-700 font-medium">Incident reported</dd>}
                       </dl>
+                      {!tasksError && <LiveTaskProgress tasks={tasksByBooking.get(b.id) ?? []} cleaningPhotos={cleaningPhotosByBooking.get(b.id) ?? []} defaultOpen={stage.key === 'cleaning'} />}
                       <p className="mt-2 text-[11px] font-mono text-slate-400">{b.id.slice(0, 8)}</p>
                     </article>
                   )

@@ -28,6 +28,19 @@ describe('cleanup', () => {
     for (const t of ['payment_methods', 'booking_drafts', 'notification_batches', 'push_subscriptions', 'push_tokens', 'user_addresses', 'customer_pets', 'tasks']) {
       await del(t, 'user_id', people)
     }
+    // Left by browser testing (ui-setup.e2e.ts): recurring series, saved searches,
+    // quotes, and the Tidy Pros' Standard / Deep Cleaning prices.
+    await del('recurring_bookings', 'user_id', [s.customerId])
+    // booking_drafts is keyed by customer_user_id, so the user_id pass above misses it.
+    await del('booking_drafts', 'customer_user_id', [s.customerId])
+    await del('unmet_booking_searches', 'customer_user_id', [s.customerId])
+    await del('pricing_quotes', 'customer_user_id', [s.customerId])
+    await del('tidypro_full_service_rates', 'tidy_pro_id', [s.proId, s.pro2Id])
+    // Out of search again, so nobody can be matched to them between test runs.
+    {
+      const { error } = await db.from('tidypro_profiles').update({ active_for_booking: false } as never).in('id', [s.proId, s.pro2Id])
+      if (error) problems.push(`tidypro_profiles.active_for_booking: ${error.message}`)
+    }
 
     if (process.env.FULL === '1') {
       await del('tidypro_profiles', 'id', [s.proId, s.pro2Id])

@@ -81,7 +81,7 @@ export default function SubscriberList({ recipients }: { recipients: PushRecipie
         </select>
       </div>
 
-      <ul className="overflow-y-auto max-h-[70vh] rounded-lg border border-slate-100 divide-y divide-slate-100">
+      <ul className="overflow-y-auto max-h-[70dvh] rounded-lg border border-slate-100 divide-y divide-slate-100">
         {visible.length === 0 ? (
           <li className="p-4 text-sm text-slate-400">
             {recipients.length === 0 ? 'Nobody has turned on push notifications yet.' : 'No one matches.'}

@@ -3,6 +3,7 @@
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { userFacingError } from '@/lib/userFacingError'
+import { bookingBlockedByAccess } from '@/lib/accountSuspension'
 
 export async function confirmSelectionAction(
   draftId: string,
@@ -14,6 +15,9 @@ export async function confirmSelectionAction(
   if (!session || session.role !== 'USER') return { error: 'Not authorized' }
 
   const admin = createAdminClient()
+  const noAccess = await bookingBlockedByAccess(admin, session.profileId)
+  if (noAccess) return { error: noAccess }
+
   const { error } = await admin
     .from('booking_drafts')
     .update({

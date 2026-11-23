@@ -101,7 +101,7 @@ export default async function OnboardingAlmostTherePage() {
     insuranceStatus === 'approved' ? 'Insured' : insuranceStatus === 'pending' ? 'Pending' : insuranceStatus === 'denied' ? 'Denied' : insuranceStatus === 'expired' ? 'Expired' : 'Optional'
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col px-6 pt-6 pb-10">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col px-6 pt-6 pb-10">
       <div className="max-w-sm mx-auto w-full flex-1 flex flex-col">
         <div className="flex items-center justify-between mb-8">
           <Link href="/pro/onboarding/setup" aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2">

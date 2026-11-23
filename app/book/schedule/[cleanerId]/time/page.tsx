@@ -2,8 +2,10 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { bookingBlockedByAccess } from '@/lib/accountSuspension'
 import { shiftDateISO } from '@/lib/bookingTime'
 import { visitDurationMinutes, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
+import { bookableSelection, fullServiceMinutes } from '@/lib/fullServiceBooking'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { WeeklyAvailability } from '@/lib/cleanerMatching'
@@ -23,6 +25,8 @@ export default async function ChooseTimePage({
 
   const { cleanerId } = await params
   const admin = createAdminClient()
+  // Waitlisted customers can't book, so they can't pick a time either.
+  if (await bookingBlockedByAccess(admin, session.profileId)) redirect('/dashboard')
 
   const { data: tidyPro, error } = await admin
     .from('tidypro_profiles')
@@ -35,7 +39,7 @@ export default async function ChooseTimePage({
 
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
-    .select('id, task_list, scheduled_location, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time')
+    .select('id, task_list, full_service, scheduled_location, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time')
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -75,9 +79,13 @@ export default async function ChooseTimePage({
     draft.scheduled_location as ScheduledLocation | null
   )
 
+  // A Standard / Deep Cleaning's estimated time (from search, so cached) counts too.
+  const fullService = bookableSelection(draft.full_service)
+  const cleaningMinutes = fullService ? (await fullServiceMinutes(fullService, squareFootage)).minutes : 0
+
   let durationMinutes = 180
   try {
-    durationMinutes = visitDurationMinutes(tasks, squareFootage)
+    durationMinutes = visitDurationMinutes(tasks, squareFootage, cleaningMinutes)
   } catch {
     // fall back to the default typical duration if a task is unpriceable
   }

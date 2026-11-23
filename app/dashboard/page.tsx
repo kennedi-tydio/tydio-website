@@ -5,8 +5,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { hasBookingStarted, shiftDateISO, todayInZone } from '@/lib/bookingTime'
 import DashboardHome, { type UpcomingBooking } from './DashboardHome'
 import type { TidyTask } from './types'
+import { normalizeFullServiceSelection } from '@/lib/fullService'
 import { completeBookingPayout, getUnreadMessageCountForUser } from '@/lib/bookings'
-import { CLEANER_CANCELLED_REASON, isAwaitingReplacements } from '@/lib/bookingRequestGroups'
+import { CLEANER_CANCELLED_REASON, bookingsBeingReplaced, isAwaitingReplacements } from '@/lib/bookingRequestGroups'
 
 export const metadata: Metadata = { title: 'Home — Tydio' }
 
@@ -41,7 +42,7 @@ export default async function DashboardPage({
 
   const { data: draft } = await admin
     .from('booking_drafts')
-    .select('id, task_list, scheduled_date, scheduled_time')
+    .select('id, task_list, full_service, scheduled_date, scheduled_time')
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -160,10 +161,7 @@ export default async function DashboardPage({
   const awaiting = (droppedRows ?? []).filter(
     (b) => isAwaitingReplacements(b) && b.scheduled_date != null && b.scheduled_date >= todayInZone(b.time_zone)
   )
-  const { data: replacedGroups } = awaiting.length
-    ? await admin.from('booking_request_groups').select('original_booking_id').in('original_booking_id', awaiting.map((b) => b.id))
-    : { data: [] }
-  const alreadyReplacing = new Set((replacedGroups ?? []).map((g) => g.original_booking_id))
+  const alreadyReplacing = await bookingsBeingReplaced(admin, awaiting.map((b) => b.id))
   for (const b of awaiting.filter((row) => !alreadyReplacing.has(row.id))) {
     upcomingBookings.push({
       id: b.id,
@@ -251,6 +249,7 @@ export default async function DashboardPage({
       firstName={profile.first_name ?? 'Your'}
       initialTasks={(draft?.task_list as TidyTask[] | null) ?? []}
       draftId={draft?.id ?? null}
+      fullService={normalizeFullServiceSelection(draft?.full_service)}
       bookingAccessStatus={profile.booking_access_status ?? 'waitlisted'}
       savedRooms={(profile.custom_rooms as string[] | null) ?? []}
       priceError={priceError}

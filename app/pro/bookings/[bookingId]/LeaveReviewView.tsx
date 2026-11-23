@@ -85,7 +85,7 @@ export default function LeaveReviewView({
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
         <button
           type="button"
@@ -115,6 +115,9 @@ export default function LeaveReviewView({
           rows={4}
           className="w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-brand resize-none"
         />
+        <p className="text-xs text-slate-400 mt-2">
+          Other Tidy Pros this customer books can see your rating, review and first name. The customer can&apos;t.
+        </p>
 
         {error && <p role="alert" className="text-xs text-red-600 mt-3">{error}</p>}
       </div>

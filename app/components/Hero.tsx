@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { FULL_SERVICE_CUSTOMER_ENABLED } from '@/lib/fullService';
 
 export default function Hero() {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-white to-sky-50">
+    <section className="relative min-h-svh flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-white to-sky-50">
       {/* Background decoration */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/4 -left-32 w-96 h-96 bg-sky-100 rounded-full blur-3xl opacity-60" />
@@ -27,8 +28,9 @@ export default function Hero() {
 
         {/* Subheadline */}
         <p className="max-w-xl mx-auto text-lg sm:text-xl text-slate-500 leading-relaxed mb-10">
-          Get a local cleaning pro for exactly what needs doing — no full-service
-          package required. Pay for the job, not the whole day.
+          {FULL_SERVICE_CUSTOMER_ENABLED
+            ? 'Book a Standard or Deep Cleaning, or just the tasks you need. Local cleaning pros, upfront prices.'
+            : 'Get a local cleaning pro for exactly what needs doing — no full-service package required. Pay for the job, not the whole day.'}
         </p>
 
         {/* CTAs */}

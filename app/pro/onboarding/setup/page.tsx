@@ -107,7 +107,7 @@ export default async function OnboardingSetupPage() {
     insuranceStatus === 'approved' ? 'Insured' : insuranceStatus === 'pending' ? 'Pending' : insuranceStatus === 'denied' ? 'Denied' : insuranceStatus === 'expired' ? 'Expired' : 'Optional'
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col px-6 pt-6 pb-10">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col px-6 pt-6 pb-10">
       <RefreshOnFocus />
       <div className="max-w-sm mx-auto w-full flex-1 flex flex-col">
         <div className="flex items-center justify-between mb-8">

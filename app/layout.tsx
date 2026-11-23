@@ -6,6 +6,7 @@ import ServiceWorkerRegistration from './components/ServiceWorkerRegistration'
 import { PHProvider } from './providers'
 import SuspendedPostHogPageView from './components/PostHogPageView'
 import { CONTRAST_INIT_SCRIPT } from './components/contrast'
+import { FULL_SERVICE_CUSTOMER_ENABLED } from '@/lib/fullService'
 import './globals.css'
 
 const geist = Geist({
@@ -16,7 +17,9 @@ const geist = Geist({
 export const metadata: Metadata = {
   title: 'Tydio — Cleaning made simple',
   description:
-    'Get a local cleaning pro for exactly what needs doing — no full-service package required. Affordable flat pricing, no contracts, no hidden fees.',
+    FULL_SERVICE_CUSTOMER_ENABLED
+      ? 'Book a Standard or Deep Cleaning, or just the tasks you need, with a local cleaning pro. Upfront prices, no contracts, no hidden fees.'
+      : 'Get a local cleaning pro for exactly what needs doing — no full-service package required. Affordable flat pricing, no contracts, no hidden fees.',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',

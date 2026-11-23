@@ -15,7 +15,9 @@ import NoAccessView from './NoAccessView'
 import SuspendedBookingView from './SuspendedBookingView'
 import PastBookingDetailView from './PastBookingDetailView'
 import { canLeaveCustomerReview } from '@/lib/cleanerReviewWindow'
-
+import { readSnapshot } from '@/lib/fullServiceBooking'
+import { isEntireHomeRoom } from '@/lib/entireHome'
+import { loadBookingPhotoPairs } from '@/lib/tidyProPortfolio'
 export const metadata: Metadata = { title: 'Booking Details — Tydio' }
 
 export default async function ProActiveBookingPage({
@@ -37,7 +39,7 @@ export default async function ProActiveBookingPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, user_id, status, progress_status, cleaner_marked_complete_at, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, task_list, notes, entry_instructions, pets, will_provide_supplies, cleaner_pay, tip, time_zone, arrived_at, no_access_reported_at, suspended_for_upcharge_at, suspended_for_payment_at, recurring_booking_id'
+      'id, user_id, status, progress_status, cleaner_marked_complete_at, scheduled_date, scheduled_time, estimated_duration_minutes, scheduled_location, task_list, full_service, notes, entry_instructions, pets, will_provide_supplies, cleaner_pay, tip, time_zone, arrived_at, no_access_reported_at, suspended_for_upcharge_at, suspended_for_payment_at, recurring_booking_id, task_photos_removed_at'
     )
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
@@ -73,13 +75,15 @@ export default async function ProActiveBookingPage({
 
   const { data: taskRows } = await admin
     .from('booking_tasks')
-    .select('id, task_name, task_category, task_icon, is_completed, completion_photo_url, before_photo_url')
+    .select('id, task_name, task_category, task_icon, kind, is_completed, completion_photo_url, before_photo_url')
     .eq('booking_id', bookingId)
     .order('created_at', { ascending: true })
 
   const tasks = taskRows ?? []
   // Pet enclosure / litter box tasks carry their scope, instructions and
   // checked photos on the booking's task list.
+  const snapshot = readSnapshot(booking.full_service)
+  const fullService = snapshot ? { selection: { ...snapshot.selection, version: 1 as const, step: 'notes' as const }, lines: snapshot.lines } : null
   const petTasks = ((booking.task_list as TidyTask[] | null) ?? []).filter(isPetTask)
   // Laundromat trips: shown with the stay-for-the-whole-cycle rule while the job is on.
   const laundromatTasks = ((booking.task_list as TidyTask[] | null) ?? []).filter(usesLaundromat)
@@ -120,6 +124,7 @@ export default async function ProActiveBookingPage({
         variant="upcoming"
         bookingId={booking.id}
         customerName={customerName}
+        fullService={fullService}
         scheduledDate={schedule.date}
         scheduledTime={schedule.time}
         startsAtMs={
@@ -151,11 +156,21 @@ export default async function ProActiveBookingPage({
       .eq('booking_id', bookingId)
       .maybeSingle()
 
+    // Before/after pairs they can still add to their profile, until the
+    // booking's photos are removed. The page works without them.
+    const profilePhotoPairs = booking.task_photos_removed_at
+      ? []
+      : await loadBookingPhotoPairs(admin, booking.id).catch((err) => {
+          console.error(err)
+          return []
+        })
+
     return (
       <PastBookingDetailView
         variant="past"
         bookingId={booking.id}
         customerName={customerName}
+        fullService={fullService}
         scheduledDate={schedule.date}
         scheduledTime={schedule.time}
         durationMinutes={booking.estimated_duration_minutes ?? 30}
@@ -170,6 +185,7 @@ export default async function ProActiveBookingPage({
         bookingEarnings={booking.cleaner_pay ?? 0}
         tipAmount={booking.tip ?? 0}
         canLeaveReview={canLeaveCustomerReview(booking.cleaner_marked_complete_at, ownReview != null)}
+        profilePhotoPairs={profilePhotoPairs}
       />
     )
   }
@@ -178,6 +194,7 @@ export default async function ProActiveBookingPage({
     return (
       <OnTheWayView
         bookingId={booking.id}
+        fullService={fullService != null}
         customerName={customerName}
         customerPhotoUrl={customerProfile?.photo_url ?? null}
         scheduledDate={schedule.date}
@@ -197,6 +214,7 @@ export default async function ProActiveBookingPage({
     return (
       <NoAccessView
         bookingId={booking.id}
+        fullService={fullService != null}
         customerName={customerProfile?.first_name ?? customerName}
         entryInstructions={booking.entry_instructions}
         addressLine={addressLine}
@@ -209,10 +227,24 @@ export default async function ProActiveBookingPage({
   }
 
   // cleaning
+  const { data: cleaningPhotoRows } = fullService
+    ? await admin.from('booking_cleaning_photos').select('id, kind, photo_url').eq('booking_id', booking.id).order('created_at', { ascending: true })
+    : { data: [] }
+  // Entire home tasks take up to 3 before and 3 after photos each.
+  const { data: taskPhotoRows } = tasks.some((t) => isEntireHomeRoom(t.task_category))
+    ? await admin
+        .from('booking_task_photos')
+        .select('id, booking_task_id, kind, photo_url')
+        .eq('booking_id', booking.id)
+        .order('created_at', { ascending: true })
+    : { data: [] }
   return (
     <TaskListView
+      cleaningPhotos={(cleaningPhotoRows ?? []).map((r) => ({ id: r.id, kind: r.kind as 'before' | 'after', photoUrl: r.photo_url }))}
+      taskPhotos={(taskPhotoRows ?? []).map((r) => ({ id: r.id, taskId: r.booking_task_id, kind: r.kind as 'before' | 'after', photoUrl: r.photo_url }))}
       bookingId={booking.id}
       customerName={customerName}
+      fullService={fullService}
       addressLabel={addressLabel}
       addressLine={addressLine}
       scheduledDate={schedule.date}

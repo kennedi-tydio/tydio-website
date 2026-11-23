@@ -4,7 +4,7 @@ import { useState } from 'react'
 import ReportSheet from '@/app/components/ReportSheet'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { CUSTOMER_REPORT_CATEGORIES } from '@/lib/reportCategories'
-import { reportCustomerAction } from './actions'
+import { blockCustomerAction, reportCustomerAction } from './actions'
 
 function IconFlag() {
   return (
@@ -39,6 +39,15 @@ export default function ReportCustomerButton({ bookingId }: { bookingId: string 
             return result
           }}
           onClose={() => setOpen(false)}
+          block={{
+            label: 'customer',
+            consequence: 'You won’t be able to message each other, and they can’t send you booking requests.',
+            onBlock: async () => {
+              const result = await blockCustomerAction(bookingId)
+              if ('success' in result) router.refresh()
+              return result
+            },
+          }}
         />
       )}
     </>

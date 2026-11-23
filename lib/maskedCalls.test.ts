@@ -6,6 +6,9 @@ vi.mock('twilio', () => ({ default: () => ({ calls: { create: (call: Record<stri
 
 let rateLimited = false
 const recordRateLimitEvent = vi.fn(async () => {})
+const blocked = vi.hoisted(() => ({ value: false }))
+vi.mock('@/lib/userBlocks', () => ({ isBlockedBetween: async () => blocked.value }))
+
 vi.mock('@/lib/rateLimit', () => ({
   RATE_LIMITS: { maskedCallPerBooking: { limit: 1, windowMinutes: 1 } },
   isRateLimited: async () => rateLimited,
@@ -140,6 +143,13 @@ describe('startMaskedCall', () => {
       error: 'Add a phone number to your profile to make calls.',
     })
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('refuses when either of them has blocked the other', async () => {
+    blocked.value = true
+    expect(await startMaskedCall(fakeAdmin, 'b1', { role: 'USER', profileId: 'c1' })).toEqual({ error: 'You can’t call this person.' })
+    expect(create).not.toHaveBeenCalled()
+    blocked.value = false
   })
 
   it('refuses a second call within the rate limit', async () => {

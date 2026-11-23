@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
+import { returnToReview } from '@/lib/reviewDetour'
 import {
   MAX_PET_NAME_LENGTH,
   MAX_PET_NOTES_LENGTH,
@@ -189,7 +190,7 @@ export default function PetsView({
     !!form && !!form.typeChoice && (!typeIsOther || !!form.otherType.trim()) && !uploading && !saving
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-16 max-w-sm mx-auto w-full">
         {!guided && (
           <Link href="/dashboard/profile" className="flex items-center gap-1.5 mb-6 text-sm text-slate-500">
@@ -415,7 +416,9 @@ export default function PetsView({
         {guided && (
           <button
             type="button"
-            onClick={() => router.push(continueHref)}
+            onClick={() =>
+              continueHref === '/book/review' ? returnToReview(router, '/dashboard/profile/pets') : router.push(continueHref)
+            }
             disabled={!answered || !!form || busy}
             className="w-full py-4 rounded-2xl bg-brand text-white font-semibold text-base disabled:opacity-50"
           >

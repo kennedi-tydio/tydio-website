@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { userFacingError } from '@/lib/userFacingError'
 import { notifyIfOnboardingComplete } from '@/lib/onboardingComplete'
 import { normalizeServices } from '@/lib/tidyProServices'
+import { loadRates, missingPricesMessage, unpricedFullServices } from '@/lib/fullServiceRates'
 
 export async function saveServicesAction(services: string[]): Promise<{ error?: string }> {
   const session = await getSession()
@@ -15,6 +16,12 @@ export async function saveServicesAction(services: string[]): Promise<{ error?: 
   if (chosen.length === 0) return { error: 'Choose at least one service you provide.' }
 
   const admin = createAdminClient()
+
+  // Standard / Deep Cleaning need their prices set first (on the pricing page,
+  // which adds the service when the prices are saved).
+  const missing = missingPricesMessage(unpricedFullServices(chosen, await loadRates(admin, session.profileId)))
+  if (missing) return { error: missing }
+
   const { error } = await admin
     .from('tidypro_profiles')
     .update({ services_provided: chosen })

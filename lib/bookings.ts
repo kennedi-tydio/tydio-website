@@ -7,6 +7,12 @@ import { userFacingError } from '@/lib/userFacingError'
 import { CONTACT_INFO_BLOCKED_MESSAGE, detectContactInfo } from '@/lib/contactInfoFilter'
 import { emailAdminContactInfoAttempt } from '@/lib/contactInfoAttemptEmail'
 import { payOutTip } from '@/lib/tipPayout'
+import { isPayoutHeld } from '@/lib/payoutHold'
+import { BLOCKED_MESSAGE, isBlockedBetween } from '@/lib/userBlocks'
+
+// Bookings that pay the cleaner something: completed, canceled late by the customer, an
+// incident the admin settled, or one where the admin set the payout while refunding it.
+export const OWES_CLEANER_FILTER = `status.eq.completed,cancelled_reason.eq.${LATE_CANCEL_REASON},incident_resolved_at.not.is.null,payout_adjusted_at.not.is.null`
 
 // Shared by both sides' "send message" actions — inserts the chat message
 // and flips the *other* side's unread dot on the Messages list. Doesn't
@@ -21,6 +27,10 @@ export async function sendBookingMessage(
   const trimmed = body.trim()
   if (!trimmed) return { error: 'Message cannot be empty.' }
   if (trimmed.length > 2000) return { error: 'Message is too long.' }
+
+  // Nothing goes through once either side has blocked the other (lib/userBlocks).
+  const { data: parties } = await admin.from('bookings').select('user_id, tidy_pro_id').eq('id', bookingId).maybeSingle()
+  if (await isBlockedBetween(admin, parties?.user_id ?? null, parties?.tidy_pro_id ?? null)) return { error: BLOCKED_MESSAGE }
 
   const contactInfo = detectContactInfo(trimmed)
   if (contactInfo) {
@@ -51,13 +61,13 @@ export async function getUnreadMessageCountForTidyPro(
   admin: ReturnType<typeof createAdminClient>,
   tidyProId: string
 ): Promise<number> {
-  const { count } = await admin
-    .from('bookings')
-    .select('id', { count: 'exact', head: true })
-    .eq('tidy_pro_id', tidyProId)
-    .eq('tidy_pro_unread', true)
+  // Quote requests (lib/quoteRequests.ts) are listed in Messages too.
+  const [{ count }, { count: quotes }] = await Promise.all([
+    admin.from('bookings').select('id', { count: 'exact', head: true }).eq('tidy_pro_id', tidyProId).eq('tidy_pro_unread', true),
+    admin.from('booking_quote_requests').select('id', { count: 'exact', head: true }).eq('tidy_pro_id', tidyProId).eq('tidy_pro_unread', true),
+  ])
 
-  return count ?? 0
+  return (count ?? 0) + (quotes ?? 0)
 }
 
 // Same as above, for the customer side of the thread.
@@ -65,13 +75,12 @@ export async function getUnreadMessageCountForUser(
   admin: ReturnType<typeof createAdminClient>,
   userId: string
 ): Promise<number> {
-  const { count } = await admin
-    .from('bookings')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('user_unread', true)
+  const [{ count }, { count: quotes }] = await Promise.all([
+    admin.from('bookings').select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('user_unread', true),
+    admin.from('booking_quote_requests').select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('user_unread', true),
+  ])
 
-  return count ?? 0
+  return (count ?? 0) + (quotes ?? 0)
 }
 
 // The rating a Tidy Pro may see on their own screens — their stored rating
@@ -103,6 +112,10 @@ export async function getRatingVisibleToTidyPro(
 // happened, that failure leaves the booking correctly completed but unpaid;
 // calling this again (another page load, a cron, whatever) is how it catches up.
 //
+// A booking whose payout the admin has put on hold (lib/payoutHold) isn't paid: calling
+// this does nothing until the hold is released (lib/adminPayout) or the admin settles it
+// with a refund that sets the payout (lib/bookingPayoutAdjustment).
+//
 // A booking the customer canceled late is paid the same way, through the retry path:
 // its cleaner_pay is set to their share of what Tydio kept when it's canceled. So is an
 // incident (no access, no-show) once the admin settles it (see lib/bookingIncidents).
@@ -126,7 +139,7 @@ export async function completeBookingPayout(
     .eq('progress_status', 'done')
     // A booking on hold for an unpaid upcharge can't finish (see lib/bookingUpcharges).
     .is('suspended_for_upcharge_at', null)
-    .select('id, tidy_pro_id, cleaner_pay, stripe_transfer_id, stripe_payment_intent_id')
+    .select('id, status, tidy_pro_id, cleaner_pay, stripe_transfer_id, stripe_payment_intent_id, payout_held_at')
     .maybeSingle()
 
   if (claimError) return { error: userFacingError(claimError) }
@@ -137,10 +150,14 @@ export async function completeBookingPayout(
     // or already completed. Check the latter case for a missing transfer.
     const { data: existing } = await admin
       .from('bookings')
-      .select('id, status, cancelled_reason, incident_resolved_at, tidy_pro_id, cleaner_pay, stripe_transfer_id, stripe_payment_intent_id')
+      .select('id, status, cancelled_reason, incident_resolved_at, tidy_pro_id, cleaner_pay, stripe_transfer_id, stripe_payment_intent_id, payout_adjusted_at, payout_held_at')
       .eq('id', bookingId)
       .maybeSingle()
-    const owesCleaner = existing?.status === 'completed' || existing?.cancelled_reason === LATE_CANCEL_REASON || existing?.incident_resolved_at != null
+    const owesCleaner =
+      existing?.status === 'completed' ||
+      existing?.cancelled_reason === LATE_CANCEL_REASON ||
+      existing?.incident_resolved_at != null ||
+      existing?.payout_adjusted_at != null
     if (!existing || !owesCleaner || existing.stripe_transfer_id) {
       return { success: true }
     }
@@ -148,6 +165,8 @@ export async function completeBookingPayout(
   }
 
   if (booking.stripe_transfer_id || !booking.tidy_pro_id || !booking.cleaner_pay) return { success: true }
+  // On hold while the admin looks into it.
+  if (isPayoutHeld(booking)) return { success: true }
 
   const { data: tidyPro } = await admin
     .from('tidypro_profiles')
@@ -165,6 +184,14 @@ export async function completeBookingPayout(
   // (see lib/bookingUpcharges), so this one transfer covers it.
   const payCents = Math.round(booking.cleaner_pay * 100)
   try {
+    // A transfer that went out without being recorded (two callers at once, or the save
+    // after it failed) is recorded now rather than sent again.
+    const sent = await stripe.transfers.list({ transfer_group: bookingId, limit: 1 })
+    if (sent.data[0]) {
+      await admin.from('bookings').update({ stripe_transfer_id: sent.data[0].id }).eq('id', bookingId)
+      return { success: true }
+    }
+
     // Tied to the customer's charge, so the transfer goes through even while that
     // charge is still pending in our balance; Stripe releases it once the charge settles.
     // Stripe won't tie a transfer to a charge smaller than it, which a large upcharge
@@ -205,10 +232,11 @@ export async function retryPayoutsForTidyPro(
     .from('bookings')
     .select('id')
     .eq('tidy_pro_id', tidyProId)
-    .or(`status.eq.completed,cancelled_reason.eq.${LATE_CANCEL_REASON},incident_resolved_at.not.is.null`)
+    .or(OWES_CLEANER_FILTER)
     .is('stripe_transfer_id', null)
     .gt('cleaner_pay', 0)
 
+  // Any the admin has on hold are skipped inside.
   for (const booking of unpaid ?? []) {
     const result = await completeBookingPayout(admin, booking.id).catch((err) => ({ error: String(err) }))
     if ('error' in result) console.error(`Payout for ${booking.id}:`, result.error)
@@ -222,25 +250,34 @@ export async function retryPayoutsForTidyPro(
   }
 }
 
-// A late cancellation pays the cleaner when it's canceled, and a settled incident when
-// it's settled, so unlike a completed booking there's no page load to retry a failed
-// transfer. The scheduled job does it.
-export async function retryLateCancellationPayouts(
-  admin: ReturnType<typeof createAdminClient>
-): Promise<{ paid: number; failed: number }> {
+// Payouts whose transfer failed: a completed booking, late cancellation, settled incident
+// or admin-set payout with no transfer yet. Ones the admin has on hold are left alone. Only
+// Tidy Pros who can be paid are tried, so one who hasn't finished payout setup isn't
+// retried every run; they're paid when they finish it (retryPayoutsForTidyPro). Run by
+// the scheduled job.
+export async function retryDuePayouts(admin: ReturnType<typeof createAdminClient>): Promise<{ paid: number; failed: number }> {
   const { data: unpaid } = await admin
     .from('bookings')
-    .select('id')
-    .or(`cancelled_reason.eq.${LATE_CANCEL_REASON},incident_resolved_at.not.is.null`)
+    .select('id, tidy_pro_id')
+    .or(OWES_CLEANER_FILTER)
     .is('stripe_transfer_id', null)
+    .is('payout_held_at', null)
+    .not('tidy_pro_id', 'is', null)
     .gt('cleaner_pay', 0)
+    .limit(200)
+
+  const proIds = [...new Set((unpaid ?? []).map((b) => b.tidy_pro_id!))]
+  const { data: payable } = proIds.length
+    ? await admin.from('tidypro_profiles').select('id').in('id', proIds).not('stripe_account_id', 'is', null).eq('stripe_onboarding_completed', true)
+    : { data: [] }
+  const canBePaid = new Set((payable ?? []).map((p) => p.id))
 
   let paid = 0
   let failed = 0
-  for (const booking of unpaid ?? []) {
+  for (const booking of (unpaid ?? []).filter((b) => canBePaid.has(b.tidy_pro_id!))) {
     const result = await completeBookingPayout(admin, booking.id).catch((err) => ({ error: String(err) }))
     if ('error' in result) {
-      console.error(`Late cancellation payout for ${booking.id}:`, result.error)
+      console.error(`Payout for ${booking.id}:`, result.error)
       failed++
     } else {
       paid++

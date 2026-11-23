@@ -130,7 +130,7 @@ function BookingRowCard({ booking }: { booking: BookingRow }) {
         <p className="text-sm font-bold text-slate-900 truncate">{booking.cleanerName}</p>
         {booking.address && <p className="text-xs text-slate-400 truncate">{booking.address}</p>}
         {booking.recurring && <p className="text-[11px] font-semibold mt-0.5" style={{ color: 'var(--color-brand)' }}>Recurring</p>}
-        {booking.droppedByTidyPro && <p className="text-xs text-slate-500 mt-1">Tap to choose up to 3 available Tidy Pros, or cancel for a refund</p>}
+        {booking.droppedByTidyPro && <p className="text-xs text-slate-500 mt-1">Tap to choose a replacement Tidy Pro, or cancel for a refund</p>}
       </div>
       <span className="flex-shrink-0 mt-0.5">
         <IconChevronRight />
@@ -150,7 +150,7 @@ export default function BookingsListView({
   unreadMessageCount: number
 }) {
   const [tab, setTab] = useState<Tab>('today')
-  const [sortDesc, setSortDesc] = useState(false)
+  const [sortDesc, setSortDesc] = useState(true)
 
   const visible = useMemo(() => {
     const filtered = bookings.filter((b) => b.bucket === tab)
@@ -165,8 +165,8 @@ export default function BookingsListView({
   ]
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
+      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full safe-area-inset-bottom">
         <h1 className="text-3xl font-bold text-slate-900 mb-5">Your Bookings</h1>
 
         <div className="flex items-center gap-2 mb-5">

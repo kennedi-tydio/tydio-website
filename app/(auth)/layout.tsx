@@ -6,7 +6,7 @@ import RoleSelector from './RoleSelector'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main id="main-content" className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
+    <main id="main-content" className="min-h-svh bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
       <Link href="/" className="mb-8">
         <Image
           src="/Tydio Logo No Bkg.png"

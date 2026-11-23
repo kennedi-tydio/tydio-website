@@ -15,6 +15,7 @@ import {
   isAwaitingReplacements,
   refundBookingTotal,
   restoreBookingTasks,
+  liveReplacementGroup,
 } from '@/lib/bookingRequestGroups'
 import { bookingStartInstant, hasAcceptanceWindowClosed, isLateCancellation } from '@/lib/bookingTime'
 import { lateCancelCleanerPay, lateCancelRefund } from '@/lib/pricingRules'
@@ -133,8 +134,7 @@ export async function cancelBookingRequestAction(
   // Once they have been, the customer cancels from those requests instead.
   let declinedAndHeld = false
   if (isAwaitingReplacements(booking) && !booking.stripe_refund_id) {
-    const { data: group } = await admin.from('booking_request_groups').select('id').eq('original_booking_id', bookingId).maybeSingle()
-    declinedAndHeld = group == null
+    declinedAndHeld = (await liveReplacementGroup(admin, bookingId)) == null
   }
 
   // Cancellable while still pending, or once accepted but before the Tidy

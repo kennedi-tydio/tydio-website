@@ -2,6 +2,7 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 import { adminStepLabel, missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 import { providesServices, type TidyProService } from '@/lib/tidyProServices'
 import { withPushStatus } from '@/lib/pushRequirement'
+import { blockedIdsFor } from '@/lib/userBlocks'
 import { isDateInTimeOff, overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
 import { datesInRange, hasStartInWindowOnSomeWeekday, openStartTimes, type Busy, type StartWindow } from '@/lib/bookingSlots'
 
@@ -191,6 +192,9 @@ export async function findAvailableCleaners(
     requiredServices: TidyProService[]
     // Check just this Tidy Pro, by the same rules.
     onlyCleanerId?: string
+    // The customer searching. Tidy Pros they've blocked, or who've blocked them
+    // (lib/userBlocks), are left out.
+    customerId?: string | null
   },
   admin: AdminClient
 ): Promise<CleanerMatch[]> {
@@ -207,7 +211,11 @@ export async function findAvailableCleaners(
 
   if (!candidates || candidates.length === 0) return []
 
-  const nearby = (await withPushStatus(admin, candidates))
+  const blocked = params.customerId ? await blockedIdsFor(admin, params.customerId) : null
+  const unblocked = blocked ? candidates.filter((c) => !blocked.has(c.id)) : candidates
+  if (unblocked.length === 0) return []
+
+  const nearby = (await withPushStatus(admin, unblocked))
     .filter((c) => isAvailableForBooking(c) && providesServices(c.services_provided, params.requiredServices))
     .map((c) => ({
       ...c,

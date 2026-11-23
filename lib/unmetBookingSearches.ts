@@ -5,6 +5,7 @@ import { normalizeServices, serviceLabels, type TidyProService } from '@/lib/tid
 import { DEFAULT_BOOKING_TIME_ZONE, hasAcceptanceWindowClosed, isValidTimeZone, todayInZone } from '@/lib/bookingTime'
 import { notifyCustomer } from '@/lib/customerNotifications'
 import { notifyCleanerAvailable } from '@/lib/notifications'
+import { loadRates } from '@/lib/fullServiceRates'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -332,6 +333,8 @@ export async function notifyCustomersOfNewCleaner(
   if (error) throw new Error(`Couldn't load unmet searches: ${error.message}`)
 
   const told = new Set<string>()
+  // Standard / Deep Cleaning also needs a price set for it (lib/fullServiceRates).
+  const rates = await loadRates(admin, cleanerId)
   for (const search of searches ?? []) {
     result.checked++
     try {
@@ -367,6 +370,8 @@ export async function notifyCustomersOfNewCleaner(
         admin
       )
       if (!match) continue
+      const needed = normalizeServices(search.required_services)
+      if ((needed.includes('standardCleaning') && !rates.standard) || (needed.includes('deepCleaning') && !rates.deep)) continue
 
       // Claimed before telling them, so it's only ever sent once.
       const { data: claimed } = await admin

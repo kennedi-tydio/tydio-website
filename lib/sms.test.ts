@@ -25,7 +25,7 @@ const fakeAdmin = {
 } as any
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => fakeAdmin }))
 
-import { sendSms, setSmsConsentForPhone, smsKeyword } from './sms'
+import { SMS_MONITOR_PHONE, sendSms, sendSmsForPayload, setSmsConsentForPhone, smsKeyword } from './sms'
 
 beforeEach(() => {
   tables.profiles = [
@@ -81,5 +81,35 @@ describe('sendSms', () => {
     create.mockRejectedValueOnce(Object.assign(new Error('Invalid number'), { code: 21211 }))
     await expect(sendSms('+15551234567', 'hi')).rejects.toThrow('SMS send failed')
     expect(tables.profiles[0].sms_consent).toBe('opted_in')
+  })
+})
+
+describe('sendSmsForPayload', () => {
+  const payload = { title: 'New job', body: 'You have a new booking.', url: 'https://tydioapp.com/pro/bookings/abc' }
+
+  it('sends the text and a labeled copy to the monitor number', async () => {
+    await sendSmsForPayload('(555) 123-4567', payload)
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(create.mock.calls[0][0]).toMatchObject({ to: '(555) 123-4567', body: 'Tydio: You have a new booking. https://tydioapp.com/pro/bookings/abc' })
+    expect(create.mock.calls[1][0]).toMatchObject({
+      to: SMS_MONITOR_PHONE,
+      body: '[Copy: Tidy Pro ...4567] Tydio: You have a new booking. https://tydioapp.com/pro/bookings/abc',
+    })
+  })
+
+  it('still copies the monitor when the real text fails, and rethrows', async () => {
+    create.mockRejectedValueOnce(Object.assign(new Error('Invalid number'), { code: 21211 }))
+    await expect(sendSmsForPayload('555-123-4567', { ...payload, url: 'https://tydioapp.com/dashboard' })).rejects.toThrow('SMS send failed')
+    expect(create.mock.calls[1][0]).toMatchObject({ body: expect.stringMatching(/^\[Copy: Customer \.\.\.4567, NOT DELIVERED\]/) })
+  })
+
+  it("doesn't copy texts sent to the monitor number itself", async () => {
+    await sendSmsForPayload('850-345-2532', payload)
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it("doesn't fail the send when the copy fails", async () => {
+    create.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('copy failed'))
+    await expect(sendSmsForPayload('5551234567', payload)).resolves.toBeUndefined()
   })
 })

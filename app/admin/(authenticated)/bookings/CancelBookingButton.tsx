@@ -3,6 +3,8 @@
 import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { cancelBookingAction, type CancelBookingState } from '../../actions'
+import type { AdminPayoutChoice } from '@/lib/payoutHold'
+import PayoutFields, { payoutAmount } from './PayoutFields'
 
 // max is what the customer paid, the most a custom refund can be.
 export type RefundOption = { value: 'full' | 'minus_fee' | 'half' | 'custom' | 'none'; label: string; max?: number }
@@ -157,21 +159,31 @@ export default function CancelBookingButton({
   scope,
   warning,
   options,
+  cleanerPay = null,
 }: {
   bookingId: string
   scope: string
   warning: string
   options: RefundOption[]
+  // An accepted booking's Tidy Pro pay, so the admin can still pay them some or all of it.
+  cleanerPay?: number | null
 }) {
   const [state, formAction] = useActionState<CancelBookingState, FormData>(cancelBookingAction.bind(null, bookingId), {})
+  const [payout, setPayout] = useState<AdminPayoutChoice>('none')
+  const [payoutCustom, setPayoutCustom] = useState('')
 
   if (state.message) return <span role="status" className="text-xs text-green-700">{state.message}</span>
 
+  const paid = cleanerPay != null ? payoutAmount(payout, cleanerPay, payoutCustom) : 0
+  const cleanerText = paid ? `the cleaner is notified and paid $${paid.toFixed(2)}` : 'the cleaner is notified; the cleaner isn’t paid'
   const confirmMessage = (option?: RefundOption) =>
-    `Cancel ${scope}? ${option ? `The customer gets: ${option.label}.` : 'There’s no payment to refund.'} The customer is emailed and the cleaner is notified; the cleaner isn’t paid.${warning} This can’t be undone.`
+    `Cancel ${scope}? ${option ? `The customer gets: ${option.label}.` : 'There’s no payment to refund.'} The customer is emailed and ${cleanerText}.${warning} This can’t be undone.`
 
   return (
     <form action={formAction} className="inline-flex flex-col items-end gap-1">
+      {cleanerPay != null && (
+        <PayoutFields pay={cleanerPay} choice={payout} onChoice={setPayout} custom={payoutCustom} onCustom={setPayoutCustom} />
+      )}
       <Controls options={options} confirmMessage={confirmMessage} />
       {state.error && <span role="alert" className="text-xs text-red-600 max-w-48 text-right">{state.error}</span>}
     </form>

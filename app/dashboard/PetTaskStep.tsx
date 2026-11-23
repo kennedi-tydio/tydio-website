@@ -19,6 +19,7 @@ import {
 } from '@/lib/petTasks'
 import { removeTaskPhotoAction, uploadTaskPhotoAction } from './actions'
 import { prepareImage } from '@/lib/prepareImage'
+import { AI_UNAVAILABLE_PHOTO_MESSAGE } from '@/lib/taskQuotes'
 
 export type PetPhoto = {
   id: string
@@ -44,6 +45,9 @@ type CheckState =
   | { key: string; status: 'retake'; message: string; unusablePaths: string[] }
   | { key: string; status: 'invalid'; message: string }
   | { key: string; status: 'error'; message: string }
+  // The photo check itself is down: the photos are sent to the Tidy Pro
+  // unchecked, for them to quote (lib/taskQuotes.ts).
+  | { key: string; status: 'quote' }
 
 export function newPetDraft(kind: PetTaskKind, litterOption: LitterOption | null): PetDraft {
   return { kind, petType: '', litterOption, photos: [] }
@@ -70,7 +74,8 @@ type Props = {
   setDraft: (update: (prev: PetDraft) => PetDraft) => void
   taskInputs: React.ReactNode
   onCancel: () => void
-  onAdd: (details: PetTaskDetails, tier: Tier, estimatedMinutes: number) => void
+  // estimate is null for a task added for the Tidy Pro to quote.
+  onAdd: (details: PetTaskDetails, estimate: { tier: Tier; minutes: number } | null) => void
 }
 
 export default function PetTaskStep({ name, notes, draft, setDraft, taskInputs, onCancel, onAdd }: Props) {
@@ -123,6 +128,8 @@ export default function PetTaskStep({ name, notes, draft, setDraft, taskInputs, 
       })
       if (res.status === 429) {
         next = { key, status: 'error', message: 'You’ve checked a lot of photos in the last hour. Please try again a little later.' }
+      } else if (res.status === 503) {
+        next = { key, status: 'quote' }
       } else if (!res.ok) {
         throw new Error(`check-pet-task returned ${res.status}`)
       } else {
@@ -225,23 +232,23 @@ export default function PetTaskStep({ name, notes, draft, setDraft, taskInputs, 
     fileInputRef.current?.click()
   }
 
+  const canAddMore = draft.photos.length < MAX_PET_TASK_PHOTOS
+  const defaultScope = kind === 'litterBox' ? (draft.litterOption ? LITTER_OPTION_SCOPE[draft.litterOption] : null) : ENCLOSURE_DEFAULT_SCOPE
+
   function handleAdd() {
-    if (current?.status !== 'ok') return
+    if (current?.status !== 'ok' && current?.status !== 'quote') return
     onAdd(
       {
         kind,
         petType: kind === 'enclosure' ? petType : null,
         litterOption: kind === 'litterBox' ? draft.litterOption : null,
-        scope: current.scope,
+        // Unchecked photos get the standard scope; the Tidy Pro quotes it.
+        scope: current.status === 'ok' ? current.scope : defaultScope ?? ENCLOSURE_DEFAULT_SCOPE,
         photos: paths,
       },
-      current.tier,
-      current.minutes
+      current.status === 'ok' ? { tier: current.tier, minutes: current.minutes } : null
     )
   }
-
-  const canAddMore = draft.photos.length < MAX_PET_TASK_PHOTOS
-  const defaultScope = kind === 'litterBox' ? (draft.litterOption ? LITTER_OPTION_SCOPE[draft.litterOption] : null) : ENCLOSURE_DEFAULT_SCOPE
 
   return (
     <>
@@ -432,6 +439,12 @@ export default function PetTaskStep({ name, notes, draft, setDraft, taskInputs, 
             </button>
           </div>
         )}
+        {current?.status === 'quote' && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 mb-4">
+            <p className="text-sm font-semibold text-amber-900 mb-1">Your Tidy Pro will send a quote</p>
+            <p className="text-xs text-amber-900 leading-relaxed">{AI_UNAVAILABLE_PHOTO_MESSAGE}</p>
+          </div>
+        )}
         {current?.status === 'ok' && (
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3 mb-4">
             <p className="text-sm font-semibold text-emerald-900">
@@ -455,11 +468,11 @@ export default function PetTaskStep({ name, notes, draft, setDraft, taskInputs, 
         </button>
         <button
           onClick={handleAdd}
-          disabled={current?.status !== 'ok'}
+          disabled={current?.status !== 'ok' && current?.status !== 'quote'}
           className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
           style={{ backgroundColor: '#1a2332' }}
         >
-          {current?.status === 'checking' ? 'Checking…' : 'Add task'}
+          {current?.status === 'checking' ? 'Checking…' : current?.status === 'quote' ? 'Add for a quote' : 'Add task'}
         </button>
       </div>
     </>

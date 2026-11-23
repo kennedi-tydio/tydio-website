@@ -24,7 +24,7 @@ export default function AdminLoginPage() {
   const [state, action] = useActionState(adminLoginAction, {})
 
   return (
-    <main id="main-content" className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+    <main id="main-content" className="min-h-svh bg-slate-50 flex items-center justify-center p-4">
       <h1 className="sr-only">Admin login</h1>
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">

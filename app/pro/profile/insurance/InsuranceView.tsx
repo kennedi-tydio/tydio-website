@@ -66,7 +66,7 @@ export default function InsuranceView({ status, denialReason, nextInsuranceUrl }
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col px-6 pt-6 pb-10">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col px-6 pt-6 pb-10">
       <div className="max-w-sm mx-auto w-full flex-1 flex flex-col">
         <button
           type="button"

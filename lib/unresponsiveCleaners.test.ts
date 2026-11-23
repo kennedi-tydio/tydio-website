@@ -93,6 +93,7 @@ function fakeAdmin(candidates: any[], claimResult: any = { data: [{ id: 'b1' }],
           return chain
         },
         is: () => chain,
+        or: () => chain,
         not: () => chain,
         gte: () => chain,
         lte: () => chain,
@@ -128,6 +129,19 @@ describe('unresponsiveStepDue', () => {
   it('reminds the cleaner at the start time', () => {
     expect(unresponsiveStepDue(base, at('15:00:00'))).toBe('remind')
     expect(unresponsiveStepDue(base, at('15:14:00'))).toBe('remind')
+  })
+
+  it('reminds a cleaner who has already started but not finished', () => {
+    expect(unresponsiveStepDue({ ...base, progress_status: 'on_the_way' }, at('15:00:00'))).toBe('remind')
+    expect(unresponsiveStepDue({ ...base, progress_status: 'arrived' }, at('15:05:00'))).toBe('remind')
+  })
+
+  it("doesn't remind a cleaner who has finished", () => {
+    expect(unresponsiveStepDue({ ...base, progress_status: 'done' }, at('15:00:00'))).toBeNull()
+  })
+
+  it("doesn't alert the admin about a cleaner who has started", () => {
+    expect(unresponsiveStepDue({ ...base, progress_status: 'on_the_way', on_the_way_reminder_sent_at: '2026-11-03T15:00:00Z' }, at('15:20:00'))).toBeNull()
   })
 
   it("doesn't remind twice", () => {
@@ -169,8 +183,8 @@ describe('checkUnresponsiveCleaners', () => {
 
     expect(result).toEqual({ reminded: 1, alerted: 0, failed: 0 })
     expect(updates[0]).toHaveProperty('on_the_way_reminder_sent_at')
-    expect(sms).toHaveBeenCalledWith('+15550001111', expect.objectContaining({ title: 'Did you make it to your booking?' }))
-    expect(push).toHaveBeenCalledWith('p1', expect.objectContaining({ title: 'Did you make it to your booking?' }))
+    expect(sms).toHaveBeenCalledWith('+15550001111', expect.objectContaining({ title: 'Your booking is starting' }))
+    expect(push).toHaveBeenCalledWith('p1', expect.objectContaining({ title: 'Your booking is starting' }))
     expect(email).toHaveBeenCalledTimes(1)
     expect(email.mock.calls[0][0].to).toEqual([{ email: 'nia@example.com', name: 'Nia' }])
     expect(email.mock.calls[0][0].htmlContent).toContain('Open the booking')

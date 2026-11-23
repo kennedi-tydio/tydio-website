@@ -1,3 +1,5 @@
+import { FULL_SERVICE_CUSTOMER_ENABLED } from '@/lib/fullService';
+
 const features = [
   {
     icon: (
@@ -15,7 +17,9 @@ const features = [
       </svg>
     ),
     title: "Pay only for what you need",
-    description: "No full-service packages forced on you. Choose only what needs doing and pay a flat, upfront price — nothing hidden.",
+    description: FULL_SERVICE_CUSTOMER_ENABLED
+      ? "Book a full Standard or Deep Cleaning, or just the tasks that need doing. See the price upfront, nothing hidden."
+      : "No full-service packages forced on you. Choose only what needs doing and pay a flat, upfront price — nothing hidden.",
   },
   {
     icon: (

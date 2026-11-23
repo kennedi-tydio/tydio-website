@@ -63,12 +63,14 @@ export default function PendingDashboardHome({
   firstName: string
   unreadMessageCount: number
   backgroundCheckFailed: boolean
-  onboardingSteps: { label: string; href: string }[]
+  onboardingSteps: { label: string; href: string; fullServiceOnly?: boolean }[]
 }) {
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full">
-        {onboardingSteps.length > 0 && <OnboardingIncompleteBanner />}
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
+      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full safe-area-inset-bottom">
+        {onboardingSteps.length > 0 && (
+          <OnboardingIncompleteBanner fullServiceOnly={onboardingSteps.every((s) => s.fullServiceOnly)} />
+        )}
 
         <p className="text-sm text-slate-500 mb-1">Welcome {firstName}</p>
         <h1 className="text-3xl font-bold text-slate-900 mb-6">{backgroundCheckFailed ? 'Not Approved' : 'Pending'}</h1>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import EmergencyButton from '@/app/components/EmergencyButton'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
@@ -9,12 +9,18 @@ import LaundromatNotice from '@/app/components/LaundromatNotice'
 import Link from 'next/link'
 import { markBookingDoneAction } from '@/app/pro/messages/[bookingId]/actions'
 import PhotoCaptureModal from './PhotoCaptureModal'
-import AddToProfileModal, { type PhotoPair } from './AddToProfileModal'
-import type { TaskPhotoKind } from './actions'
+import AddToProfileModal from './AddToProfileModal'
+import { loadProfilePhotoPairsAction, type CleaningPhoto, type TaskPhoto, type TaskPhotoKind } from './actions'
+import type { BookingPhotoPair } from '@/lib/portfolioItems'
+import CleaningPhotos from './CleaningPhotos'
+import EntireHomeTaskPhotosModal from './EntireHomeTaskPhotosModal'
+import { isEntireHomeRoom, MAX_ENTIRE_HOME_TASK_PHOTOS } from '@/lib/entireHome'
 import { formatVisitDuration } from '@/lib/laundry'
 import { reportUnableToAccessAction } from '@/app/pro/messages/[bookingId]/actions'
 import ElapsedTimer from './ElapsedTimer'
 import ReportCustomerButton from './ReportCustomerButton'
+import FullServiceSummary, { type SummaryLine } from '@/app/components/FullServiceSummary'
+import type { FullServiceSelection } from '@/lib/fullService'
 
 export type ProBookingTaskRow = {
   id: string
@@ -25,6 +31,16 @@ export type ProBookingTaskRow = {
   completion_photo_url: string | null
   // Optional photo taken before the task (see BeforePhotosPrompt).
   before_photo_url: string | null
+  // 'task' (a Tidy Task), or a Standard / Deep Cleaning row: the whole home,
+  // a room, or an add-on (booking_tasks.kind).
+  kind?: string | null
+}
+
+// The cleaning's own rows (the whole home or a room). They're shown with the
+// cleaning's details, not ticked off: photos of them are optional, and they're
+// marked done when the job is finished.
+export function isCleaningRow(task: Pick<ProBookingTaskRow, 'kind'>): boolean {
+  return task.kind === 'full_service_home' || task.kind === 'full_service_room'
 }
 
 export function IconBack() {
@@ -37,6 +53,8 @@ export function IconBack() {
 
 export function CategoryIcon({ category }: { category: string }) {
   const c = category.toLowerCase()
+  if (c.includes('standard cleaning') || c.includes('deep cleaning'))
+    return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 1.9L21.7 18l-1.9.8L19 20.7l-.8-1.9L16.3 18l1.9-.8z"/></svg>
   if (c.includes('kitchen'))
     return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M2 9h5"/></svg>
   if (c.includes('bed'))
@@ -81,8 +99,47 @@ export function formatTimeRange(time: string, durationMinutes: number): string {
   return `${formatClockTime(start)} - ${formatClockTime(start + durationMinutes)}`
 }
 
+// An Entire home task's photo buttons: up to 3 before and 3 after, 1 after required.
+function EntireHomePhotoButtons({
+  task,
+  photos,
+  onOpen,
+}: {
+  task: ProBookingTaskRow
+  photos: TaskPhoto[]
+  onOpen: (kind: TaskPhotoKind) => void
+}) {
+  const before = photos.filter((p) => p.kind === 'before').length
+  const after = photos.filter((p) => p.kind === 'after').length
+  return (
+    <div className="flex items-center gap-3">
+      {(!task.is_completed || before > 0) && (
+        <button
+          type="button"
+          onClick={() => onOpen('before')}
+          className="text-xs font-semibold text-slate-500"
+          aria-label={`Before photos for ${task.task_name}, ${before} of ${MAX_ENTIRE_HOME_TASK_PHOTOS}`}
+        >
+          Before photos {before}/{MAX_ENTIRE_HOME_TASK_PHOTOS}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onOpen('after')}
+        className="text-xs font-semibold"
+        style={{ color: 'var(--color-brand)' }}
+        aria-label={`After photos for ${task.task_name}, ${after} of ${MAX_ENTIRE_HOME_TASK_PHOTOS}${after === 0 ? ', at least 1 required' : ''}`}
+      >
+        {after === 0 ? 'After photos (1+ required)' : `After photos ${after}/${MAX_ENTIRE_HOME_TASK_PHOTOS}`}
+      </button>
+    </div>
+  )
+}
+
 type Props = {
   bookingId: string
+  // The booking's Standard / Deep Cleaning: what to clean and what matters most.
+  fullService?: { selection: FullServiceSelection; lines: SummaryLine[] } | null
   customerName: string
   addressLabel: string | null
   // Prefilled into the Text 911 message on the emergency sheet.
@@ -104,10 +161,15 @@ type Props = {
   wantsBeforePhotos?: boolean
   // When they pressed "I've arrived", for the elapsed time.
   arrivedAtMs?: number | null
+  // A Standard / Deep Cleaning's optional before and after photos.
+  cleaningPhotos?: CleaningPhoto[]
+  // Entire home tasks' photos (up to 3 before and 3 after each).
+  taskPhotos?: TaskPhoto[]
 }
 
 export default function TaskListView({
   bookingId,
+  fullService = null,
   customerName,
   addressLabel,
   addressLine = null,
@@ -123,22 +185,50 @@ export default function TaskListView({
   photoUrls = {},
   wantsBeforePhotos = false,
   arrivedAtMs = null,
+  cleaningPhotos = [],
+  taskPhotos: initialTaskPhotos = [],
 }: Props) {
   const router = useRouter()
   const [tasks, setTasks] = useState(initialTasks)
   const [activePhoto, setActivePhoto] = useState<{ task: ProBookingTaskRow; kind: TaskPhotoKind } | null>(null)
+  const [taskPhotos, setTaskPhotos] = useState(initialTaskPhotos)
+  const [activeEntireHome, setActiveEntireHome] = useState<{ task: ProBookingTaskRow; kind: TaskPhotoKind } | null>(null)
+  const activeEntireHomeTaskId = activeEntireHome?.task.id ?? null
+
+  // An Entire home task's photos changed: its first before / after photo is
+  // the task's own, and any after photo marks it complete (as on the server).
+  const handleEntireHomePhotosChange = useCallback(
+    (photos: TaskPhoto[]) => {
+      if (!activeEntireHomeTaskId) return
+      const taskId = activeEntireHomeTaskId
+      setTaskPhotos((prev) => [...prev.filter((p) => p.taskId !== taskId), ...photos])
+      const firstBefore = photos.find((p) => p.kind === 'before')?.photoUrl ?? null
+      const firstAfter = photos.find((p) => p.kind === 'after')?.photoUrl ?? null
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId
+            ? { ...t, before_photo_url: firstBefore, completion_photo_url: firstAfter, is_completed: firstAfter != null }
+            : t
+        )
+      )
+    },
+    [activeEntireHomeTaskId]
+  )
   const [finishing, setFinishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [choosingProfilePhotos, setChoosingProfilePhotos] = useState(false)
   const [reportingNoAccess, setReportingNoAccess] = useState(false)
 
-  const allComplete = tasks.length > 0 && tasks.every((t) => t.is_completed)
-  const noneStarted = tasks.every((t) => !t.is_completed)
-  const photoPairs: PhotoPair[] = tasks.flatMap((t) =>
-    t.before_photo_url && t.completion_photo_url
-      ? [{ taskId: t.id, taskName: t.task_name, beforeUrl: t.before_photo_url, afterUrl: t.completion_photo_url }]
-      : []
-  )
+  // Add-ons and Tidy Tasks each need an after photo; the cleaning's rooms don't.
+  const checklist = tasks.filter((t) => !isCleaningRow(t))
+  // A Standard / Deep Cleaning also needs at least one after photo of the cleaning.
+  const [cleaningAfterCount, setCleaningAfterCount] = useState(cleaningPhotos.filter((p) => p.kind === 'after').length)
+  const cleaningPhotosDone = !fullService || cleaningAfterCount > 0
+  const allComplete = tasks.length > 0 && checklist.every((t) => t.is_completed) && cleaningPhotosDone
+  const noneStarted = tasks.every((t) => !t.is_completed && !t.before_photo_url)
+  // The booking's before/after pairs, loaded when they tap "All Tasks Complete".
+  const [photoPairs, setPhotoPairs] = useState<BookingPhotoPair[]>([])
+  const [loadingPairs, setLoadingPairs] = useState(false)
 
   function handlePhotoSubmitted(taskId: string, kind: TaskPhotoKind, photoUrl: string) {
     setTasks((prev) =>
@@ -153,10 +243,18 @@ export default function TaskListView({
     setActivePhoto(null)
   }
 
-  function handleAllTasksComplete() {
-    if (!allComplete || finishing) return
-    // With any before/after pairs, offer to add them to their profile first.
-    if (photoPairs.length > 0) {
+  async function handleAllTasksComplete() {
+    if (!allComplete || finishing || loadingPairs) return
+    // With any before/after pairs (tasks, Entire home tasks, the cleaning),
+    // offer to add them to their profile first. If they can't be loaded, the
+    // job still finishes: they can add them later from the past booking page.
+    setLoadingPairs(true)
+    setError(null)
+    const result = await loadProfilePhotoPairsAction(bookingId)
+    setLoadingPairs(false)
+    const pairs = 'pairs' in result ? result.pairs.filter((p) => !p.onProfile) : []
+    if (pairs.length > 0) {
+      setPhotoPairs(pairs)
       setChoosingProfilePhotos(true)
       return
     }
@@ -194,7 +292,7 @@ export default function TaskListView({
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
         <div className="flex items-center justify-between mb-4">
           <button
@@ -221,6 +319,19 @@ export default function TaskListView({
         {scheduledTime && <p className="text-xs text-slate-400 -mt-5 mb-1">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
         <ElapsedTimer sinceMs={arrivedAtMs} className="mb-6" />
 
+        {fullService && (
+          <FullServiceSummary selection={fullService.selection} lines={fullService.lines} showPrices={false} className="mb-3" />
+        )}
+
+        {fullService && (
+          <CleaningPhotos
+            bookingId={bookingId}
+            initialPhotos={cleaningPhotos}
+            wantsBeforePhotos={wantsBeforePhotos}
+            onAfterCountChange={setCleaningAfterCount}
+          />
+        )}
+
         {/* Up top so it's read before any task starts, and stays here until the job is done. */}
         {notes && (
           <div className="rounded-2xl border border-brand/30 bg-brand/5 px-4 py-3 mb-5">
@@ -243,20 +354,32 @@ export default function TaskListView({
               </p>
             )}
             <p className="text-xs text-slate-500 mt-1">
-              After photos are required for every task. Before and after pairs can go on your profile for future
-              customers to see.
+              {fullService
+                ? 'After photos are required: at least one of the cleaning (up to 10), and one for every add-on and Tidy Task. Before photos are optional.'
+                : 'After photos are required for every task. Before and after pairs can go on your profile for future customers to see.'}
             </p>
+            {checklist.some((t) => isEntireHomeRoom(t.task_category)) && (
+              <p className="text-xs text-slate-500 mt-1">
+                Entire home tasks take up to {MAX_ENTIRE_HOME_TASK_PHOTOS} before and {MAX_ENTIRE_HOME_TASK_PHOTOS} after
+                photos each, with at least 1 after photo.
+              </p>
+            )}
           </div>
         )}
 
         <LaundromatNotice tasks={laundromatTasks} className="mb-4" />
 
+        {checklist.length > 0 && (
         <p className="text-sm font-bold" style={{ color: 'var(--color-brand)' }}>
-          Tasks
+          {fullService ? 'Add-ons and Tidy Tasks' : 'Tasks'}
         </p>
+        )}
+        {fullService && checklist.length > 0 && (
+          <p className="text-xs text-slate-500">Each needs an after photo to mark it complete.</p>
+        )}
 
         <div className="flex flex-col gap-3 my-3">
-          {groupByCategory(tasks).map((group) => {
+          {groupByCategory(checklist).map((group) => {
             const completedCount = group.tasks.filter((t) => t.is_completed).length
             return (
               <div key={group.category} className="rounded-2xl border border-slate-100 shadow-sm p-4">
@@ -287,6 +410,13 @@ export default function TaskListView({
                       <p className={`text-sm ${task.is_completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
                         {task.task_name}
                       </p>
+                      {isEntireHomeRoom(task.task_category) ? (
+                        <EntireHomePhotoButtons
+                          task={task}
+                          photos={taskPhotos.filter((p) => p.taskId === task.id)}
+                          onOpen={(kind) => setActiveEntireHome({ task, kind })}
+                        />
+                      ) : (
                       <div className="flex items-center gap-3">
                         {(!task.is_completed || task.before_photo_url) && (
                           <button
@@ -308,6 +438,7 @@ export default function TaskListView({
                           {task.is_completed ? 'View after' : 'After photo (required)'}
                         </button>
                       </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -357,11 +488,11 @@ export default function TaskListView({
         <button
           type="button"
           onClick={handleAllTasksComplete}
-          disabled={!allComplete || finishing}
+          disabled={!allComplete || finishing || loadingPairs}
           className="w-full py-3.5 rounded-2xl text-center text-sm font-semibold text-white disabled:text-slate-400"
           style={{ backgroundColor: allComplete ? 'var(--color-brand)' : '#e5e9ef' }}
         >
-          {finishing ? 'Finishing…' : 'All Tasks Complete'}
+          {finishing || loadingPairs ? 'Finishing…' : fullService ? 'Cleaning Complete' : 'All Tasks Complete'}
         </button>
       </div>
 
@@ -374,10 +505,23 @@ export default function TaskListView({
           taskName={activePhoto.task.task_name}
           kind={activePhoto.kind}
           // A before photo can't be replaced once the task is done.
-          readOnly={activePhoto.kind === 'before' && activePhoto.task.is_completed}
+          readOnly={activePhoto.kind === 'before' && activePhoto.task.completion_photo_url != null}
           existingPhotoUrl={activePhoto.kind === 'before' ? activePhoto.task.before_photo_url : activePhoto.task.completion_photo_url}
           onClose={() => setActivePhoto(null)}
           onSubmitted={(photoUrl) => handlePhotoSubmitted(activePhoto.task.id, activePhoto.kind, photoUrl)}
+        />
+      )}
+
+      {activeEntireHome && (
+        <EntireHomeTaskPhotosModal
+          key={activeEntireHome.task.id}
+          bookingId={bookingId}
+          taskId={activeEntireHome.task.id}
+          taskName={activeEntireHome.task.task_name}
+          initialPhotos={taskPhotos.filter((p) => p.taskId === activeEntireHome.task.id)}
+          focusKind={activeEntireHome.kind}
+          onChange={handleEntireHomePhotosChange}
+          onClose={() => setActiveEntireHome(null)}
         />
       )}
 

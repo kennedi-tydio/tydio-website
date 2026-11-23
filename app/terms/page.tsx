@@ -2,10 +2,13 @@ import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
 import Footer from '../components/Footer'
+import { FULL_SERVICE_CUSTOMER_ENABLED } from '@/lib/fullService'
 
 export const metadata: Metadata = { title: 'Terms and Conditions — Tydio' }
 
-const LAST_UPDATED = 'November 16, 2026'
+// The Standard and Deep Cleaning section (and its date) appear once customers can
+// book them (FULL_SERVICE_CUSTOMER_ENABLED).
+const LAST_UPDATED = FULL_SERVICE_CUSTOMER_ENABLED ? 'November 20, 2026' : 'November 16, 2026'
 const CONTACT_EMAIL = 'kennedicoats@tydioapp.com'
 const CONTACT_PHONE = '(850) 345-2532'
 const CONTACT_PHONE_HREF = 'tel:+18503452532'
@@ -17,6 +20,7 @@ const sections = [
   { id: 'userreps', title: 'User representations' },
   { id: 'userreg', title: 'User registration' },
   { id: 'purchases', title: 'Purchases and payment' },
+  ...(FULL_SERVICE_CUSTOMER_ENABLED ? [{ id: 'fullservice', title: 'Standard and Deep Cleaning' }] : []),
   { id: 'subscriptions', title: 'Subscriptions' },
   { id: 'refunds', title: 'Refund policy' },
   { id: 'prohibited', title: 'Prohibited activities' },
@@ -406,6 +410,43 @@ export default function TermsPage() {
             </p>
           </Section>
 
+          {FULL_SERVICE_CUSTOMER_ENABLED && (
+          <Section id="fullservice" title="Standard and Deep Cleaning">
+            <p>
+              In addition to individual Tidy Tasks, you can book a Standard Cleaning or a Deep Cleaning of your entire home or
+              of the rooms you choose. What each service includes is listed in the app before you book. Cleaning inside the
+              refrigerator, freezer, oven, cabinets, and drawers, and other listed extras, are paid add-ons and are not
+              included unless you add them.
+            </p>
+            <p>
+              <strong>Prices are set by each Tidy Pro.</strong> Each Tidy Pro sets their own prices for Standard and Deep
+              Cleaning and for add-ons. Your price depends on the Tidy Pro, the service, your home&rsquo;s size, the rooms
+              and add-ons you choose, and any Tidy Tasks you add, which are priced as usual. You will see the total for each
+              Tidy Pro before you book, and you pay the total shown for the Tidy Pro you choose. Tydio&rsquo;s platform fee is
+              20% of that price; the Tidy Pro receives the rest, plus any tips. The home size on your saved address must be
+              accurate, because it is used to price your booking. The length of a visit shown in the app is an estimate
+              used for scheduling, which may be produced with the help of automated tools, and does not change your price.
+            </p>
+            <p>
+              <strong>Priorities and notes.</strong> The cleaning priorities you choose and the notes you leave tell your Tidy
+              Pro what matters most to you within the service you booked. They are free and cannot add work that is not part
+              of that service. Additional work must be booked as an add-on or a Tidy Task, and your Tidy Pro is not required
+              to do unbooked work. If you add a Tidy Task for a room already included in your cleaning, we will ask whether it
+              is for the same room or a different one, so you are not charged twice for the same work.
+            </p>
+            <p>
+              <strong>Recurring cleanings.</strong> Each later visit of a recurring Standard or Deep Cleaning is priced at
+              your Tidy Pro&rsquo;s prices when that visit is charged, which may differ from earlier visits. The price is shown
+              in the app before the visit is charged, and the recurring booking rules in the Refund policy apply.
+            </p>
+            <p>
+              <strong>Unfinished work.</strong> Each room and add-on in your cleaning has its own share of the price. If part of
+              your cleaning is not completed, report it as described in the Refund policy, and we may refund the share of
+              the price for that part.
+            </p>
+          </Section>
+          )}
+
           <Section id="subscriptions" title="Subscriptions">
             <p>
               <strong>Coming soon.</strong> Tydio does not currently offer subscription plans, and you will not be charged
@@ -436,9 +477,12 @@ export default function TermsPage() {
               <p>
                 <strong>If your Tidy Pro cancels.</strong> If your Tidy Pro cancels an accepted booking at least one hour
                 before its scheduled start time, we will notify you and you may choose up to three other Tidy Pros at no
-                additional charge. Your payment carries over to whichever of them accepts. If none accepts by one hour
-                before the start time, or you cancel instead, you will be refunded the amount you paid less the Stripe
-                processing fee. If your Tidy Pro cancels less than one hour before the scheduled start time, you will be
+                additional charge. Your payment carries over to whichever of them accepts. For a Standard or Deep
+                Cleaning, you instead choose one Tidy Pro at a time at that Tidy Pro&apos;s own price: when you confirm
+                the request, we charge you the difference (plus the card processing fee on that charge) if their price
+                is higher, or refund the difference if it is lower. If they decline, you may choose another. If none
+                accepts by one hour before the start time, or you cancel instead, you will be refunded the amount you
+                paid less the Stripe processing fee. If your Tidy Pro cancels less than one hour before the scheduled start time, you will be
                 refunded the full amount, including the processing fee.
               </p>
               <p>

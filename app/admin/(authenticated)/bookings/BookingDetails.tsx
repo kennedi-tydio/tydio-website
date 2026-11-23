@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
 import type { PricingBreakdown } from '@/lib/pricingRules'
 import { serviceAddressText } from '@/lib/bookingIncidentEmail'
 import { bookingStartInstant } from '@/lib/bookingTime'
 import { LAUNDRY_SERVICE_LABEL, LAUNDROMAT_LABEL, bookedTaskName } from '@/lib/laundry'
+import { readSnapshot } from '@/lib/fullServiceBooking'
+import { FULL_SERVICE_LABEL, priorityLabel, scopeLabel } from '@/lib/fullService'
 
 // Everything an admin can see about one open booking, shown when its row on the
 // Bookings tab is expanded: where and when, who, every task as the customer
@@ -26,6 +29,8 @@ export type DetailBooking = {
   task_list: unknown
   task_description: string | null
   pricing_breakdown: unknown
+  // Standard / Deep Cleaning snapshot (lib/fullServiceBooking), when booked.
+  full_service?: unknown
   will_provide_supplies: boolean | null
   pets: string | null
   notes: string | null
@@ -33,6 +38,7 @@ export type DetailBooking = {
   customer_subtotal: number | null
   total_customer_charge: number | null
   cleaner_pay: number | null
+  promo_discount?: number | null
   tip: number | null
   amount_due: number | null
   payment_due_at: string | null
@@ -54,11 +60,20 @@ export type DetailTask = {
   id: string
   task_name: string
   task_category: string
+  // 'task', or a Standard / Deep Cleaning row (booking_tasks.kind).
+  kind?: string | null
   is_completed: boolean
   completed_at: string | null
   before_photo_url: string | null
   completion_photo_url: string | null
+  // An Entire home task's photos (up to 3 before and 3 after), first ones
+  // included. Unset for other tasks, which have just the two columns above.
+  photos?: DetailPhoto[]
 }
+
+// One of several photos: an Entire home task's, or a Standard / Deep Cleaning's
+// photos of the whole cleaning.
+export type DetailPhoto = { kind: string; photo_url: string }
 
 export type DetailAddition = {
   id: string
@@ -213,11 +228,19 @@ function TaskList({ items, timeZone }: { items: TaskItem[]; timeZone: string }) 
             ))}
             {spec?.notes && <p className="text-slate-600 italic mt-0.5">“{spec.notes}”</p>}
           </div>
-          {(row?.before_photo_url || row?.completion_photo_url) && (
-            <div className="flex gap-2">
-              {row.before_photo_url && <Photo url={row.before_photo_url} label="Before" alt={`${name}, before`} />}
-              {row.completion_photo_url && <Photo url={row.completion_photo_url} label="After" alt={`${name}, after`} />}
+          {row?.photos?.length ? (
+            <div className="flex flex-wrap gap-2">
+              {[...row.photos.filter((p) => p.kind === 'before'), ...row.photos.filter((p) => p.kind === 'after')].map((p, i) => (
+                <Photo key={`${p.photo_url}-${i}`} url={p.photo_url} label={p.kind === 'before' ? 'Before' : 'After'} alt={`${name}, ${p.kind}`} />
+              ))}
             </div>
+          ) : (
+            (row?.before_photo_url || row?.completion_photo_url) && (
+              <div className="flex gap-2">
+                {row.before_photo_url && <Photo url={row.before_photo_url} label="Before" alt={`${name}, before`} />}
+                {row.completion_photo_url && <Photo url={row.completion_photo_url} label="After" alt={`${name}, after`} />}
+              </div>
+            )
           )}
         </li>
       ))}
@@ -231,18 +254,22 @@ export default function BookingDetails({
   tidyPro,
   bookingTasks,
   additions,
+  cleaningPhotos = [],
 }: {
   booking: DetailBooking
   customer: DetailPerson | undefined
   tidyPro: DetailPerson | undefined
   bookingTasks: DetailTask[]
   additions: DetailAddition[]
+  // A Standard / Deep Cleaning's photos of the whole cleaning.
+  cleaningPhotos?: DetailPhoto[]
 }) {
   const taskProgress = { total: bookingTasks.length, done: bookingTasks.filter((t) => t.is_completed).length }
   const taskItems = pairTasks(tasksOf(b.task_list), bookingTasks)
   const breakdown = (b.pricing_breakdown ?? null) as Partial<PricingBreakdown> | null
   const total = b.total_customer_charge != null ? Number(b.total_customer_charge) : null
   const cleanerPay = b.cleaner_pay != null ? Number(b.cleaner_pay) : null
+  const fullService = readSnapshot(b.full_service)
 
   return (
     <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 bg-slate-50 rounded-xl p-4">
@@ -254,7 +281,13 @@ export default function BookingDetails({
         <Field label="Arrived">{dateTime(b.arrived_at, b.time_zone)}</Field>
         <Field label="Booked">{dateTime(b.created_at, b.time_zone)}</Field>
         <Field label="Request">{[b.decision_status, b.auto_accepted ? 'auto-accepted' : null].filter(Boolean).join(', ')}</Field>
-        <Field label="Recurring">{b.recurring_booking_id ? `Yes (series ${b.recurring_booking_id.slice(0, 8)})` : null}</Field>
+        <Field label="Recurring">
+          {b.recurring_booking_id ? (
+            <Link href={`/admin/recurring#series-${b.recurring_booking_id}`} className="text-brand hover:underline">
+              Yes (series {b.recurring_booking_id.slice(0, 8)})
+            </Link>
+          ) : null}
+        </Field>
         <Field label="Request group">{b.request_group_id ? b.request_group_id.slice(0, 8) : null}</Field>
         <Field label="Booking ID">
           <span className="font-mono text-[11px]">{b.id}</span>
@@ -278,6 +311,7 @@ export default function BookingDetails({
 
       <Section title="Price">
         <Field label="Service price">{money(b.customer_subtotal)}</Field>
+        <Field label="Promo discount">{b.promo_discount ? `${money(Number(b.promo_discount))} off (Tydio covers it)` : null}</Field>
         <Field label="Charged in total">{money(total)}</Field>
         <Field label="Tidy Pro gets">{money(cleanerPay)}</Field>
         <Field label="Tydio keeps">{total != null && cleanerPay != null ? `${money(total - cleanerPay)} (before Stripe fees)` : null}</Field>
@@ -304,6 +338,22 @@ export default function BookingDetails({
         <Field label="Stripe transfer">{stripeLink(b.stripe_transfer_id, 'connect/transfers')}</Field>
       </Section>
 
+      {fullService && (
+        <Section title={`${FULL_SERVICE_LABEL[fullService.type]} (priced by the Tidy Pro)`}>
+          <Field label="What">{scopeLabel({ ...fullService.selection, version: 1, step: 'notes' })}</Field>
+          {fullService.lines.map((line) => (
+            <Field key={`${line.kind}-${line.key}`} label={`${line.kind === 'addon' ? 'Add-on: ' : ''}${line.kind === 'home' ? 'Entire home' : line.label}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`}>
+              {`${money(line.customer_price)} (Tidy Pro's rate ${money(line.take_home)}${line.percent != null ? `, ${line.percent}%` : ''})`}
+            </Field>
+          ))}
+          <Field label="Cleaning total">{`${money(fullService.customer_total)} (Tidy Pro's rates ${money(fullService.take_home_total)})`}</Field>
+          <Field label="Home size">{`${fullService.square_footage} (×${fullService.multiplier})`}</Field>
+          <Field label="Priorities">{fullService.selection.priorities.length ? fullService.selection.priorities.map(priorityLabel).join(' ') : null}</Field>
+          <Field label="Estimated time">{`${duration(fullService.duration_minutes)} (${fullService.duration_source === 'ai' ? 'AI estimate' : 'formula'}; scheduling only)`}</Field>
+          <Field label="Tidy Tasks">{breakdown?.task_subtotal != null ? money(breakdown.task_subtotal) : null}</Field>
+        </Section>
+      )}
+
       <section className="md:col-span-2 xl:col-span-3">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
           Tasks ({taskItems.length})
@@ -317,6 +367,16 @@ export default function BookingDetails({
           <p className="text-xs text-slate-500 mb-2">
             Task photos were removed {dateTime(b.task_photos_removed_at, b.time_zone)} (they&apos;re kept 7 days after the booking).
           </p>
+        )}
+        {cleaningPhotos.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs text-slate-600 mb-1">Photos of the cleaning</p>
+            <div className="flex flex-wrap gap-2">
+              {[...cleaningPhotos.filter((p) => p.kind === 'before'), ...cleaningPhotos.filter((p) => p.kind === 'after')].map((p, i) => (
+                <Photo key={`${p.photo_url}-${i}`} url={p.photo_url} label={p.kind === 'before' ? 'Before' : 'After'} alt={`The cleaning, ${p.kind}`} />
+              ))}
+            </div>
+          </div>
         )}
         {taskItems.length > 0 ? (
           <TaskList items={taskItems} timeZone={b.time_zone} />

@@ -4,7 +4,8 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getRatingVisibleToTidyPro, getUnreadMessageCountForTidyPro } from '@/lib/bookings'
 import { isBackgroundCheckStepDone, shouldShowVerifiedScreen } from '@/lib/backgroundCheck'
-import { missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { fullServicePricingSteps, missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { loadRatesForDisplay, unpricedFullServices } from '@/lib/fullServiceRates'
 import { notificationStatus } from '@/lib/pushRequirement'
 import { DEFAULT_BOOKING_TIME_ZONE, START_BOOKING_WINDOW_MINUTES, bookingStartInstant, scheduleForViewer, shiftDateISO, todayInZone } from '@/lib/bookingTime'
 import { NO_ACCEPTANCE_STATS, getAcceptanceStats } from '@/lib/acceptanceRate'
@@ -57,6 +58,9 @@ export default async function ProDashboardPage() {
       ? []
       : [{ label: 'Complete background check', href: '/pro/onboarding/almost-there' }]),
     ...missingOnboardingSteps({ ...tidyPro, ...(await notificationStatus(admin, session.profileId)) }),
+    // Not a bookability step: until it's done they're only left out of Standard /
+    // Deep Cleaning requests, so it's listed even once everything else is finished.
+    ...fullServicePricingSteps(unpricedFullServices(tidyPro.services_provided, await loadRatesForDisplay(admin, session.profileId))),
   ]
 
   // A cleaner still waiting on their check gets the regular dashboard, with the

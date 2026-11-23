@@ -139,7 +139,7 @@ export default function NotificationsView({ initialPhone, initialSmsConsent, ini
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-10 pb-16 max-w-sm mx-auto w-full">
         <Link
           href="/dashboard/profile"

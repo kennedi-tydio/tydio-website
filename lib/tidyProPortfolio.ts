@@ -3,7 +3,15 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 import { COMPLETION_PHOTOS_BUCKET } from './taskPhotoRetention'
 import { extensionForType } from './uploadExtension'
 import { readPhotoLocation, type PhotoLocation } from './photoLocation'
-import { PORTFOLIO_DISPLAY_LIMIT, PORTFOLIO_MAX_ITEMS, taskPhotoPathFromUrl, type PortfolioItem } from './portfolioItems'
+import {
+  PORTFOLIO_DISPLAY_LIMIT,
+  PORTFOLIO_MAX_ITEMS,
+  buildBookingPhotoPairs,
+  taskPhotoPathFromUrl,
+  type BookingPhotoPair,
+  type PairPhoto,
+  type PortfolioItem,
+} from './portfolioItems'
 
 export { PORTFOLIO_DISPLAY_LIMIT, PORTFOLIO_MAX_ITEMS, taskPhotoPathFromUrl, type PortfolioItem }
 
@@ -27,12 +35,18 @@ export async function stripImageMetadata(input: Buffer, contentType: string): Pr
 // For a new task photo: the public copy without metadata, plus where it was
 // taken (from its GPS tags, if the phone added any). The location is only
 // stored privately on booking_tasks for Tydio, never in the public file.
+// originalExif: the EXIF block of the photo as the phone took it, sent along
+// when the browser shrank the photo first (lib/photoUpload.ts), which drops it.
 export async function prepareTaskPhoto(
   input: Buffer,
-  contentType: string
+  contentType: string,
+  originalExif: Buffer | null = null
 ): Promise<{ body: Buffer; location: PhotoLocation | null }> {
   const { exif } = await sharp(input, { failOn: 'none' }).metadata()
-  return { body: await stripImageMetadata(input, contentType), location: readPhotoLocation(exif) }
+  return {
+    body: await stripImageMetadata(input, contentType),
+    location: readPhotoLocation(exif) ?? readPhotoLocation(originalExif),
+  }
 }
 
 export async function loadPortfolio(admin: Admin, tidyProId: string, limit = PORTFOLIO_DISPLAY_LIMIT): Promise<PortfolioItem[]> {
@@ -114,33 +128,66 @@ export async function addUploadedPortfolioItem(
   }
 }
 
-export type PortfolioSourceTask = {
-  id: string
-  bookingId: string
-  taskName: string
-  beforePhotoUrl: string | null
-  afterPhotoUrl: string | null
+// Every before/after pair a booking's photos make (see buildBookingPhotoPairs),
+// marked with the ones already on the Tidy Pro's profile. Empty once the
+// booking's photos have been removed (7 days after it ends).
+export async function loadBookingPhotoPairs(admin: Admin, bookingId: string): Promise<BookingPhotoPair[]> {
+  const [tasks, taskPhotos, cleaningPhotos, added] = await Promise.all([
+    admin
+      .from('booking_tasks')
+      .select('id, task_name, task_category, kind, before_photo_url, completion_photo_url')
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: true }),
+    admin
+      .from('booking_task_photos')
+      .select('id, booking_task_id, kind, photo_url, photo_path')
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: true }),
+    admin
+      .from('booking_cleaning_photos')
+      .select('id, kind, photo_url, photo_path')
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: true }),
+    admin.from('tidypro_portfolio_items').select('source_key').eq('booking_id', bookingId).not('source_key', 'is', null),
+  ])
+  const failed = [tasks, taskPhotos, cleaningPhotos, added].find((r) => r.error)
+  if (failed?.error) throw new Error(`Loading photo pairs for booking ${bookingId} failed: ${failed.error.message}`)
+  return buildBookingPhotoPairs({
+    tasks: tasks.data ?? [],
+    taskPhotos: taskPhotos.data ?? [],
+    cleaningPhotos: cleaningPhotos.data ?? [],
+    addedKeys: new Set((added.data ?? []).map((a) => a.source_key as string)),
+  })
 }
 
-// Adds a task's before/after pair to the Tidy Pro's profile. Both photos are
-// needed: a lone after photo doesn't show the work.
-export async function addTaskToPortfolio(admin: Admin, tidyProId: string, task: PortfolioSourceTask): Promise<void> {
-  const beforeSource = taskPhotoPathFromUrl(task.beforePhotoUrl)
-  const afterSource = taskPhotoPathFromUrl(task.afterPhotoUrl)
-  if (!beforeSource || !afterSource) throw new Error(`Task ${task.id} needs both a before and an after photo`)
-
+// Adds one of a booking's before/after pairs to the Tidy Pro's profile. Both
+// photos are needed: a lone after photo doesn't show the work. A pair that's
+// already there (added twice at once) is left as it is.
+export async function addBookingPairToPortfolio(
+  admin: Admin,
+  tidyProId: string,
+  bookingId: string,
+  pair: BookingPhotoPair,
+  before: PairPhoto
+): Promise<void> {
   const copied: string[] = []
   try {
-    copied.push(await copyToPortfolio(admin, tidyProId, beforeSource))
-    copied.push(await copyToPortfolio(admin, tidyProId, afterSource))
+    copied.push(await copyToPortfolio(admin, tidyProId, before.path))
+    copied.push(await copyToPortfolio(admin, tidyProId, pair.after.path))
     const { error } = await admin.from('tidypro_portfolio_items').insert({
       tidypro_id: tidyProId,
-      booking_id: task.bookingId,
-      booking_task_id: task.id,
-      task_name: task.taskName,
+      booking_id: bookingId,
+      booking_task_id: pair.key.startsWith('task:') ? pair.key.slice('task:'.length) : null,
+      source_key: pair.key,
+      task_name: pair.label,
       before_photo_path: copied[0],
       after_photo_path: copied[1],
     })
+    // 23505: unique violation, so this pair is already on their profile.
+    if (error?.code === '23505') {
+      await admin.storage.from(PORTFOLIO_PHOTOS_BUCKET).remove(copied)
+      return
+    }
     if (error) throw new Error(error.message)
   } catch (err) {
     if (copied.length) await admin.storage.from(PORTFOLIO_PHOTOS_BUCKET).remove(copied)

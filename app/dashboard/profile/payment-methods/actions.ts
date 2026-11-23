@@ -192,3 +192,34 @@ export async function selectPaymentMethodForDraftAction(
   revalidatePath('/book/review')
   return { success: true }
 }
+
+// The card to approve and pay a Tidy Pro's quote with (lib/quoteRequests.ts). Only while
+// the quote is still open.
+export async function selectPaymentMethodForQuoteAction(
+  quoteId: string,
+  paymentMethodId: string
+): Promise<{ error: string } | { success: true }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+  const { data: card } = await admin
+    .from('payment_methods')
+    .select('id')
+    .eq('id', paymentMethodId)
+    .eq('user_id', session.profileId)
+    .maybeSingle()
+  if (!card) return { error: 'Payment method not found.' }
+
+  const { error } = await admin
+    .from('booking_quote_requests')
+    .update({ selected_payment_method_id: paymentMethodId, updated_at: new Date().toISOString() })
+    .eq('id', quoteId)
+    .eq('user_id', session.profileId)
+    .in('status', ['requested', 'quoted'])
+
+  if (error) return { error: userFacingError(error) }
+
+  revalidatePath(`/dashboard/quotes/${quoteId}`)
+  return { success: true }
+}

@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from '@/app/components/NavigationSpinner'
-import { removePaymentMethodAction, selectPaymentMethodForDraftAction, setDefaultPaymentMethodAction, type SavedPaymentMethod } from './actions'
+import { removePaymentMethodAction, selectPaymentMethodForDraftAction, selectPaymentMethodForQuoteAction, setDefaultPaymentMethodAction, type SavedPaymentMethod } from './actions'
 import AddCardSheet from './AddCardSheet'
+import { returnToReview } from '@/lib/reviewDetour'
 import { useRefreshOnReturn } from '@/app/components/useRefreshOnReturn'
 
 function IconBack() {
@@ -64,12 +65,14 @@ function StripeNotice() {
 type Props = {
   initialPaymentMethods: SavedPaymentMethod[]
   draftId: string | null
+  // Choosing the card to approve and pay a Tidy Pro's quote with (lib/quoteRequests.ts).
+  quoteId?: string | null
   initialSelectedId: string | null
   // The card that just failed to charge for this booking, if that's why they're here.
   declinedId?: string | null
 }
 
-export default function PaymentMethodsView({ initialPaymentMethods, draftId, initialSelectedId, declinedId = null }: Props) {
+export default function PaymentMethodsView({ initialPaymentMethods, draftId, quoteId = null, initialSelectedId, declinedId = null }: Props) {
   const router = useRouter()
   useRefreshOnReturn()
   const [paymentMethods, setPaymentMethods] = useState(initialPaymentMethods)
@@ -90,11 +93,19 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
   const otherCardCount = paymentMethods.filter((pm) => pm.id !== declinedId).length
 
   async function handleConfirmSelection() {
-    if (!draftId || !selectedId) return
+    if (!selectedId) return
+    if (quoteId) {
+      setSubmitting(true)
+      const result = await selectPaymentMethodForQuoteAction(quoteId, selectedId)
+      setSubmitting(false)
+      if (!('error' in result)) router.push(`/dashboard/quotes/${quoteId}`)
+      return
+    }
+    if (!draftId) return
     setSubmitting(true)
     const result = await selectPaymentMethodForDraftAction(draftId, selectedId)
     setSubmitting(false)
-    if (!('error' in result)) router.push('/book/review')
+    if (!('error' in result)) returnToReview(router, '/dashboard/profile/payment-methods')
   }
 
   function handleCardAdded(pm: SavedPaymentMethod) {
@@ -125,7 +136,7 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-8 max-w-sm mx-auto w-full">
         <button type="button" onClick={() => router.back()} aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
           <IconBack />
@@ -228,7 +239,7 @@ export default function PaymentMethodsView({ initialPaymentMethods, draftId, ini
           >
             Add payment method
           </button>
-        ) : draftId ? (
+        ) : draftId || quoteId ? (
           <button
             type="button"
             onClick={handleConfirmSelection}

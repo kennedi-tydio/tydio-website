@@ -33,12 +33,15 @@ import {
   notifyNewTimeProposed,
 } from '@/lib/notifications'
 import { userFacingError } from '@/lib/userFacingError'
+import { BLOCKED_MESSAGE, isBlockedBetween } from '@/lib/userBlocks'
 import { prepareTaskPhoto } from '@/lib/tidyProPortfolio'
+import { originalExifFromForm } from '@/lib/photoLocation'
 import { extensionForType } from '@/lib/uploadExtension'
 import { COMPLETION_PHOTOS_BUCKET } from '@/lib/taskPhotoRetention'
 import { UPCHARGE_HOLD_MESSAGE } from '@/lib/bookingUpcharges'
 import { UNPAID_HOLD_MESSAGE } from '@/lib/recurringPayments'
 import { CLEANER_CANCEL_REASONS, parseCancellation, type Cancellation } from '@/lib/cancellationReasons'
+import { parseDecline, type Decline } from '@/lib/declineReasons'
 import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
 import { checkAcceptanceRate } from '@/lib/acceptanceRate'
 import { acceptTaskAddition, declineTaskAddition } from '@/lib/bookingTaskAdditions'
@@ -172,6 +175,8 @@ export async function proposeStartTimeAction(bookingId: string, time: string): P
   if (hasAcceptanceWindowClosed(proposed.date, proposed.time, new Date(), booking.time_zone)) {
     return { error: 'Please choose a start time at least an hour from now.' }
   }
+
+  if (await isBlockedBetween(admin, booking.user_id, session.profileId)) return { error: BLOCKED_MESSAGE }
 
   await withdrawPendingProposals(admin, bookingId)
 
@@ -316,7 +321,7 @@ export async function markBookingDoneAction(bookingId: string): Promise<{ succes
   const admin = createAdminClient()
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, user_id, status, progress_status, suspended_for_upcharge_at, payment_due_at')
+    .select('id, user_id, status, progress_status, suspended_for_upcharge_at, payment_due_at, full_service')
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
     .maybeSingle()
@@ -329,6 +334,24 @@ export async function markBookingDoneAction(bookingId: string): Promise<{ succes
   // A recurring visit the customer hasn't paid for yet (lib/recurringPayments).
   if (booking.payment_due_at) return { error: UNPAID_HOLD_MESSAGE }
 
+  // A Standard / Deep Cleaning: every add-on and Tidy Task needs its after
+  // photo, and the cleaning needs at least one after photo of its own
+  // (booking_cleaning_photos). The cleaning's rows (the whole home, each room)
+  // aren't photographed one by one; they're marked done here.
+  const cleaningKinds = ['full_service_home', 'full_service_room'] as const
+  if (booking.full_service) {
+    const { data: rows } = await admin.from('booking_tasks').select('id, kind, is_completed').eq('booking_id', bookingId)
+    if ((rows ?? []).some((r) => !(cleaningKinds as readonly string[]).includes(r.kind) && !r.is_completed)) {
+      return { error: 'Add an after photo for every add-on and Tidy Task first.' }
+    }
+    const { count } = await admin
+      .from('booking_cleaning_photos')
+      .select('id', { count: 'exact', head: true })
+      .eq('booking_id', bookingId)
+      .eq('kind', 'after')
+    if (!count) return { error: 'Add at least one after photo of the cleaning first.' }
+  }
+
   const { data: marked, error } = await admin
     .from('bookings')
     .update({ progress_status: 'done' })
@@ -338,6 +361,15 @@ export async function markBookingDoneAction(bookingId: string): Promise<{ succes
   if (error) return { error: userFacingError(error) }
   // Put on hold between the check above and now.
   if (!marked?.length) return { error: UPCHARGE_HOLD_MESSAGE }
+
+  if (booking.full_service) {
+    await admin
+      .from('booking_tasks')
+      .update({ is_completed: true, completed_at: new Date().toISOString() })
+      .eq('booking_id', bookingId)
+      .in('kind', cleaningKinds)
+      .eq('is_completed', false)
+  }
 
   // Marking progress_status 'done' is the real completion signal — this
   // immediately processes the payout rather than waiting for someone to
@@ -354,14 +386,18 @@ export async function markBookingDoneAction(bookingId: string): Promise<{ succes
   return result
 }
 
-export async function declineBookingRequestAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+// The reason is for admins only; the customer just sees that it was declined.
+export async function declineBookingRequestAction(bookingId: string, decline: Decline): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
+
+  const chosen = parseDecline(decline)
+  if ('error' in chosen) return chosen
 
   const admin = createAdminClient()
   const unsigned = await blockedByUnsignedAmendment(admin, session.profileId)
   if (unsigned) return { error: unsigned }
-  const result = await declineRequestForTidyPro(admin, { bookingId, tidyProId: session.profileId })
+  const result = await declineRequestForTidyPro(admin, { bookingId, tidyProId: session.profileId, reason: chosen })
   if ('error' in result) return result
   await checkAcceptanceRate(admin, session.profileId)
 
@@ -479,7 +515,7 @@ export async function reportNoAccessAction(bookingId: string, formData: FormData
   try {
     // Same handling as task photos: camera metadata comes off the public file, and the
     // location the phone recorded is kept privately on the booking.
-    prepared = await prepareTaskPhoto(Buffer.from(await file.arrayBuffer()), contentType)
+    prepared = await prepareTaskPhoto(Buffer.from(await file.arrayBuffer()), contentType, await originalExifFromForm(formData))
   } catch {
     return { error: "We couldn't read that photo — please take another." }
   }

@@ -1,6 +1,8 @@
 import type { SquareFootage } from './squareFootage'
 
-export const PRICING_VERSION = 'v10-laundry-covers-tasks'
+// v11: bookings can include Standard / Deep Cleaning priced by the Tidy Pro
+// (lib/bookingPricing.ts). Tidy Task prices are unchanged from v10.
+export const PRICING_VERSION = 'v11-full-service'
 
 export const CLEANER_PAYOUT_RATE = 0.80
 export const PLATFORM_FEE_RATE = 0.20
@@ -206,6 +208,14 @@ export interface PricingBreakdown {
   platform_fee: number
   task_list: TaskLineItem[]
   calculated_at: string
+  // Set only on bookings with Standard / Deep Cleaning (lib/bookingPricing.ts).
+  // total_customer_charge then covers both parts: task_subtotal (the Tidy
+  // Tasks, priced as above) + full_service_customer_total (the Tidy Pro's
+  // rates, see lib/fullServicePricing.ts).
+  task_subtotal?: number
+  full_service_type?: 'standard' | 'deep'
+  full_service_customer_total?: number
+  full_service_take_home_total?: number
 }
 
 // Structured pricing context an AI service may be given to estimate/validate

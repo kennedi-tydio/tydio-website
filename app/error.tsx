@@ -13,7 +13,7 @@ export default function Error({ error, retry }: { error: unknown; retry: () => v
   }, [error])
 
   return (
-    <main id="main-content" className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
+    <main id="main-content" className="min-h-svh bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
       <Image src="/Tydio Logo No Bkg.png" alt="Tydio" width={120} height={44} priority className="mb-8" />
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-100 p-8 flex flex-col items-center text-center gap-4">

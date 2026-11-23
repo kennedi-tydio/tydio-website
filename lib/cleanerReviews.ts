@@ -39,6 +39,35 @@ export async function getHiddenReviews(
   return (customerReviews ?? []).filter((r) => !reviewedBookingIds.has(r.booking_id))
 }
 
+// Reviews Tidy Pros have left of a customer, newest first, for other Tidy Pros the
+// customer has booked. Reviewers appear by first name only. Only submitted reviews
+// with a rating count.
+export async function listReviewsOfCustomer(admin: Admin, customerId: string): Promise<CleanerReview[]> {
+  const { data: reviews, error } = await admin
+    .from('cleaner_reviews_of_customers')
+    .select('id, tidypro_id, customer_rating, written_feedback, submitted_at, created_at')
+    .eq('customer_id', customerId)
+    .not('customer_rating', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(MAX_REVIEWS_SHOWN)
+
+  if (error) throw new Error(`Failed to load reviews: ${error.message}`)
+
+  const reviewerIds = [...new Set((reviews ?? []).flatMap((r) => (r.tidypro_id ? [r.tidypro_id] : [])))]
+  const { data: reviewers } = reviewerIds.length
+    ? await admin.from('profiles').select('id, first_name').in('id', reviewerIds)
+    : { data: [] }
+  const firstNameById = new Map((reviewers ?? []).map((p) => [p.id, p.first_name]))
+
+  return (reviews ?? []).map((r) => ({
+    id: r.id,
+    rating: r.customer_rating as number,
+    text: r.written_feedback,
+    reviewerFirstName: (r.tidypro_id && firstNameById.get(r.tidypro_id)) || 'Tidy Pro',
+    createdAt: r.submitted_at ?? r.created_at ?? '',
+  }))
+}
+
 // Newest first. Reviewers appear by first name only, since these are shown to
 // other customers. Pass `forTidyProThemself` when the Tidy Pro is the one viewing,
 // so a review still hidden from them doesn't show up here either.

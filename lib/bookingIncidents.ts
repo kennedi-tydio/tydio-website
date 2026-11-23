@@ -280,7 +280,8 @@ export async function resolveBookingIncident(
 
   const { data: claimed, error: claimError } = await admin
     .from('bookings')
-    .update({ incident_resolved_at: now.toISOString(), incident_refund_level: level, incident_note: note, cleaner_pay: cleanerPay })
+    // Settling it is the admin's decision on the payout, so any hold on it comes off.
+    .update({ incident_resolved_at: now.toISOString(), incident_refund_level: level, incident_note: note, cleaner_pay: cleanerPay, payout_held_at: null, payout_hold_note: null })
     .eq('id', bookingId)
     .is('incident_resolved_at', null)
     .select('id')

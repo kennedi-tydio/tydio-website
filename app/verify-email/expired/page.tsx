@@ -5,7 +5,7 @@ export const metadata: Metadata = { title: 'Link Expired — Tydio' }
 
 export default function VerifyExpiredPage() {
   return (
-    <main id="main-content" className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <main id="main-content" className="min-h-svh flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm text-center">
         <Link href="/" className="block mb-8">
           <span className="text-2xl font-bold tracking-tight" style={{ color: '#1a2332' }}>

@@ -5,11 +5,13 @@ import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { saveTasks, deleteDraft, removeTaskPhotoAction } from './actions'
 import AddTaskModal from './AddTaskModal'
-import { isTaskPriceable } from './isTaskPriceable'
+import TidyTaskList from './TidyTaskList'
+import FullServiceCards from './FullServiceCards'
+import { FULL_SERVICE_CUSTOMER_ENABLED, type FullServiceSelection } from '@/lib/fullService'
 import type { TidyTask } from './types'
 import ModalShell from '@/app/components/ModalShell'
-import { LAUNDRY_ADDED_MESSAGE, isLaundromatPartialCycle, laundryDetailLabel, type LaundryService } from '@/lib/laundry'
-import { formatEstimatedMinutes, isPetTask, petDetailLabel } from '@/lib/petTasks'
+import { LAUNDRY_ADDED_MESSAGE, type LaundryService } from '@/lib/laundry'
+import { isPetTask } from '@/lib/petTasks'
 
 // ── icons ────────────────────────────────────────────────────────────────────
 
@@ -48,16 +50,6 @@ function IconUser() {
   )
 }
 
-function IconChevron({ down }: { down: boolean }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--color-slate-400)" strokeWidth="2" strokeLinecap="round">
-      {down
-        ? <path d="M4 6l4 4 4-4"/>
-        : <path d="M4 10l4-4 4 4"/>}
-    </svg>
-  )
-}
-
 function IconArrowRight() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#1e2837" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -74,26 +66,7 @@ function IconBadgeCheck() {
   )
 }
 
-function RoomIcon({ room }: { room: string }) {
-  const r = room.toLowerCase()
-  if (r.includes('kitchen'))
-    return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M2 9h5"/></svg>
-  if (r.includes('bed'))
-    return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round"><path d="M2 20v-8a2 2 0 012-2h16a2 2 0 012 2v8"/><path d="M2 14h20M7 14V9a1 1 0 011-1h8a1 1 0 011 1v5"/></svg>
-  if (r.includes('bath'))
-    return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round"><path d="M9 6L6 3m0 0a2 2 0 00-3 3v10h18v-2"/><path d="M3 16a5 5 0 0010 0"/></svg>
-  // Custom room — use home icon
-  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>
-}
-
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-function groupByRoom(tasks: TidyTask[]): Record<string, TidyTask[]> {
-  return tasks.reduce<Record<string, TidyTask[]>>((acc, t) => {
-    ;(acc[t.room] ??= []).push(t)
-    return acc
-  }, {})
-}
 
 function formatClockTime(minutesSinceMidnight: number): string {
   const h = Math.floor(minutesSinceMidnight / 60) % 24
@@ -180,7 +153,7 @@ function BookingCard({ booking }: { booking: UpcomingBooking }) {
               {firstName} {booking.cleanerCancelled ? 'canceled' : 'declined'}
               {booking.scheduledTime ? ` your ${formatTimeRange(booking.scheduledTime, booking.durationMinutes)} booking` : ' your booking'}
             </p>
-            <p className="text-xs text-slate-500">Tap to choose up to 3 available Tidy Pros, or cancel for a refund</p>
+            <p className="text-xs text-slate-500">Tap to choose a replacement Tidy Pro, or cancel for a refund</p>
           </>
         ) : booking.kind === 'pending' ? (
           <>
@@ -250,6 +223,7 @@ export default function DashboardHome({
   firstName,
   initialTasks,
   draftId: initialDraftId,
+  fullService = null,
   bookingAccessStatus,
   savedRooms,
   priceError,
@@ -259,6 +233,8 @@ export default function DashboardHome({
   firstName: string
   initialTasks: TidyTask[]
   draftId: string | null
+  // A Standard / Deep Cleaning the customer is part-way through booking.
+  fullService?: FullServiceSelection | null
   bookingAccessStatus: string
   savedRooms: string[]
   priceError?: string
@@ -286,7 +262,6 @@ export default function DashboardHome({
   // the page loads, so without this a new room would vanish from the next
   // Add Task (if the task was cancelled or later deleted) until a reload.
   const [roomsSavedThisVisit, setRoomsSavedThisVisit] = useState<string[]>([])
-  const [collapsedRooms, setCollapsedRooms] = useState<Set<string>>(new Set())
   const [showPriceError, setShowPriceError] = useState(!!priceError)
   const [noTasksError, setNoTasksError] = useState(false)
   const [laundryAddedNotice, setLaundryAddedNotice] = useState<LaundryService | null>(null)
@@ -343,7 +318,10 @@ export default function DashboardHome({
     })
   }
 
-  function handleAddTask(task: TidyTask) {
+  // Home never asks whether a task is already part of a Standard / Deep
+  // Cleaning: ticking a task here only selects it (to book or delete). That
+  // question is asked on the cleaning's Tidy Tasks step instead.
+  function addTask(task: TidyTask) {
     // A new Wash/Dry task for the same laundry as an existing one links both ways.
     const linked = tasks.map(t => (task.sameLaundryAsTaskId === t.id ? { ...t, sameLaundryAsTaskId: task.id } : t))
     const updated = [...linked, task]
@@ -373,28 +351,19 @@ export default function DashboardHome({
   }
 
   function handleToggle(taskId: string) {
-    const updated = tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t)
+    const updated = tasks.map(t => (t.id !== taskId ? t : { ...t, completed: !t.completed }))
     setTasks(updated)
     setNoTasksError(false)
     persist(updated)
   }
 
-  function toggleRoom(room: string) {
-    setCollapsedRooms(prev => {
-      const next = new Set(prev)
-      next.has(room) ? next.delete(room) : next.add(room)
-      return next
-    })
-  }
-
-  const groups = groupByRoom(tasks)
-  const roomList = Object.keys(groups)
+  const roomList = Array.from(new Set(tasks.map(t => t.room)))
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <h1 className="sr-only">Home</h1>
       {/* ── scrollable content ── */}
-      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full">
+      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full safe-area-inset-bottom">
 
         {bookingAccessStatus === 'waitlisted' && (
           <div role="alert" className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 mb-5 flex items-start gap-3">
@@ -444,7 +413,8 @@ export default function DashboardHome({
               ))}
             </div>
           ) : (
-          <Link href="/book" className="block relative rounded-2xl overflow-hidden h-36 mb-8 cursor-pointer">
+          // Just a message: bookings start from the cleaning cards or Tidy Tasks below.
+          <div className="relative rounded-2xl overflow-hidden h-36 mb-8">
             <div className="absolute inset-0" style={{ backgroundColor: '#c8cdd2' }}>
               <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 150" preserveAspectRatio="xMidYMid slice">
                 <line x1="0" y1="55" x2="400" y2="45" stroke="white" strokeWidth="10" opacity="0.55"/>
@@ -456,17 +426,16 @@ export default function DashboardHome({
               </svg>
               <div className="absolute inset-0" style={{ background: 'rgba(30,40,55,0.38)' }} />
             </div>
-            <div className="absolute inset-0 flex items-center justify-between px-5">
-              <p className="text-white text-sm font-medium leading-snug drop-shadow max-w-[62%]">
-                You have no upcoming bookings.<br />Search for nearby Tidy Pros!
+            <div className="absolute inset-0 flex items-center px-5">
+              <p className="text-white text-sm font-medium leading-snug drop-shadow max-w-[80%]">
+                You have no upcoming bookings.
+                <br />
+                {FULL_SERVICE_CUSTOMER_ENABLED
+                  ? 'Book a Standard or Deep Cleaning, or add Tidy Tasks below.'
+                  : 'Add Tidy Tasks below to book a Tidy Pro.'}
               </p>
-              <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#1e2837" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 8h10M9 4l4 4-4 4"/>
-                </svg>
-              </div>
             </div>
-          </Link>
+          </div>
           )
         ) : bookingAccessStatus === 'waitlisted' ? (
           <div className="rounded-2xl border border-slate-100 bg-white p-6 mb-8 text-center shadow-sm">
@@ -494,95 +463,14 @@ export default function DashboardHome({
           </div>
         )}
 
+        {FULL_SERVICE_CUSTOMER_ENABLED && bookingAccessStatus === 'booking_allowed' && (
+          <FullServiceCards selection={fullService} />
+        )}
+
         {/* ── Tidy Tasks ── */}
         <h2 className="text-2xl font-bold text-slate-900 mb-3">Tidy Tasks</h2>
 
-        {tasks.length === 0 ? (
-          <div className="rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
-            <p className="font-semibold text-slate-900 mb-1">No tasks yet</p>
-            <p className="text-sm text-slate-400">What would you like to have cleaned today?</p>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-slate-100 bg-white shadow-sm divide-y divide-slate-100 overflow-hidden">
-            {roomList.map(room => {
-              const roomTasks = groups[room]
-              const selectedCount = roomTasks.filter(t => t.completed).length
-              const collapsed = collapsedRooms.has(room)
-              return (
-                <div key={room}>
-                  {/* Room header */}
-                  <button
-                    onClick={() => toggleRoom(room)}
-                    className="w-full flex items-center justify-between px-4 py-3"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <RoomIcon room={room} />
-                      <span className="font-semibold text-slate-900 text-sm">{room}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-medium" style={{ color: 'var(--color-brand)' }}>{selectedCount}/{roomTasks.length}</span>
-                      <IconChevron down={collapsed} />
-                    </div>
-                  </button>
-                  {/* Task rows */}
-                  {!collapsed && (
-                    <div className="pb-2">
-                      {roomTasks.map(task => {
-                        const dirtLabel = task.dirtLevel === 'light' ? 'Light touch-up' : task.dirtLevel === 'standard' ? 'Standard cleaning' : task.dirtLevel === 'heavy' ? 'Heavy cleaning' : null
-                        const dishwasherLabel = task.hasDishwasher === true ? 'Has dishwasher' : task.hasDishwasher === false ? 'No dishwasher — hand wash' : null
-                        const laundryLabel = task.laundryService
-                          ? laundryDetailLabel(task)
-                          : task.laundryLoads ? `${task.laundryLoads.wash} wash · ${task.laundryLoads.dry} dry · ${task.laundryLoads.fold} fold` : null
-                        const petLabel = isPetTask(task)
-                          ? [petDetailLabel(task), `${task.pet.photos.length} photo${task.pet.photos.length === 1 ? '' : 's'}`, task.pet.kind === 'enclosure' ? null : formatEstimatedMinutes(task.estimatedMinutes)].filter(Boolean).join(' · ')
-                          : null
-                        const meta = [dirtLabel, dishwasherLabel, laundryLabel, petLabel, ...(task.unusual ?? [])].filter(Boolean).join(' · ')
-                        const priceable = isTaskPriceable(task)
-                        return (
-                          <button
-                            key={task.id}
-                            onClick={() => handleToggle(task.id)}
-                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${task.completed ? 'bg-[#f0fafa]' : ''}`}
-                          >
-                            {/* Selection circle */}
-                            <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${task.completed ? 'border-brand bg-brand' : 'border-slate-300'}`}>
-                              {task.completed && (
-                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                  <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                </svg>
-                              )}
-                            </div>
-                            {/* Task info */}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm text-slate-800 font-medium leading-tight truncate">
-                                {task.name || task.room}
-                              </p>
-                              {meta && (
-                                <p className="text-xs text-slate-400 mt-0.5 truncate">{meta}</p>
-                              )}
-                              {task.notes && (
-                                <p className="text-xs text-slate-400 mt-0.5 truncate italic">{task.notes}</p>
-                              )}
-                              {!priceable && (
-                                <p className="text-xs text-red-600 mt-0.5">
-                                  {isPetTask(task) && task.pet.photos.length === 0
-                                    ? 'Photos expired after 7 days. Remove and re-add this task with new photos'
-                                    : isLaundromatPartialCycle(task)
-                                      ? 'Laundromat trips are full cycles only. Remove and re-add this task as Wash & dry'
-                                      : 'Price unavailable — remove and re-add this task'}
-                                </p>
-                              )}
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
+        <TidyTaskList tasks={tasks} onToggle={handleToggle} />
 
         {/* Add Task button */}
         <button
@@ -595,7 +483,7 @@ export default function DashboardHome({
       </div>
 
       {/* ── FAB row ── */}
-      <div className="fixed bottom-20 inset-x-4 sm:inset-x-auto sm:left-[calc(50%-176px)] sm:right-[calc(50%-176px)]">
+      <div className="fixed above-bottom-nav inset-x-4 sm:inset-x-auto sm:left-[calc(50%-176px)] sm:right-[calc(50%-176px)]">
         {noTasksError && (
           <p role="alert" className="pointer-events-none w-fit max-w-full mx-auto mb-2 text-center text-xs font-medium text-red-600 bg-white rounded-lg px-3 py-1.5 shadow-md">
             Select at least one task before hiring a Tidy Pro
@@ -681,7 +569,7 @@ export default function DashboardHome({
           existingTasks={tasks}
           onRoomSaved={room => setRoomsSavedThisVisit(prev => (prev.includes(room) ? prev : [...prev, room]))}
           onRemoveTask={handleRemoveTask}
-          onSave={handleAddTask}
+          onSave={addTask}
           onClose={() => setShowModal(false)}
         />
       )}

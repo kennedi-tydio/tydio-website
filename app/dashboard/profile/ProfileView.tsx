@@ -4,8 +4,96 @@ import { useState } from 'react'
 import Link from 'next/link'
 import DownloadAppCard from '@/app/components/DownloadAppCard'
 import { usePostHog } from 'posthog-js/react'
-import { logoutAction, deleteAccountAction } from '../actions'
+import { logoutAction, deleteAccountAction, updateCustomerAboutAction } from '../actions'
 import ModalShell from '@/app/components/ModalShell'
+import BugReportSheet from '@/app/components/BugReportSheet'
+import { useRouter } from '@/app/components/NavigationSpinner'
+import { CUSTOMER_BIO_MAX_LENGTH, CUSTOMER_PREFERENCES_MAX_LENGTH } from '@/lib/customerAbout'
+
+const TEXTAREA_CLASS =
+  'w-full px-4 py-3 text-sm text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-brand resize-none'
+
+// Bio and cleaning preferences, which Tidy Pros see on this customer's profile.
+function EditAboutSheet({
+  initialBio,
+  initialPreferences,
+  onClose,
+}: {
+  initialBio: string
+  initialPreferences: string
+  onClose: () => void
+}) {
+  const router = useRouter()
+  const [bio, setBio] = useState(initialBio)
+  const [preferences, setPreferences] = useState(initialPreferences)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    const result = await updateCustomerAboutAction({ bio, preferences })
+    setSaving(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    onClose()
+    router.refresh()
+  }
+
+  return (
+    <ModalShell
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      panelClassName="w-full max-w-sm bg-white rounded-t-3xl px-6 pt-6 pb-10 shadow-2xl max-h-[90dvh] overflow-y-auto"
+      onClose={onClose}
+      labelledBy="edit-about-title"
+    >
+      <h2 id="edit-about-title" className="font-bold text-slate-900 text-lg mb-1">Edit profile</h2>
+      <p className="text-sm text-slate-500 mb-5">Tidy Pros you book can see your bio and preferences.</p>
+
+      <label className="block mb-4">
+        <span className="block text-xs font-semibold text-slate-500 mb-1.5">Bio</span>
+        <textarea
+          value={bio}
+          onChange={(e) => setBio(e.target.value)}
+          maxLength={CUSTOMER_BIO_MAX_LENGTH}
+          rows={3}
+          placeholder="Write a short bio to help cleaners get to know you..."
+          className={TEXTAREA_CLASS}
+        />
+      </label>
+
+      <label className="block mb-5">
+        <span className="block text-xs font-semibold text-slate-500 mb-1.5">Cleaning preferences</span>
+        <textarea
+          value={preferences}
+          onChange={(e) => setPreferences(e.target.value)}
+          maxLength={CUSTOMER_PREFERENCES_MAX_LENGTH}
+          rows={4}
+          placeholder="E.g. please take shoes off inside, unscented products only, don't move papers on the desk"
+          className={TEXTAREA_CLASS}
+        />
+      </label>
+
+      {error && <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-xl px-4 py-3 mb-4">{error}</p>}
+
+      <div className="flex flex-col gap-3">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="w-full py-3 rounded-xl bg-brand text-white font-semibold text-sm disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" onClick={onClose} className="w-full py-3 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm">
+          Cancel
+        </button>
+      </div>
+    </ModalShell>
+  )
+}
 
 function IconHome() {
   return (
@@ -93,20 +181,24 @@ type Props = {
   firstName: string
   lastName: string
   email: string
+  bio: string
+  preferences: string
   unreadMessageCount: number
 }
 
-export default function ProfileView({ firstName, lastName, email, unreadMessageCount }: Props) {
+export default function ProfileView({ firstName, lastName, email, bio, preferences, unreadMessageCount }: Props) {
+  const [showEdit, setShowEdit] = useState(false)
   const initials = `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase()
   const fullName = [firstName, lastName].filter(Boolean).join(' ')
   const posthog = usePostHog()
   const [showLogout, setShowLogout] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [showBugReport, setShowBugReport] = useState(false)
 
   return (
-    <main id="main-content" className="min-h-screen flex flex-col" style={{ backgroundColor: '#f5f7fa' }}>
-      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full">
+    <main id="main-content" className="min-h-svh flex flex-col" style={{ backgroundColor: '#f5f7fa' }}>
+      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full safe-area-inset-bottom">
 
         <h1 className="text-3xl font-bold text-slate-900 mb-6">Profile</h1>
 
@@ -132,10 +224,27 @@ export default function ProfileView({ firstName, lastName, email, unreadMessageC
 
           <div className="mb-4">
             <p className="text-xs text-slate-400 mb-1">Bio</p>
-            <p className="text-sm text-slate-400 italic">Write a short bio to help cleaners get to know you...</p>
+            {bio ? (
+              <p className="text-sm text-slate-600 whitespace-pre-line break-words">{bio}</p>
+            ) : (
+              <p className="text-sm text-slate-400 italic">Write a short bio to help cleaners get to know you...</p>
+            )}
           </div>
 
-          <button className="w-full py-2.5 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600 hover:bg-slate-200 transition-colors">
+          <div className="mb-4">
+            <p className="text-xs text-slate-400 mb-1">Cleaning preferences</p>
+            {preferences ? (
+              <p className="text-sm text-slate-600 whitespace-pre-line break-words">{preferences}</p>
+            ) : (
+              <p className="text-sm text-slate-400 italic">Let your Tidy Pro know how you like things done...</p>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowEdit(true)}
+            className="w-full py-2.5 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600 hover:bg-slate-200 transition-colors"
+          >
             Edit
           </button>
         </div>
@@ -170,6 +279,15 @@ export default function ProfileView({ firstName, lastName, email, unreadMessageC
           )
         )}
 
+        <button
+          type="button"
+          onClick={() => setShowBugReport(true)}
+          className="w-full bg-white rounded-2xl px-5 py-4 mb-3 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
+        >
+          <span className="font-semibold text-slate-800 text-sm">Report a bug</span>
+          <IconChevronRight />
+        </button>
+
         {/* Logout */}
         <button
           onClick={() => setShowLogout(true)}
@@ -190,7 +308,7 @@ export default function ProfileView({ firstName, lastName, email, unreadMessageC
       </div>
 
       {/* Bottom nav */}
-      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100">
+      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 safe-area-inset-bottom">
         <div className="flex justify-around items-center py-2 max-w-sm mx-auto px-2">
           {[
             { icon: <IconHome />, label: 'Home', href: '/dashboard', active: false, badge: 0 },
@@ -217,6 +335,10 @@ export default function ProfileView({ firstName, lastName, email, unreadMessageC
           ))}
         </div>
       </nav>
+
+      {showEdit && <EditAboutSheet initialBio={bio} initialPreferences={preferences} onClose={() => setShowEdit(false)} />}
+
+      {showBugReport && <BugReportSheet role="USER" onClose={() => setShowBugReport(false)} />}
 
       {/* Logout confirmation */}
       {showLogout && (

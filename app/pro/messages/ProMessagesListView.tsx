@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import QuoteRequestList, { type QuoteRequestSummary } from '@/app/components/QuoteRequestList'
 
 export type ProMessageThreadSummary = {
   bookingId: string
@@ -84,17 +85,21 @@ function Avatar({ name, photoUrl }: { name: string; photoUrl: string | null }) {
 
 export default function ProMessagesListView({
   threads,
+  quotes = [],
   unreadMessageCount,
 }: {
   threads: ProMessageThreadSummary[]
+  quotes?: QuoteRequestSummary[]
   unreadMessageCount: number
 }) {
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
+      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full safe-area-inset-bottom">
         <h1 className="text-3xl font-bold text-slate-900 mb-6">Messages</h1>
 
-        {threads.length === 0 ? (
+        <QuoteRequestList quotes={quotes} />
+
+        {threads.length === 0 && quotes.length > 0 ? null : threads.length === 0 ? (
           <div className="rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
             <p className="font-semibold text-slate-900 mb-1">No messages yet</p>
             <p className="text-sm text-slate-400">You&apos;ll be notified when you receive your first booking request!</p>

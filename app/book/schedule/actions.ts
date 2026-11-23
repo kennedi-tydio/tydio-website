@@ -4,7 +4,11 @@ import { requiredServicesForTasks } from '@/lib/tidyProServices'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { findAvailableCleaners, type CleanerMatch } from '@/lib/cleanerMatching'
-import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
+import { resolveStatePricing, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
+import { bookingDurationMinutes, combineWithFullService, priceTasksPart } from '@/lib/bookingPricing'
+import { requiredServiceForFullService, selectionLabel } from '@/lib/fullService'
+import { ensureFullServiceEstimate } from '@/lib/aiFullServiceEstimate'
+import { bookableSelection, quotesForTidyPros } from '@/lib/fullServiceBooking'
 import { servicePriceForCleaner } from '@/lib/pricingRules'
 import { closeUnmetSearch, recordUnmetSearch } from '@/lib/unmetBookingSearches'
 import { recordPricingView, taskLabel } from '@/lib/pricingQuotes'
@@ -13,6 +17,8 @@ import { serviceTimeZone } from '@/lib/serviceTimeZone'
 import { DEFAULT_BOOKING_TIME_ZONE } from '@/lib/bookingTime'
 import type { TidyTask } from '@/app/dashboard/types'
 import { isRecurrenceFrequency, type RecurrenceFrequency } from '@/lib/recurrence'
+import { hasQuoteTasks } from '@/lib/taskQuotes'
+import { bookingBlockedByAccess } from '@/lib/accountSuspension'
 
 export type ScheduledLocation =
   | { type: 'current_location'; latitude: number; longitude: number }
@@ -46,6 +52,8 @@ export async function saveSchedule(draftId: string, input: Schedule): Promise<vo
   const schedule = withValidRange(input)
 
   const admin = createAdminClient()
+  // Waitlisted (or otherwise blocked) customers can keep Tidy Tasks but not book.
+  if (await bookingBlockedByAccess(admin, session.profileId)) return
   const { data: current } = await admin
     .from('booking_drafts')
     .select('scheduled_location')
@@ -78,7 +86,11 @@ export interface StatePricingNotConfiguredError {
   state: string | null
 }
 
-export type PricedCleanerMatch = CleanerMatch & { price: number }
+// fullServicePrice: this Tidy Pro's price for the booking's Standard / Deep
+// Cleaning (their own rates), when it has one. Already included in price.
+// quotePending: some tasks were added while automatic pricing was down, so
+// `price` leaves them out; the Tidy Pro quotes them (lib/taskQuotes.ts).
+export type PricedCleanerMatch = CleanerMatch & { price: number; fullServicePrice?: number; quotePending?: boolean }
 
 export interface CleanerSearchResult {
   cleaners: PricedCleanerMatch[]
@@ -105,6 +117,7 @@ export async function searchAvailableCleaners(
   }
 
   const admin = createAdminClient()
+  if (await bookingBlockedByAccess(admin, session.profileId)) return EMPTY_RESULT
 
   const { data: profile } = await admin
     .from('profiles')
@@ -114,14 +127,15 @@ export async function searchAvailableCleaners(
 
   const { data: draft } = await admin
     .from('booking_drafts')
-    .select('task_list')
+    .select('task_list, full_service')
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)
     .maybeSingle()
 
   const allTasks = (draft?.task_list as TidyTask[] | null) ?? []
   const tasks = allTasks.filter((t) => t.completed)
-  if (tasks.length === 0) return EMPTY_RESULT
+  const fullService = bookableSelection(draft?.full_service)
+  if (tasks.length === 0 && !fullService) return EMPTY_RESULT
 
   const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null, profile ?? undefined)
   if (!statePricing.configured) {
@@ -137,18 +151,31 @@ export async function searchAvailableCleaners(
   }
 
   const squareFootage = await resolveLocationSquareFootage(admin, session.profileId, schedule.location)
+  // The picker asks for the size before an address can be used; every booking needs one.
+  if (!squareFootage) return EMPTY_RESULT
+
+  // How long the Standard / Deep Cleaning should take, estimated once per
+  // selection and saved on the draft. Scheduling only: never part of the price.
+  const fullServiceMinutes = fullService
+    ? (await ensureFullServiceEstimate(admin, draftId, fullService, squareFootage)).minutes
+    : 0
 
   let durationMinutes = 180
   let basePrice = 0
+  let taskPart = null
   try {
-    const breakdown = priceTaskListForState(tasks, statePricing.state, statePricing.medianFourHourPrice, squareFootage)
-    durationMinutes = breakdown.total_task_minutes
-    basePrice = breakdown.total_customer_charge
+    taskPart = priceTasksPart(tasks, statePricing.state, statePricing.medianFourHourPrice, squareFootage)
+    durationMinutes = bookingDurationMinutes(tasks, squareFootage, fullServiceMinutes)
+    basePrice = taskPart.total_customer_charge
   } catch {
     // fall back to the default typical duration if a task is unpriceable
   }
+  const requiredServices = [
+    ...requiredServicesForTasks(tasks),
+    ...(fullService ? [requiredServiceForFullService(fullService.type)] : []),
+  ]
 
-  const cleaners = await findAvailableCleaners(
+  const matched = await findAvailableCleaners(
     {
       latitude: schedule.location.latitude,
       longitude: schedule.location.longitude,
@@ -157,10 +184,16 @@ export async function searchAvailableCleaners(
       time: schedule.time,
       endTime: schedule.endTime,
       durationMinutes,
-      requiredServices: requiredServicesForTasks(tasks),
+      requiredServices,
+      customerId: session.profileId,
     },
     admin
   )
+
+  // With Standard / Deep Cleaning, only Tidy Pros who've priced it and offer
+  // every chosen add-on can take it, each at their own price.
+  const quotes = fullService ? await quotesForTidyPros(admin, matched.map((c) => c.id), fullService, squareFootage) : null
+  const cleaners = quotes ? matched.filter((c) => quotes.has(c.id)) : matched
 
   // No one matched: tell the admin, and keep looking so the customer hears when someone's free.
   if (cleaners.length === 0) {
@@ -178,9 +211,13 @@ export async function searchAvailableCleaners(
       endTime: schedule.endTime,
       timeZone: await serviceTimeZone(admin, session.profileId, schedule.location, timeZone, DEFAULT_BOOKING_TIME_ZONE),
       durationMinutes,
-      requiredServices: requiredServicesForTasks(tasks),
-      tasks: tasks.map((t) => ({ name: t.name, room: t.room })),
-      estimatedPrice: basePrice > 0 ? basePrice : null,
+      requiredServices,
+      tasks: [
+        ...(fullService ? [{ name: selectionLabel(fullService), room: 'Full service' }] : []),
+        ...tasks.map((t) => ({ name: t.name, room: t.room })),
+      ],
+      // Standard / Deep Cleaning is priced by each Tidy Pro, so there's no one price to quote.
+      estimatedPrice: !fullService && basePrice > 0 ? basePrice : null,
     }).catch((err) => {
       console.error('[Tydio] Saving unmet search failed:', err)
       return false
@@ -190,17 +227,24 @@ export async function searchAvailableCleaners(
 
   await closeUnmetSearch(admin, draftId).catch((err) => console.error('[Tydio] Closing unmet search failed:', err))
 
-  const pricedCleaners = cleaners.map((cleaner) => ({
-    ...cleaner,
-    price: servicePriceForCleaner(basePrice, cleaner),
-  }))
+  const quotePending = hasQuoteTasks(tasks)
+  const pricedCleaners: PricedCleanerMatch[] = cleaners.map((cleaner) => {
+    const quote = quotes?.get(cleaner.id) ?? null
+    const total = taskPart ? combineWithFullService(taskPart, quote).total_customer_charge : basePrice + (quote?.customer_total ?? 0)
+    return {
+      ...cleaner,
+      price: servicePriceForCleaner(total, cleaner),
+      ...(quote ? { fullServicePrice: quote.customer_total } : {}),
+      ...(quotePending ? { quotePending: true } : {}),
+    }
+  })
 
   // For abandoned-cart tracking: what they were just quoted.
   await recordPricingView(admin, {
     customerId: session.profileId,
     draftId,
     stage: 'cleaners',
-    taskNames: tasks.map(taskLabel),
+    taskNames: [...(fullService ? [selectionLabel(fullService)] : []), ...tasks.map(taskLabel)],
     durationMinutes,
     date: schedule.date,
     time: schedule.time,

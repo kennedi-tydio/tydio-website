@@ -497,7 +497,7 @@ function SchedulePickerForm({
   const cleaners = results?.cleaners ?? null
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-16 max-w-sm mx-auto w-full">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
@@ -743,7 +743,12 @@ function SchedulePickerForm({
                       </div>
                     </div>
                   </div>
-                  <span className="text-base font-bold text-slate-900 flex-shrink-0">${cleaner.price}</span>
+                  <span className="text-right flex-shrink-0">
+                    {/* Automatic pricing was down: no price until the Tidy Pro sends their quote. */}
+                    <span className="block text-base font-bold text-slate-900">
+                      {cleaner.quotePending ? 'Quote' : `$${cleaner.price}`}
+                    </span>
+                  </span>
                 </Link>
                 <div className="flex items-center gap-2 mt-3">
                   <button

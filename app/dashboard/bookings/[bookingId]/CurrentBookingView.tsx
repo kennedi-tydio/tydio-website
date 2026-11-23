@@ -20,6 +20,9 @@ export type BookingTaskRow = {
   task_category: string
   is_completed: boolean
   completion_photo_url: string | null
+  // An Entire home task's after photos (up to 3), first one included. Unset
+  // for other tasks, which have just completion_photo_url.
+  after_photo_urls?: string[]
 }
 
 type Props = {
@@ -140,7 +143,10 @@ export default function CurrentBookingView({
 
   const groups = groupByCategory(tasks)
   const photos: TaskPhoto[] = groups.flatMap((g) =>
-    g.tasks.flatMap((t) => (t.completion_photo_url ? [{ url: t.completion_photo_url, category: g.category, taskName: t.task_name }] : []))
+    g.tasks.flatMap((t) => {
+      const urls = t.after_photo_urls?.length ? t.after_photo_urls : t.completion_photo_url ? [t.completion_photo_url] : []
+      return urls.map((url) => ({ url, category: g.category, taskName: t.task_name }))
+    })
   )
   const photoIndexFor = (task: BookingTaskRow) => photos.findIndex((p) => p.url === task.completion_photo_url)
 
@@ -188,7 +194,7 @@ export default function CurrentBookingView({
 
   if (isDone) {
     return (
-      <main id="main-content" className="min-h-screen bg-slate-50 flex flex-col">
+      <main id="main-content" className="min-h-svh bg-slate-50 flex flex-col">
         <div className="px-5 pt-6 pb-8 max-w-sm mx-auto w-full">
           <div className="flex items-center justify-end gap-2 mb-2">
             {reportButton}
@@ -255,7 +261,7 @@ export default function CurrentBookingView({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-svh bg-slate-50 flex flex-col">
       <div className="bg-white border-b border-slate-200 px-5 pt-6 pb-7">
         <div className="max-w-sm mx-auto">
           <div className="flex items-center justify-between mb-2">
@@ -281,7 +287,7 @@ export default function CurrentBookingView({
         </div>
       </div>
 
-      <div className="flex-1 px-5 pt-8 pb-32 max-w-sm mx-auto w-full">
+      <div className="flex-1 px-5 pt-8 pb-32 max-w-sm mx-auto w-full safe-area-inset-bottom">
         <p className="text-sm font-bold text-slate-900 mb-3">Task Progress</p>
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-2">
           {groups.map((group, i) => {

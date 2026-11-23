@@ -22,6 +22,11 @@ import {
 } from './TaskListView'
 import { formatVisitDuration } from '@/lib/laundry'
 import ReportCustomerButton from './ReportCustomerButton'
+import FullServiceSummary, { type SummaryLine } from '@/app/components/FullServiceSummary'
+import type { FullServiceSelection } from '@/lib/fullService'
+import type { BookingPhotoPair } from '@/lib/portfolioItems'
+import { TASK_PHOTO_RETENTION_DAYS } from '@/lib/taskPhotoRetention'
+import AddToProfileModal from './AddToProfileModal'
 
 type Props = {
   // An accepted booking that hasn't started yet shows the same summary,
@@ -29,6 +34,8 @@ type Props = {
   variant: 'past' | 'upcoming'
   bookingId: string
   customerName: string
+  // The booking's Standard / Deep Cleaning: what to clean and what matters most.
+  fullService?: { selection: FullServiceSelection; lines: SummaryLine[] } | null
   scheduledDate: string | null
   scheduledTime: string | null
   // The real start instant — only needed for an upcoming booking's
@@ -49,12 +56,15 @@ type Props = {
   canLeaveReview: boolean
   // A visit of a recurring booking: changing its time changes only this visit.
   isRecurring?: boolean
+  // A finished booking's before/after pairs, while its photos are still kept.
+  profilePhotoPairs?: BookingPhotoPair[]
 }
 
 export default function PastBookingDetailView({
   variant,
   bookingId,
   customerName,
+  fullService = null,
   scheduledDate,
   scheduledTime,
   startsAtMs = null,
@@ -71,9 +81,13 @@ export default function PastBookingDetailView({
   tipAmount,
   canLeaveReview,
   isRecurring = false,
+  profilePhotoPairs = [],
 }: Props) {
   const router = useRouter()
   const isUpcoming = variant === 'upcoming'
+  const [choosingProfilePhotos, setChoosingProfilePhotos] = useState(false)
+  const pairsToAdd = isUpcoming ? [] : profilePhotoPairs.filter((p) => !p.onProfile)
+  const pairsOnProfile = profilePhotoPairs.length - pairsToAdd.length
   const canStartBooking = useStartBookingWindow(startsAtMs) && isUpcoming
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
@@ -127,7 +141,7 @@ export default function PastBookingDetailView({
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
         <div className="flex items-center justify-between mb-4">
           <Link
@@ -192,6 +206,10 @@ export default function PastBookingDetailView({
               : 'Cleaning supplies provided'}
         </p>
 
+        {fullService && (
+          <FullServiceSummary selection={fullService.selection} lines={fullService.lines} showPrices={false} className="mb-5" />
+        )}
+
         {(pets || notes) && (
           <div className="border-t border-slate-100 pt-5 mb-5">
             <p className="text-sm font-bold mb-3" style={{ color: 'var(--color-brand)' }}>
@@ -209,6 +227,26 @@ export default function PastBookingDetailView({
                 <p className="text-sm text-slate-400">{notes}</p>
               </div>
             )}
+          </div>
+        )}
+
+        {pairsToAdd.length > 0 && (
+          <div className="border-t border-slate-100 pt-5 mb-5">
+            <p className="text-sm font-bold mb-1" style={{ color: 'var(--color-brand)' }}>
+              Show off your work
+            </p>
+            <p className="text-xs text-slate-500 mb-3">
+              {pairsToAdd.length === 1 ? 'You have 1 before and after pair' : `You have ${pairsToAdd.length} before and after pairs`}{' '}
+              from this booking{pairsOnProfile > 0 ? ' not yet on your profile' : ''}. Photos are deleted{' '}
+              {TASK_PHOTO_RETENTION_DAYS} days after the booking ends, so add the ones you want before then.
+            </p>
+            <button
+              type="button"
+              onClick={() => setChoosingProfilePhotos(true)}
+              className="w-full py-3 rounded-2xl text-sm font-semibold text-white bg-brand"
+            >
+              Add photos to your profile
+            </button>
           </div>
         )}
 
@@ -349,6 +387,17 @@ export default function PastBookingDetailView({
             confirmLabel={cancelScope === 'series' ? 'Cancel recurring booking' : isRecurring ? 'Cancel this visit' : 'Cancel booking'}
             onConfirm={handleCancelConfirmed}
             onClose={() => setCancelScope(null)}
+          />
+        )}
+        {choosingProfilePhotos && (
+          <AddToProfileModal
+            bookingId={bookingId}
+            pairs={profilePhotoPairs}
+            onAdded={() => {
+              setChoosingProfilePhotos(false)
+              router.refresh()
+            }}
+            onClose={() => setChoosingProfilePhotos(false)}
           />
         )}
       </div>

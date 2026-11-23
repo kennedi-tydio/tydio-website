@@ -114,6 +114,14 @@ async function removeEndedBookingPhotos(admin: Admin, cutoff: Date) {
         .or('completion_photo_url.not.is.null,before_photo_url.not.is.null')
       if (tasksError) throw new Error(tasksError.message)
 
+      // A Standard / Deep Cleaning's own photos were in the same folder.
+      const { error: cleaningError } = await admin.from('booking_cleaning_photos').delete().eq('booking_id', b.id)
+      if (cleaningError) throw new Error(cleaningError.message)
+
+      // So were the extra photos of Entire home tasks.
+      const { error: taskPhotosError } = await admin.from('booking_task_photos').delete().eq('booking_id', b.id)
+      if (taskPhotosError) throw new Error(taskPhotosError.message)
+
       const { error: markError } = await admin
         .from('bookings')
         .update({ task_photos_removed_at: new Date().toISOString() })
@@ -141,8 +149,15 @@ async function removeUnbookedCustomerPhotos(admin: Admin, cutoff: Date) {
     .select('task_list')
     .is('task_photos_removed_at', null)
   if (error) throw new Error(`Loading bookings failed: ${error.message}`)
+  // And on any quote request still out (lib/quoteRequests.ts): the Tidy Pro is
+  // pricing from those photos, and they move onto the booking once it's paid.
+  const { data: openQuotes, error: quotesError } = await admin
+    .from('booking_quote_requests')
+    .select('task_list')
+    .in('status', ['requested', 'quoted', 'paying'])
+  if (quotesError) throw new Error(`Loading quote requests failed: ${quotesError.message}`)
   const stillNeeded = new Set(
-    (liveBookings ?? []).flatMap((b) => petTaskPhotoPaths((b.task_list as TidyTask[] | null) ?? []))
+    [...(liveBookings ?? []), ...(openQuotes ?? [])].flatMap((b) => petTaskPhotoPaths((b.task_list as TidyTask[] | null) ?? []))
   )
 
   const folders = (await listFolder(admin, CUSTOMER_TASK_PHOTOS_BUCKET, '')).filter((e) => e.id == null)

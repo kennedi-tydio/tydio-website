@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getPendingTaskAddition, taskAdditionBlockedReason } from '@/lib/bookingTaskAdditions'
 import type { TidyTask } from '@/app/dashboard/types'
 import AddTasksView from './AddTasksView'
+import { readSnapshot } from '@/lib/fullServiceBooking'
 
 export const metadata: Metadata = { title: 'Add Tasks — Tydio' }
 
@@ -19,7 +20,7 @@ export default async function AddTasksPage({ params }: { params: Promise<{ booki
   const admin = createAdminClient()
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, tidy_pro_id, tidy_pro_name, status, progress_status, scheduled_date, scheduled_time, time_zone, task_list, recurring_booking_id, suspended_for_upcharge_at, suspended_for_payment_at, payment_failed_at')
+    .select('id, tidy_pro_id, tidy_pro_name, status, progress_status, scheduled_date, scheduled_time, time_zone, task_list, full_service, recurring_booking_id, suspended_for_upcharge_at, suspended_for_payment_at, payment_failed_at')
     .eq('id', bookingId)
     .eq('user_id', session.profileId)
     .maybeSingle()
@@ -48,6 +49,10 @@ export default async function AddTasksPage({ params }: { params: Promise<{ booki
       dashboardTasks={(draft?.task_list as TidyTask[] | null) ?? []}
       bookingTaskIds={((booking.task_list as TidyTask[] | null) ?? []).map((t) => t.id)}
       savedRooms={(profile?.custom_rooms as string[] | null) ?? []}
+      fullService={(() => {
+        const snapshot = readSnapshot(booking.full_service)
+        return snapshot ? { ...snapshot.selection, version: 1 as const, step: 'notes' as const } : null
+      })()}
     />
   )
 }

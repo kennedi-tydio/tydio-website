@@ -288,12 +288,21 @@ export async function addToBookingTotals(
 }
 
 // taskAdditionId: tasks the customer added and the Tidy Pro accepted (lib/bookingTaskAdditions).
-export type PaidUpcharge = { id: string; paymentIntentId: string; amount: number; charge: number; cleanerPay: number; taskAdditionId: string | null }
+// replacementDifference: what a replacement cost over the price already paid (lib/replacementChain).
+export type PaidUpcharge = {
+  id: string
+  paymentIntentId: string
+  amount: number
+  charge: number
+  cleanerPay: number
+  taskAdditionId: string | null
+  replacementDifference: boolean
+}
 
 export async function getPaidUpcharges(admin: Admin, bookingId: string): Promise<PaidUpcharge[]> {
   const { data } = await admin
     .from('booking_upcharges')
-    .select('id, stripe_payment_intent_id, amount, customer_charge, cleaner_pay, task_addition_id')
+    .select('id, stripe_payment_intent_id, amount, customer_charge, cleaner_pay, task_addition_id, replacement_difference')
     .eq('booking_id', bookingId)
     .eq('status', 'paid')
     .order('paid_at', { ascending: true })
@@ -306,6 +315,7 @@ export async function getPaidUpcharges(admin: Admin, bookingId: string): Promise
       charge: Number(u.customer_charge ?? u.amount),
       cleanerPay: Number(u.cleaner_pay),
       taskAdditionId: u.task_addition_id ?? null,
+      replacementDifference: u.replacement_difference === true,
     }))
 }
 

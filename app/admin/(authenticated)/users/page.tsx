@@ -15,8 +15,10 @@ import { isSamePhone } from '@/lib/smsPhone'
 import { IconLeaf } from '@/app/components/IconLeaf'
 import { IconMoon } from '@/app/components/IconMoon'
 import { onboardingStatusLabel, remainingOnboardingActions } from '@/lib/onboardingProgress'
+import { loadRatesFor, resolveRates, unpricedFullServices, type FullServiceRates } from '@/lib/fullServiceRates'
 import { WEEKDAY_KEYS, formatCompactTime, isAvailableForBooking, type WeeklyAvailability } from '@/lib/cleanerMatching'
 import Link from 'next/link'
+import { NO_BOOKING_STATS, loadUserBookingStats } from '@/lib/adminUserBookingStats'
 import { ACCEPTANCE_RATE_THRESHOLD, NO_ACCEPTANCE_STATS, formatAcceptanceRate, getAcceptanceStats, getAllAcceptanceStats, isAcceptanceRateLow } from '@/lib/acceptanceRate'
 
 const SUSPENDED_COLOR = '#ef4444'
@@ -83,6 +85,19 @@ function backgroundCheckBadge(
   }
 }
 
+// Tidy Pros who can receive bookings right now, worked out the same way customer
+// search decides who's bookable (lib/cleanerMatching).
+async function bookableTidyProIds(admin: ReturnType<typeof createAdminClient>): Promise<string[]> {
+  const { data: pros, error: prosError } = await admin
+    .from('tidypro_profiles')
+    .select('id, active_for_booking, cleaner_status, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude')
+    .eq('active_for_booking', true)
+    .eq('cleaner_status', 'approved')
+    .eq('is_away', false)
+  if (prosError) throw new Error(`Failed to load Tidy Pro availability: ${prosError.message}`)
+  return (await withPushStatus(admin, pros ?? [])).filter(isAvailableForBooking).map((p) => p.id)
+}
+
 export default async function UsersPage({
   searchParams,
 }: {
@@ -128,6 +143,17 @@ export default async function UsersPage({
   }
   if (role) query = query.eq('role', role as 'USER' | 'TIDYPRO' | 'ADMIN')
   if (status === 'suspended') query = query.not('suspended_at', 'is', null)
+  // Customers allowed to book plus Tidy Pros who can accept bookings (the Overview's
+  // Active Users card).
+  else if (status === 'active') {
+    const proIds = await bookableTidyProIds(admin)
+    query = query.or(
+      [
+        'and(role.eq.USER,booking_access_status.eq.booking_allowed,suspended_at.is.null,banned_at.is.null)',
+        ...(proIds.length ? [`id.in.(${proIds.join(',')})`] : []),
+      ].join(',')
+    )
+  }
   else if (status === 'not_approved' || status === 'all_waitlisted') {
     // Tidy Pros not let into the app yet (the Overview's Tidy Pro Waitlist card):
     // anyone not approved (or approved then paused), less denied/suspended/banned.
@@ -188,15 +214,7 @@ export default async function UsersPage({
   }
 
   if (available === 'yes' || available === 'no') {
-    // Worked out the same way customer search decides who's bookable (lib/cleanerMatching).
-    const { data: pros, error: prosError } = await admin
-      .from('tidypro_profiles')
-      .select('id, active_for_booking, cleaner_status, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude')
-      .eq('active_for_booking', true)
-      .eq('cleaner_status', 'approved')
-      .eq('is_away', false)
-    if (prosError) throw new Error(`Failed to load Tidy Pro availability: ${prosError.message}`)
-    const availableIds = (await withPushStatus(admin, pros ?? [])).filter(isAvailableForBooking).map((p) => p.id)
+    const availableIds = await bookableTidyProIds(admin)
     query = query.eq('role', 'TIDYPRO')
     if (available === 'yes') query = query.in('id', availableIds.length ? availableIds : ['00000000-0000-0000-0000-000000000000'])
     else if (availableIds.length) query = query.not('id', 'in', `(${availableIds.join(',')})`)
@@ -213,6 +231,8 @@ export default async function UsersPage({
         .in('id', cleanerIds)
     : { data: [] }
   const cleanerById = new Map((await withPushStatus(admin, cleanerProfiles ?? [])).map((c) => [c.id, c]))
+  // Standard / Deep Cleaning prices, for the "Set ... prices" step in Onboarding Left.
+  const ratesByProId = await loadRatesFor(admin, Array.from(cleanerById.keys())).catch(() => new Map<string, FullServiceRates>())
   // For the Email / Phone / Push columns: who'd actually get each kind of notification.
   const pushIds = await pushSubscribedIds(admin, (users ?? []).map((u) => u.id))
   const acceptanceByProId = await getAcceptanceStats(admin, cleanerIds)
@@ -231,6 +251,9 @@ export default async function UsersPage({
         .order('is_default', { ascending: false })
         .order('created_at', { ascending: true })
     : { data: [] }
+  // Requests / pending / completed / refunds, for the Bookings column.
+  const bookingStatsByUserId = await loadUserBookingStats(admin, customerIds, cleanerIds).catch(() => null)
+
   const addressByUserId = new Map<string, NonNullable<typeof savedAddresses>[number]>()
   for (const a of savedAddresses ?? []) if (!addressByUserId.has(a.user_id)) addressByUserId.set(a.user_id, a)
 
@@ -308,6 +331,7 @@ export default async function UsersPage({
         >
           <option value="">All statuses</option>
           <option value="waitlisted">Waitlisted</option>
+          <option value="active">Active (can book or accept bookings)</option>
           <option value="booking_allowed">Booking Allowed</option>
           <option value="paused">Paused</option>
           <option value="closed">Closed</option>
@@ -444,6 +468,7 @@ export default async function UsersPage({
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Onboarding Left</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Background Check</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Acceptance</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Bookings</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Verified</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Joined</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Note</th>
@@ -610,6 +635,7 @@ export default async function UsersPage({
                           hasSignedAgreement: signatureByProId.has(user.id),
                           backgroundCheck: bgCheck,
                           profile: proProfile,
+                          fullServiceUnpriced: proProfile ? unpricedFullServices(proProfile.services_provided, ratesByProId.get(user.id) ?? resolveRates(null)) : [],
                         })
                         if (remaining.length === 0) return <span className="text-xs font-semibold text-green-600">✓ Done</span>
                         return (
@@ -668,6 +694,25 @@ export default async function UsersPage({
                               {answered === 0 ? 'No requests answered' : `${stats.declined} of ${answered} declined`}
                             </p>
                           </>
+                        )
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {user.role !== 'ADMIN' && (() => {
+                        if (!bookingStatsByUserId) return <span className="text-xs text-slate-300">Couldn’t load</span>
+                        const b = bookingStatsByUserId.get(user.id) ?? NO_BOOKING_STATS
+                        if (b.requests === 0) return <span className="text-xs text-slate-300">None</span>
+                        return (
+                          <dl className="grid grid-cols-[auto_auto] gap-x-2 text-xs">
+                            <dt className="text-slate-400">{user.role === 'TIDYPRO' ? 'Received' : 'Requests'}</dt>
+                            <dd className="font-semibold text-slate-700 text-right">{b.requests}</dd>
+                            <dt className="text-slate-400">Pending</dt>
+                            <dd className={`font-semibold text-right ${b.pending > 0 ? 'text-amber-600' : 'text-slate-700'}`}>{b.pending}</dd>
+                            <dt className="text-slate-400">Completed</dt>
+                            <dd className="font-semibold text-slate-700 text-right">{b.completed}</dd>
+                            <dt className="text-slate-400">Refunds</dt>
+                            <dd className={`font-semibold text-right ${b.refunds > 0 ? 'text-red-600' : 'text-slate-700'}`}>{b.refunds}</dd>
+                          </dl>
                         )
                       })()}
                     </td>

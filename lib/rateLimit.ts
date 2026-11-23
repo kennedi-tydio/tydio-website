@@ -23,6 +23,8 @@ export const RATE_LIMITS = {
   backgroundCheckFollowUpPerCleaner: { limit: 1, windowMinutes: 1 },
   // The admin's "not enough in Stripe to cover this promo" email, per customer and code.
   promoFundingAlert: { limit: 1, windowMinutes: 60 },
+  // Profile → Report a bug; each one emails the admin.
+  bugReportPerUser: { limit: 5, windowMinutes: 60 },
 } satisfies Record<string, RateLimit>
 
 export const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a few minutes and try again.'

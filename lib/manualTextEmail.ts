@@ -1,5 +1,6 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import type { NotificationPayload } from '@/lib/notifications'
+import type { Database } from '@/lib/database.types'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { bookingStartInstant } from '@/lib/bookingTime'
@@ -92,45 +93,20 @@ function formatStart(date: string | null, time: string | null, timeZone: string)
   })
 }
 
-export async function emailAdminManualText(admin: Admin, to: string, payload: NotificationPayload): Promise<void> {
-  const recipients = await peopleWithPhone(admin, to)
+type BookingRow = Database['public']['Tables']['bookings']['Row']
 
-  let bookingId = bookingIdFromUrl(payload.url)
-  let guessed = false
-  if (!bookingId && linksToBookingList(payload.url) && recipients.length > 0) {
-    const ids = recipients.map((r) => r.id).join(',')
-    const { data: latest } = await admin
-      .from('bookings')
-      .select('id')
-      .or(`user_id.in.(${ids}),tidy_pro_id.in.(${ids})`)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    bookingId = latest?.id ?? null
-    guessed = !!bookingId
-  }
-
-  const { data: booking } = bookingId ? await admin.from('bookings').select('*').eq('id', bookingId).maybeSingle() : { data: null }
+// The booking, customer and Tidy Pro sections shared by the admin emails about a booking.
+export async function bookingDetails(
+  admin: Admin,
+  booking: BookingRow
+): Promise<{ html: string; customer: Person | undefined; tidyPro: Person | undefined }> {
   const [parties, { data: tasks }] = await Promise.all([
-    peopleByIds(admin, booking ? [booking.user_id, booking.tidy_pro_id].filter((id): id is string => !!id) : []),
-    booking ? admin.from('booking_tasks').select('task_name').eq('booking_id', booking.id) : Promise.resolve({ data: [] }),
+    peopleByIds(admin, [booking.user_id, booking.tidy_pro_id].filter((id): id is string => !!id)),
+    admin.from('booking_tasks').select('task_name').eq('booking_id', booking.id),
   ])
-  const customer = booking ? parties.get(booking.user_id) : undefined
-  const tidyPro = booking?.tidy_pro_id ? parties.get(booking.tidy_pro_id) : undefined
-
-  // The booking's own customer or Tidy Pro, when the number is theirs. If the number is on
-  // both, the link says which one the text is for.
-  const intendedRole = recipientRoleFromUrl(payload.url)
-  const ownsNumber = (p: Person | undefined): p is Person => !!p?.phone && normalizePhone(p.phone) === normalizePhone(to)
-  const fitsRole = (p: Person) => !intendedRole || p.role === intendedRole
-  const numberOwners = [customer, tidyPro].filter(ownsNumber)
-  const recipient =
-    numberOwners.find(fitsRole) ?? recipients.find(fitsRole) ?? numberOwners[0] ?? recipients[0] ?? null
-  const who = recipient ? `${roleLabel(recipient.role)} ${recipient.name}` : 'Unknown person'
-  const text = textBody(payload)
-
-  const bookingHtml = booking
-    ? `${guessed ? '<p style="margin:24px 0 0;font-size:13px;color:#b45309;">This text doesn’t name a booking, so this is their most recently updated one.</p>' : ''}
+  const customer = parties.get(booking.user_id)
+  const tidyPro = booking.tidy_pro_id ? parties.get(booking.tidy_pro_id) : undefined
+  const html = `
       ${detailSection('Booking', [
         ['Booking ID', booking.id],
         ['Status', [booking.status, booking.progress_status].filter(Boolean).join(' / ')],
@@ -150,6 +126,46 @@ export async function emailAdminManualText(admin: Admin, to: string, payload: No
         ['Phone', tidyPro?.phone],
         ['Email', tidyPro?.email],
       ])}`
+  return { html, customer, tidyPro }
+}
+
+export async function emailAdminManualText(admin: Admin, to: string, payload: NotificationPayload): Promise<void> {
+  const recipients = await peopleWithPhone(admin, to)
+
+  let bookingId = bookingIdFromUrl(payload.url)
+  let guessed = false
+  if (!bookingId && linksToBookingList(payload.url) && recipients.length > 0) {
+    const ids = recipients.map((r) => r.id).join(',')
+    const { data: latest } = await admin
+      .from('bookings')
+      .select('id')
+      .or(`user_id.in.(${ids}),tidy_pro_id.in.(${ids})`)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    bookingId = latest?.id ?? null
+    guessed = !!bookingId
+  }
+
+  const { data: booking } = bookingId ? await admin.from('bookings').select('*').eq('id', bookingId).maybeSingle() : { data: null }
+  const details = booking ? await bookingDetails(admin, booking) : null
+  const customer = details?.customer
+  const tidyPro = details?.tidyPro
+
+  // The booking's own customer or Tidy Pro, when the number is theirs. If the number is on
+  // both, the link says which one the text is for.
+  const intendedRole = recipientRoleFromUrl(payload.url)
+  const ownsNumber = (p: Person | undefined): p is Person => !!p?.phone && normalizePhone(p.phone) === normalizePhone(to)
+  const fitsRole = (p: Person) => !intendedRole || p.role === intendedRole
+  const numberOwners = [customer, tidyPro].filter(ownsNumber)
+  const recipient =
+    numberOwners.find(fitsRole) ?? recipients.find(fitsRole) ?? numberOwners[0] ?? recipients[0] ?? null
+  const who = recipient ? `${roleLabel(recipient.role)} ${recipient.name}` : 'Unknown person'
+  const text = textBody(payload)
+
+  const bookingHtml = details
+    ? `${guessed ? '<p style="margin:24px 0 0;font-size:13px;color:#b45309;">This text doesn’t name a booking, so this is their most recently updated one.</p>' : ''}
+      ${details.html}`
     : '<p style="margin:24px 0 0;font-size:13px;color:#64748b;">Not about a specific booking.</p>'
 
   await sendEmail({

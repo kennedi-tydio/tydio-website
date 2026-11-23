@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { submitTaskPhotoAction, type TaskPhotoKind } from './actions'
 import ModalShell from '@/app/components/ModalShell'
+import { PHOTO_UPLOAD_FAILED_MESSAGE, photoUploadForm } from '@/lib/photoUpload'
 
 function IconX() {
   return (
@@ -79,9 +80,14 @@ export default function PhotoCaptureModal({ bookingId, taskId, taskName, kind = 
     if (!file) return
     setSubmitting(true)
     setError(null)
-    const formData = new FormData()
-    formData.set('photo', file)
-    const result = await submitTaskPhotoAction(bookingId, taskId, formData, kind)
+    let result: Awaited<ReturnType<typeof submitTaskPhotoAction>>
+    try {
+      const form = await photoUploadForm(file)
+      result = 'error' in form ? form : await submitTaskPhotoAction(bookingId, taskId, form, kind)
+    } catch {
+      // The request never reached the server (no signal, or it was refused).
+      result = { error: PHOTO_UPLOAD_FAILED_MESSAGE }
+    }
     setSubmitting(false)
     if ('error' in result) {
       setError(result.error)

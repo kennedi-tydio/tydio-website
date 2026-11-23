@@ -45,6 +45,21 @@ export type TidyTask = {
   // photos that passed the AI check (see lib/petTasks.ts). The estimate
   // below was made from those photos.
   pet?: PetTaskDetails | null
+  // Automatic pricing was down when this task was added (see
+  // lib/taskQuotes.ts), so it has no estimate: the booking goes to the Tidy
+  // Pro as a quote request instead of being charged up front. A pet task's
+  // photos weren't checked either. Cleared once the Tidy Pro quotes it.
+  needsQuote?: boolean | null
+  // The Tidy Pro quoted this task (lib/quoteRequests.ts).
+  quotedByTidyPro?: boolean | null
+  // Their price for it, in dollars: what the customer pays for the task, before
+  // any Top Tidy Pro / distance surcharge and the card fee. Charged as a fixed
+  // price in place of the time-based one. Only ever set server-side.
+  quotedPrice?: number | null
   tier?: Tier | null
   estimatedMinutes?: number | null
+  // The customer said this task is for a different room from the same kind
+  // of room in their Standard / Deep Cleaning (lib/fullServiceScope), so it
+  // isn't a duplicate. Shown to the Tidy Pro.
+  overlapAnswer?: 'different_room' | null
 }

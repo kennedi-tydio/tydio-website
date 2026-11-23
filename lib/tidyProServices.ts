@@ -3,6 +3,7 @@
 //
 // Pure and dependency-free so client components can import it.
 
+import { FULL_SERVICE_CUSTOMER_ENABLED } from './fullService'
 import { usesLaundromat } from './laundry'
 import { isPetTask, type PetTaskDetails } from './petTasks'
 
@@ -33,13 +34,13 @@ export const TIDY_PRO_SERVICES: TidyProServiceOption[] = [
     key: 'standardCleaning',
     label: 'Standard cleaning',
     description: 'A routine clean of the home: dusting, vacuuming, mopping, and wiping down kitchens and bathrooms.',
-    comingSoon: true,
+    comingSoon: !FULL_SERVICE_CUSTOMER_ENABLED,
   },
   {
     key: 'deepCleaning',
     label: 'Deep cleaning',
     description: 'A top-to-bottom clean of the home, including built-up grime and hard-to-reach spots.',
-    comingSoon: true,
+    comingSoon: !FULL_SERVICE_CUSTOMER_ENABLED,
   },
   {
     key: 'laundry',

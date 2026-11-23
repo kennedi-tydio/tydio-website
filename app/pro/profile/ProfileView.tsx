@@ -6,6 +6,7 @@ import DownloadAppCard from '@/app/components/DownloadAppCard'
 import { usePostHog } from 'posthog-js/react'
 import { logoutAction, deleteAccountAction } from '../actions'
 import ModalShell from '@/app/components/ModalShell'
+import BugReportSheet from '@/app/components/BugReportSheet'
 import StripeDashboardButton from './StripeDashboardButton'
 
 function IconHome() {
@@ -134,11 +135,12 @@ export default function ProfileView({
   const [showLogout, setShowLogout] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [showBugReport, setShowBugReport] = useState(false)
 
   return (
-    <main id="main-content" className="min-h-screen flex flex-col" style={{ backgroundColor: '#f5f7fa' }}>
+    <main id="main-content" className="min-h-svh flex flex-col" style={{ backgroundColor: '#f5f7fa' }}>
       <h1 className="sr-only">Profile</h1>
-      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full">
+      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-36 max-w-sm mx-auto w-full safe-area-inset-bottom">
 
         <DownloadAppCard href="/pro/profile/download-app" />
 
@@ -203,6 +205,14 @@ export default function ProfileView({
         <MenuLink label="Manage Address" href="/pro/profile/address" />
         <MenuLink label="Insurance" href="/pro/profile/insurance" />
         <MenuLink label="Help & FAQs" href="/faq#tidy-pros" />
+        <button
+          type="button"
+          onClick={() => setShowBugReport(true)}
+          className="w-full bg-white rounded-2xl px-5 py-4 mb-3 shadow-sm flex items-center justify-between hover:bg-slate-50 transition-colors"
+        >
+          <span className="font-semibold text-slate-800 text-sm">Report a bug</span>
+          <IconChevronRight />
+        </button>
         {/* A file download rather than a page, so a plain link instead of MenuLink */}
         <a
           href="/pro/onboarding/agreements/document?signed=1"
@@ -234,7 +244,7 @@ export default function ProfileView({
       </div>
 
       {/* Bottom nav */}
-      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100">
+      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 safe-area-inset-bottom">
         <div className="flex justify-around items-center py-2 max-w-sm mx-auto px-2">
           {[
             { icon: <IconHome />, label: 'Home', href: '/pro/dashboard', active: false, badge: 0 },
@@ -263,6 +273,8 @@ export default function ProfileView({
       </nav>
 
       {/* Logout confirmation */}
+      {showBugReport && <BugReportSheet role="TIDYPRO" onClose={() => setShowBugReport(false)} />}
+
       {showLogout && (
         <ConfirmSheet
           title="Log out of Tydio?"

@@ -14,7 +14,7 @@ export function LoadingSpinner({ size = 40 }: { size?: number }) {
 // each re-export this, so a route's loading state looks the same everywhere.
 export default function LoadingScreen() {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-white">
+    <div className="min-h-svh w-full flex items-center justify-center bg-white">
       <LoadingSpinner />
     </div>
   )

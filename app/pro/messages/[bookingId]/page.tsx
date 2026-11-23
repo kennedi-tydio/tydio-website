@@ -12,8 +12,16 @@ import type { TidyTask } from '@/app/dashboard/types'
 import ProMessageThreadView, { type ChatMessage } from './ProMessageThreadView'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 import { getPendingTaskAddition, listTaskAdditions } from '@/lib/bookingTaskAdditions'
+import { readSnapshot } from '@/lib/fullServiceBooking'
+import { isBlockedBetween } from '@/lib/userBlocks'
 
 export const metadata: Metadata = { title: 'Messages — Tydio' }
+
+// The parts of a booking's Standard / Deep Cleaning the Tidy Pro is shown.
+function proFullService(raw: unknown) {
+  const snapshot = readSnapshot(raw)
+  return snapshot ? { selection: { ...snapshot.selection, version: 1 as const, step: 'notes' as const }, lines: snapshot.lines } : null
+}
 
 export default async function ProMessageThreadPage({
   params,
@@ -30,7 +38,7 @@ export default async function ProMessageThreadPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, user_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, task_list, pets, notes, will_provide_supplies, cleaner_pay, status, decision_status, progress_status, tidy_pro_unread, cancelled_reason, time_zone, recurring_booking_id, payment_due_at'
+      'id, user_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, task_list, full_service, pets, notes, will_provide_supplies, cleaner_pay, status, decision_status, progress_status, tidy_pro_unread, cancelled_reason, time_zone, recurring_booking_id, payment_due_at'
     )
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
@@ -102,8 +110,11 @@ export default async function ProMessageThreadPage({
   // The customer asking to add tasks to this booking (see lib/bookingTaskAdditions).
   const pendingAddition = booking.status === 'scheduled' ? await getPendingTaskAddition(admin, booking.id) : null
 
+  const blocked = await isBlockedBetween(admin, booking.user_id, session.profileId)
+
   return (
     <ProMessageThreadView
+      blocked={blocked}
       taskAddition={
         pendingAddition
           ? {
@@ -126,7 +137,7 @@ export default async function ProMessageThreadPage({
       bookingId={booking.id}
       customerName={customerName}
       customerPhotoUrl={customerProfile?.photo_url ?? null}
-      canCall={canCall({ ...booking, tidy_pro_id: session.profileId })}
+      canCall={!blocked && canCall({ ...booking, tidy_pro_id: session.profileId })}
       scheduledDate={schedule.date}
       scheduledTime={schedule.time}
       startsAtMs={
@@ -140,6 +151,7 @@ export default async function ProMessageThreadPage({
       addressLabel={addressLabel}
       addressLine={addressLine}
       tasks={(booking.task_list as TidyTask[] | null) ?? []}
+      fullService={proFullService(booking.full_service)}
       photoUrls={await signedTaskPhotoUrls(admin, (booking.task_list as TidyTask[] | null) ?? [])}
       pets={booking.pets}
       notes={booking.notes}

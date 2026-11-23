@@ -130,8 +130,8 @@ export default function PayoutMethodView({
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-6 pb-40 max-w-sm mx-auto w-full">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
+      <div className="flex-1 overflow-y-auto px-5 pt-6 pb-40 max-w-sm mx-auto w-full safe-area-inset-bottom">
         <button
           type="button"
           onClick={() => router.push('/pro/profile')}
@@ -206,7 +206,7 @@ export default function PayoutMethodView({
         )}
       </div>
 
-      <div className="fixed bottom-20 inset-x-0 px-5">
+      <div className="fixed above-bottom-nav inset-x-0 px-5">
         <div className="max-w-sm mx-auto w-full">
           {error && (
             <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3 leading-relaxed text-center">
@@ -233,7 +233,7 @@ export default function PayoutMethodView({
       </div>
 
       {/* Bottom nav */}
-      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100">
+      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 safe-area-inset-bottom">
         <div className="flex justify-around items-center py-2 max-w-sm mx-auto px-2">
           {[
             { icon: <IconHome />, label: 'Home', href: '/pro/dashboard', active: false, badge: 0 },

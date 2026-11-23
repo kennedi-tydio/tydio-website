@@ -14,7 +14,8 @@ function Stars({ rating }: { rating: number }) {
 }
 
 // Shared by customers viewing a cleaner and a cleaner viewing their own profile as
-// a customer would, so both see the same screen.
+// a customer would, so both see the same screen. Tidy Pros also see a customer's
+// reviews (from other Tidy Pros) on it.
 export default function CleanerReviewsView({
   name,
   rating,
@@ -33,7 +34,7 @@ export default function CleanerReviewsView({
 }) {
   const Root = embedded ? 'div' : 'main'
   return (
-    <Root id={embedded ? undefined : 'main-content'} className={`${embedded ? '' : 'min-h-screen '}bg-white flex flex-col`}>
+    <Root id={embedded ? undefined : 'main-content'} className={`${embedded ? '' : 'min-h-svh '}bg-white flex flex-col`}>
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-16 max-w-sm mx-auto w-full">
         <Link
           href={backHref}

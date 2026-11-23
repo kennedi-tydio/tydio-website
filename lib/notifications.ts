@@ -13,10 +13,11 @@ function siteUrl(path: string): string {
   return `${base}${path}`
 }
 
-export function notifyNewBookingRequest(customerFirstName: string, bookingId: string): NotificationPayload {
+// serviceLabel: "Standard Cleaning" / "Deep Cleaning" when the booking includes one.
+export function notifyNewBookingRequest(customerFirstName: string, bookingId: string, serviceLabel?: string | null): NotificationPayload {
   return {
-    title: 'New booking request',
-    body: `${customerFirstName} just requested a Tidy Task booking.`,
+    title: serviceLabel ? `New ${serviceLabel} request` : 'New booking request',
+    body: serviceLabel ? `${customerFirstName} just requested a ${serviceLabel}.` : `${customerFirstName} just requested a Tidy Task booking.`,
     url: siteUrl(`/pro/messages/${bookingId}`),
   }
 }
@@ -29,18 +30,37 @@ export function notifyBookingAccepted(cleanerFirstName: string, bookingId: strin
   }
 }
 
-export function notifyBookingDeclined(bookingId: string): NotificationPayload {
+// What the customer can do once their Tidy Pro is gone: a task booking goes to up to 3
+// others at once at the same price; a Standard / Deep Cleaning to one at a time, at that
+// Tidy Pro's own price (lib/replacementChain). Either way they can cancel instead. Texts
+// end with the link, so this ends by pointing at it.
+function replacementChoices(fullService: boolean): string {
+  return fullService
+    ? 'Choose another Tidy Pro (you’ll see their price first, and we’ll charge or refund the difference), or cancel your booking for a refund. Do either here:'
+    : 'Choose up to 3 other Tidy Pros with no new charge, or cancel your booking for a refund. Do either here:'
+}
+
+export function notifyBookingDeclined(bookingId: string, fullService = false): NotificationPayload {
   return {
     title: 'Booking declined',
-    body: "Your Tidy Pro declined your booking. Choose up to 3 other cleaners with no new charge, or cancel your booking for a refund.",
+    body: `Your Tidy Pro declined your booking. ${replacementChoices(fullService)}`,
     url: siteUrl(`/dashboard/bookings/${bookingId}/replace`),
   }
 }
 
-export function notifyAllRequestsDeclined(bookingId: string): NotificationPayload {
+export function notifyAllRequestsDeclined(bookingId: string, fullService = false): NotificationPayload {
   return {
     title: 'Booking declined',
-    body: 'The Tidy Pros you asked declined your booking. Choose up to 3 other cleaners with no new charge, or cancel your booking for a refund.',
+    body: `The Tidy Pros you asked declined your booking. ${replacementChoices(fullService)}`,
+    url: siteUrl(`/dashboard/bookings/${bookingId}/replace`),
+  }
+}
+
+// One replacement in a Standard / Deep Cleaning chain declined.
+export function notifyReplacementDeclined(bookingId: string): NotificationPayload {
+  return {
+    title: 'Replacement declined',
+    body: `The Tidy Pro you chose declined your booking. ${replacementChoices(true)}`,
     url: siteUrl(`/dashboard/bookings/${bookingId}/replace`),
   }
 }
@@ -77,10 +97,10 @@ export function notifyLateCancelConfirmation(refund: number): NotificationPayloa
   }
 }
 
-export function notifyCleanerCancelled(cleanerFirstName: string, bookingId: string): NotificationPayload {
+export function notifyCleanerCancelled(cleanerFirstName: string, bookingId: string, fullService = false): NotificationPayload {
   return {
     title: 'Your Tidy Pro canceled',
-    body: `${cleanerFirstName} canceled your booking. Choose up to 3 other cleaners with no new charge, or cancel your booking for a refund.`,
+    body: `${cleanerFirstName} canceled your booking. ${replacementChoices(fullService)}`,
     url: siteUrl(`/dashboard/bookings/${bookingId}/replace`),
   }
 }
@@ -115,6 +135,16 @@ export function notifyCustomerNoAccess(): NotificationPayload {
     title: "Your Tidy Pro couldn't get in",
     body: "Your Tidy Pro arrived but couldn't get into your home, so your booking has been canceled. Our team will review it and email you about any refund. Your tasks are back on your list.",
     url: siteUrl('/dashboard'),
+  }
+}
+
+// The Tidy Pro pressed "Unable to access location" (or reported "I can't enter the
+// property") and the no-access countdown has started. The booking is still on.
+export function notifyCustomerUnableToAccess(cleanerFirstName: string, bookingId: string): NotificationPayload {
+  return {
+    title: `${cleanerFirstName} can't get in`,
+    body: `${cleanerFirstName} is at your home but is unable to access it. Please respond to ${cleanerFirstName} in the Tydio app right away so they can get in and start your cleaning.`,
+    url: siteUrl(`/dashboard/messages/${bookingId}`),
   }
 }
 
@@ -219,9 +249,9 @@ export function notifyArrivalCheck(bookingId: string): NotificationPayload {
 
 export function notifyOnTheWayReminder(bookingId: string): NotificationPayload {
   return {
-    title: 'Did you make it to your booking?',
-    body: 'Did you make it to your booking? Open the app to follow the booking instructions. This is necessary in order to receive payment.',
-    url: siteUrl(`/pro/messages/${bookingId}`),
+    title: 'Your booking is starting',
+    body: 'Your booking is starting now. Open the Tydio app to complete your booking, and follow each step until you mark it complete. These steps are required to receive your payout.',
+    url: siteUrl(`/pro/bookings/${bookingId}`),
   }
 }
 
@@ -478,6 +508,39 @@ export function notifyRecurringVisitsSkippedByTidyPro(cleanerFirstName: string, 
   }
 }
 
+// When the Tydio team cancels a whole recurring booking. Each visit already booked gets
+// its own notifyAdminCancelledBooking with its refund.
+export function notifyRecurringSeriesCancelledByAdmin(role: 'USER' | 'TIDYPRO'): NotificationPayload {
+  return role === 'USER'
+    ? {
+        title: 'Recurring booking canceled',
+        body: 'The Tydio team canceled your recurring cleaning. No more visits will be booked or charged.',
+        url: siteUrl('/dashboard/bookings'),
+      }
+    : {
+        title: 'Recurring booking canceled',
+        body: 'The Tydio team canceled a recurring cleaning of yours. No more visits will be booked with you.',
+        url: siteUrl('/pro/bookings'),
+      }
+}
+
+// When the Tydio team cancels recurring visits not booked yet. Nothing was charged for them.
+export function notifyRecurringVisitsSkippedByAdmin(role: 'USER' | 'TIDYPRO', datesISO: string[]): NotificationPayload {
+  const dates = datesISO.map(shortDate).join(', ')
+  const plural = datesISO.length > 1
+  return role === 'USER'
+    ? {
+        title: plural ? 'Recurring visits canceled' : 'Recurring visit canceled',
+        body: `The Tydio team canceled your recurring cleaning on ${dates}. You won't be charged for ${plural ? 'them' : 'it'}, and your other visits are still on.`,
+        url: siteUrl('/dashboard/bookings'),
+      }
+    : {
+        title: plural ? 'Recurring visits canceled' : 'Recurring visit canceled',
+        body: `The Tydio team canceled the recurring visit${plural ? 's' : ''} on ${dates}. The other visits are still on.`,
+        url: siteUrl('/pro/bookings'),
+      }
+}
+
 export function notifyRecurringSeriesDroppedByTidyPro(cleanerFirstName: string, seriesId: string): NotificationPayload {
   return {
     title: 'Your recurring cleaning needs a new Tidy Pro',
@@ -583,4 +646,53 @@ export function notifyTaskAdditionRefunded(reason: 'declined' | 'expired' | 'rem
     body: `${why}. We've refunded $${refund.toFixed(2)}, and the tasks are back on your dashboard.`,
     url: siteUrl('/dashboard'),
   }
+}
+
+// ── Quote requests (lib/quoteRequests.ts): automatic pricing was down, so the
+// Tidy Pro quotes the booking before the customer pays.
+
+export function notifyQuoteRequested(customerFirstName: string, quoteId: string): NotificationPayload {
+  return {
+    title: 'New quote request',
+    body: `${customerFirstName} would like a quote for a Tidy Task booking. Send your quote so they can book you.`,
+    url: siteUrl(`/pro/quotes/${quoteId}`),
+  }
+}
+
+export function notifyQuoteSent(cleanerFirstName: string, quoteId: string): NotificationPayload {
+  return {
+    title: 'Your quote is ready',
+    body: `${cleanerFirstName} sent you a quote. Review it, then approve and pay to send your booking request.`,
+    url: siteUrl(`/dashboard/quotes/${quoteId}`),
+  }
+}
+
+export function notifyQuoteDeclinedByTidyPro(cleanerFirstName: string, quoteId: string): NotificationPayload {
+  return {
+    title: 'Quote request declined',
+    body: `${cleanerFirstName} can’t quote this booking. Your tasks are back on your dashboard, so you can book another Tidy Pro.`,
+    url: siteUrl(`/dashboard/quotes/${quoteId}`),
+  }
+}
+
+export function notifyQuoteDeclinedByCustomer(customerFirstName: string, quoteId: string): NotificationPayload {
+  return {
+    title: 'Quote declined',
+    body: `${customerFirstName} declined your quote or withdrew their request.`,
+    url: siteUrl(`/pro/quotes/${quoteId}`),
+  }
+}
+
+export function notifyQuoteExpired(forRole: 'USER' | 'TIDYPRO', quoteId: string): NotificationPayload {
+  return forRole === 'USER'
+    ? {
+        title: 'Quote request expired',
+        body: 'Your quote request wasn’t approved in time for the booking. Your tasks are back on your dashboard.',
+        url: siteUrl(`/dashboard/quotes/${quoteId}`),
+      }
+    : {
+        title: 'Quote request expired',
+        body: 'A quote request expired before it was booked.',
+        url: siteUrl(`/pro/quotes/${quoteId}`),
+      }
 }

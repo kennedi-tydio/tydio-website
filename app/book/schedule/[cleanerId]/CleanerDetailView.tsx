@@ -117,7 +117,7 @@ export default function CleanerDetailView({
   const initials = name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
 
   return (
-    <Root id={embedded ? undefined : 'main-content'} className={`${embedded ? '' : 'min-h-screen '}bg-white flex flex-col`}>
+    <Root id={embedded ? undefined : 'main-content'} className={`${embedded ? '' : 'min-h-svh '}bg-white flex flex-col`}>
       <div className="flex-1 overflow-y-auto max-w-sm mx-auto w-full pb-16">
         {/* Hero photo */}
         <div className="relative h-56 bg-slate-200 flex-shrink-0">

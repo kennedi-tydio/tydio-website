@@ -179,6 +179,66 @@ export function isSpecificFloorTask(name: string): boolean {
   return /\b(?:sweep|sweeping|swept|mop|mopping|mopped|vacuum|vacuuming|vacuumed)\b/.test(n)
 }
 
+// "Fold flat sheets", "Fold towels and put them on the armchair", "Hang up
+// coats": a handling verb with a named item already says what to do, so the
+// AI's "too vague" is overruled for these.
+const HANDLING_VERB = String.raw`(?:fold|folding|refold|iron|ironing|hang(?: up)?|put away|put|place|stack|make|change|strip|roll)`
+const HANDLED_ITEM = String.raw`(?:sheets?|flat sheets?|fitted sheets?|pillow ?cases?|pillow ?covers?|duvet(?: covers?)?|comforters?|blankets?|throws?|quilts?|towels?|washcloths?|linens?|bedding|beds?|clothes|clothing|shirts?|pants|jeans|dresses|sweaters?|socks|coats?|jackets?|napkins?|tablecloths?)`
+export function isSpecificHandlingTask(name: string): boolean {
+  const n = normalize(name)
+  return new RegExp(String.raw`^${HANDLING_VERB} (?:\w+ ){0,3}?${HANDLED_ITEM}\b`).test(n)
+}
+
+// What the AI validator says a task acts on ("shower", "dishes", "windows").
+// When it names an action and one of these, the task says what to do, so the
+// model's own "too vague" doesn't stand. A room, a floor (sweep, mop or vacuum
+// is checked separately) or a filler word isn't a thing to work on.
+const NOT_A_THING = new Set([
+  'stuff', 'things', 'thing', 'everything', 'anything', 'something', 'it', 'all', 'place', 'mess', 'whatever', 'up',
+  'house', 'home', 'apartment', 'room', 'rooms', 'area', 'areas', 'space', 'floor', 'floors', 'flooring', 'ground',
+])
+export function aiNamedSpecificThing(action: unknown, thing: unknown): boolean {
+  if (typeof action !== 'string' || typeof thing !== 'string') return false
+  const a = normalize(action)
+  const t = normalize(thing).replace(/^(?:the|my|a|an|all|some) /, '')
+  if (!a || !t) return false
+  // Two things joined ("toilet and tub") is two jobs, not one.
+  if (/\b(?:and|or|plus)\b|,/.test(thing) || / and /.test(t)) return false
+  if (NOT_A_THING.has(t) || PLACES.includes(t)) return false
+  // "entire kitchen top to bottom", "the whole guest bathroom": a whole area.
+  if (/\b(?:entire|whole|every|top to bottom|throughout)\b/.test(t)) return false
+  if (PLACES.some((p) => t.endsWith(` ${p}`))) return false
+  // "kitchen stuff", "living room area": a place with a filler word.
+  const words = t.split(' ')
+  if (words.some((w) => NOT_A_THING.has(w)) && words.every((w) => NOT_A_THING.has(w) || PLACES.some((p) => p.split(' ').includes(w))))
+    return false
+  return true
+}
+
+// The same check read from the task as typed, for when the model leaves its
+// action and thing blank to justify a rejection ("Tidy the coffee table").
+// The task must start with a work verb; "make" and "declutter" are left out
+// ("Make it nice", decluttering is a project Tydio doesn't take).
+export function taskTextNamesOneThing(name: string): boolean {
+  const n = normalize(name)
+  // Longest first, so "wipe down" wins over "wipe".
+  const verb = TASK_VERBS.filter((v) => v !== 'make' && v !== 'declutter')
+    .sort((a, b) => b.length - a.length)
+    .find((v) => n === v || n.startsWith(`${v} `))
+  if (!verb) return false
+  return aiNamedSpecificThing(verb, n.slice(verb.length).trim())
+}
+
+// Whether a rejection's own suggested wording is the task as typed: "Fold flat
+// sheets" rejected "like “Fold flat sheets” or ...". The model contradicted
+// itself, so the rejection doesn't stand.
+export function reasonSuggestsTaskItself(reason: string, name: string): boolean {
+  const n = normalize(name)
+  if (!n) return false
+  const quoted = Array.from(reason.matchAll(/[“"'‘]([^”"'’]+)[”"'’]/g), (m) => normalize(m[1]))
+  return quoted.some((q) => q === n || (q.includes(' ') && n.startsWith(`${q} `)))
+}
+
 // ── More than one task in one ──────────────────────────────────────────────
 
 // Verbs that each start a separate job. "Sweep and mop the floor" is two

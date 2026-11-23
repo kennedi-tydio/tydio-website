@@ -6,16 +6,28 @@ import { CANCEL_NOTE_MAX_LENGTH, type CancelReasonOption, type Cancellation } fr
 
 // Asks why before a booking is canceled: one reason from the list, plus an optional note.
 // onConfirm runs the cancel and returns an error message, or null once it's done.
+// The wording props let a Tidy Pro's decline use the same sheet. noteOnlyFor shows the note
+// box only when that reason is picked.
 export default function CancelReasonSheet({
   reasons,
   warning,
   confirmLabel = 'Cancel booking',
+  title = 'Why are you canceling?',
+  verb = 'canceling',
+  workingLabel = 'Canceling…',
+  keepLabel = 'Keep it',
+  noteOnlyFor,
   onConfirm,
   onClose,
 }: {
   reasons: readonly CancelReasonOption[]
   warning?: string | null
   confirmLabel?: string
+  title?: string
+  verb?: string
+  workingLabel?: string
+  keepLabel?: string
+  noteOnlyFor?: string
   onConfirm: (cancellation: Cancellation) => Promise<string | null>
   onClose: () => void
 }) {
@@ -25,15 +37,16 @@ export default function CancelReasonSheet({
   const [note, setNote] = useState('')
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const showNote = noteOnlyFor == null || reason === noteOnlyFor
 
   async function handleConfirm() {
     if (!reason) {
-      setError('Please choose a reason for canceling.')
+      setError(`Please choose a reason for ${verb}.`)
       return
     }
     setWorking(true)
     setError(null)
-    const message = await onConfirm({ reason, note })
+    const message = await onConfirm({ reason, note: showNote ? note : '' })
     setWorking(false)
     if (message) setError(message)
   }
@@ -42,15 +55,15 @@ export default function CancelReasonSheet({
     <ModalShell
       onClose={working ? undefined : onClose}
       labelledBy={titleId}
-      panelClassName="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-5 max-h-[90vh] overflow-y-auto text-left"
+      panelClassName="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-5 max-h-[90dvh] overflow-y-auto text-left"
     >
       <h2 id={titleId} className="text-lg font-bold text-slate-900">
-        Why are you canceling?
+        {title}
       </h2>
       {warning && <p className="text-xs text-slate-600 mt-1">{warning}</p>}
 
       <fieldset className="mt-4">
-        <legend className="sr-only">Reason for canceling</legend>
+        <legend className="sr-only">Reason for {verb}</legend>
         <div className="flex flex-col gap-2">
           {reasons.map((r) => (
             <label
@@ -74,18 +87,22 @@ export default function CancelReasonSheet({
         </div>
       </fieldset>
 
-      <label htmlFor={noteId} className="block text-sm font-semibold text-slate-700 mt-4 mb-1">
-        Add a note <span className="font-normal text-slate-400">(optional)</span>
-      </label>
-      <textarea
-        id={noteId}
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        maxLength={CANCEL_NOTE_MAX_LENGTH}
-        rows={3}
-        disabled={working}
-        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 resize-none"
-      />
+      {showNote && (
+        <>
+          <label htmlFor={noteId} className="block text-sm font-semibold text-slate-700 mt-4 mb-1">
+            Add a note <span className="font-normal text-slate-400">(optional)</span>
+          </label>
+          <textarea
+            id={noteId}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={CANCEL_NOTE_MAX_LENGTH}
+            rows={3}
+            disabled={working}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 resize-none"
+          />
+        </>
+      )}
 
       {error && (
         <p role="alert" className="text-xs text-red-600 mt-2">
@@ -100,7 +117,7 @@ export default function CancelReasonSheet({
           disabled={working}
           className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
         >
-          Keep it
+          {keepLabel}
         </button>
         <button
           type="button"
@@ -108,7 +125,7 @@ export default function CancelReasonSheet({
           disabled={working}
           className="flex-1 py-2.5 rounded-xl bg-red-600 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {working ? 'Canceling…' : confirmLabel}
+          {working ? workingLabel : confirmLabel}
         </button>
       </div>
     </ModalShell>

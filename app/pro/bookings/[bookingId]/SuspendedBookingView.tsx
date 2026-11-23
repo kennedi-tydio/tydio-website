@@ -20,7 +20,7 @@ export default function SuspendedBookingView({
   reason?: 'upcharge' | 'payment'
 }) {
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
         <Link href="/pro/bookings" className="text-sm text-slate-500 hover:text-slate-700">
           ← Bookings

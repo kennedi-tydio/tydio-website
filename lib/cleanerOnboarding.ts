@@ -39,6 +39,29 @@ export function missingOnboardingSteps(cleaner: OnboardingFields): { label: stri
   return steps
 }
 
+// A required step for anyone who offers Standard or Deep Cleaning but hasn't
+// priced it (lib/fullServiceRates unpricedFullServices), including Tidy Pros who
+// finished onboarding before these services had prices. It's kept out of
+// missingOnboardingSteps on purpose: that list decides whether they can be
+// booked at all, and an unpriced service only keeps them out of full-service
+// bookings (see canPerform in lib/fullServiceRates). Unticking the service on
+// Services Provided clears it too.
+export const FULL_SERVICE_PRICING_STEP_LABEL = 'Set your Standard & Deep Cleaning prices'
+export const FULL_SERVICE_PRICING_HREF = '/pro/profile/services/pricing'
+
+export function fullServicePricingSteps(
+  unpriced: readonly ('standard' | 'deep')[]
+): { label: string; href: string; fullServiceOnly: true }[] {
+  if (unpriced.length === 0) return []
+  const label =
+    unpriced.length === 2
+      ? FULL_SERVICE_PRICING_STEP_LABEL
+      : unpriced[0] === 'deep'
+        ? 'Set your Deep Cleaning prices'
+        : 'Set your Standard Cleaning prices'
+  return [{ label, href: FULL_SERVICE_PRICING_HREF, fullServiceOnly: true }]
+}
+
 // missingOnboardingSteps talks to the cleaner ("Write your bio"); admin lists read
 // better without the "your".
 export function adminStepLabel(label: string): string {

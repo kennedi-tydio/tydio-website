@@ -34,7 +34,7 @@ export default async function WaitlistPage({ searchParams }: { searchParams: Pro
 
   if (denied) {
     return (
-      <main id="main-content" className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
+      <main id="main-content" className="min-h-svh bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
         <PostHogIdentify profileId={session.profileId} role={session.role} />
         <Image src="/Tydio Logo No Bkg.png" alt="Tydio" width={120} height={44} priority className="mb-8" />
 
@@ -56,7 +56,7 @@ export default async function WaitlistPage({ searchParams }: { searchParams: Pro
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
+    <div className="min-h-svh bg-slate-50 flex flex-col items-center justify-center px-4 py-12">
       <PostHogIdentify profileId={session.profileId} role={session.role} />
       <Image src="/Tydio Logo No Bkg.png" alt="Tydio" width={120} height={44} priority className="mb-8" />
 

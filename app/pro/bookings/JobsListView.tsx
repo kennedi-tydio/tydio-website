@@ -137,7 +137,7 @@ export default function JobsListView({
   unreadMessageCount: number
 }) {
   const [tab, setTab] = useState<Tab>('today')
-  const [sortDesc, setSortDesc] = useState(false)
+  const [sortDesc, setSortDesc] = useState(true)
 
   const visible = useMemo(() => {
     const filtered = jobs.filter((j) => j.bucket === tab)
@@ -152,8 +152,8 @@ export default function JobsListView({
   ]
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
+      <div className="flex-1 overflow-y-auto px-5 pt-10 pb-28 max-w-sm mx-auto w-full safe-area-inset-bottom">
         <h1 className="text-3xl font-bold text-slate-900 mb-5">Your Jobs</h1>
 
         <div className="flex items-center gap-2 mb-5">
@@ -204,7 +204,7 @@ export default function JobsListView({
         )}
       </div>
 
-      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100">
+      <nav aria-label="Main" className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 safe-area-inset-bottom">
         <div className="flex justify-around items-center py-2 max-w-sm mx-auto px-2">
           {[
             { icon: <IconHome />, label: 'Home', href: '/pro/dashboard', active: false, badge: 0 },

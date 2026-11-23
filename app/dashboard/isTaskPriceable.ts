@@ -34,5 +34,9 @@ export function isTaskPriceable(task: TidyTask): boolean {
   // A pet task's photos were deleted (7 days after upload, unbooked): it
   // needs re-adding with fresh photos so they can be checked again.
   if (task.pet && (task.pet.photos ?? []).length === 0) return false
+  // Added while automatic pricing was down: bookable, priced by the Tidy
+  // Pro's quote before anything is charged (lib/taskQuotes.ts).
+  if (task.needsQuote === true) return true
+  if (typeof task.quotedPrice === 'number' && task.quotedPrice > 0) return true
   return (task.tier ?? tierFromEstimatedMinutes(task.estimatedMinutes ?? -1)) != null
 }

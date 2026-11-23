@@ -6,7 +6,7 @@ import Footer from '../components/Footer'
 
 export const metadata: Metadata = { title: 'Privacy Policy — Tydio' }
 
-const EFFECTIVE_DATE = 'November 17, 2026'
+const EFFECTIVE_DATE = 'November 22, 2026'
 const CONTACT_EMAIL = 'kennedicoats@tydioapp.com'
 
 const sections = [
@@ -89,8 +89,8 @@ const providers: { name: string; purpose: string; data: string; href: string }[]
   },
   {
     name: 'OpenAI',
-    purpose: 'Validating cleaning tasks, checking that photos for pet enclosure and litter box tasks are clear and show what needs cleaning, and estimating how long tasks will take',
-    data: 'The task details you enter (task name, room, mess level, additional issues, and task notes) and, for pet enclosure and litter box tasks, the photos you add, the pet type, and the option you choose. Anything visible in those photos is sent too. We do not intentionally include your account name, contact details, saved service address, or designated entry instructions in this task-validation request. However, any personal or sensitive information you type into task names, descriptions, or notes can be included in the text sent to OpenAI',
+    purpose: 'Validating cleaning tasks, checking that photos for pet enclosure and litter box tasks are clear and show what needs cleaning, estimating how long tasks will take, and estimating how long a Standard or Deep Cleaning visit will take so it can be scheduled',
+    data: 'The task details you enter (task name, room, mess level, additional issues, and task notes) and, for pet enclosure and litter box tasks, the photos you add, the pet type, and the option you choose. Anything visible in those photos is sent too. We do not intentionally include your account name, contact details, saved service address, or designated entry instructions in this task-validation request. However, any personal or sensitive information you type into task names, descriptions, or notes can be included in the text sent to OpenAI. For a Standard or Deep Cleaning, we send the service, your home size, the rooms and how many of each, the add-ons, and the cleaning priorities you choose; your notes for the Tidy Pro are not sent. That estimate is used only to schedule the visit and does not affect its price',
     href: 'https://openai.com/policies/privacy-policy',
   },
   {
@@ -218,6 +218,7 @@ export default function PrivacyPolicyPage() {
               <List items={[
                 <><strong>Service addresses:</strong> the street address, city, state, and ZIP code of homes where you book cleanings, and any <strong>directions and entry instructions</strong> you choose to save on a saved address so they fill in on future bookings there.</>,
                 <><strong>Pets:</strong> the pets in your home that you add in your profile (each pet&apos;s type, and optionally its name, notes, and a photo), or that you don&apos;t have any. Customers answer this before booking so their Tidy Pro knows what to expect.</>,
+                <><strong>Bio and cleaning preferences:</strong> a short bio and how you like your home cleaned, if you add them to your profile. Both are optional.</>,
                 <><strong>Booking details:</strong> the cleaning tasks you request (task name, room, mess level, notes, and any unusual conditions), photos you add to pet enclosure and litter box tasks (with the pet type, chosen option, and cleaning instructions), preferred dates and times, whether you provide supplies, notes for your Tidy Pro, and <strong>directions and entry instructions</strong> (such as where to park, gate codes, or where a key is kept).</>,
                 <><strong>Payment information:</strong> card details are entered directly into Stripe&apos;s secure form and are never stored on our servers. We keep only the card brand, expiration month and year, and Stripe reference IDs.</>,
                 <><strong>Promo codes</strong> you enter.</>,
@@ -227,13 +228,13 @@ export default function PrivacyPolicyPage() {
             <Sub title="Information you give us: Tidy Pros">
               <List items={[
                 <><strong>Home address:</strong> used to measure how far you are from each job and to match you with nearby customers. Customers see only your city and state, never your street address.</>,
-                <><strong>Professional profile:</strong> bio, profile photo, service areas, ZIP codes you serve, travel radius, availability, and any allergies or sensitivities you choose to list. Your profile, including allergies, is shown to customers.</>,
+                <><strong>Professional profile:</strong> bio, profile photo, service areas, ZIP codes you serve, travel radius, availability, the services you provide, the Standard and Deep Cleaning prices you set (base prices, room percentages, and add-on prices), and any allergies or sensitivities you choose to list. Your profile, including allergies, is shown to customers. Customers see the prices that result from your rates for their booking.</>,
                 <><strong>Background check fee:</strong> if you pay a screening fee, which covers both identity verification and the background check, you pay it through Stripe&apos;s secure checkout. We keep the amount, payment and refund status, and Stripe reference IDs.</>,
                 <><strong>Insurance information:</strong> insurer name, policy expiration date, and the insurance documents you upload.</>,
                 <><strong>Identity verification:</strong> you verify your identity directly with Checkr, our identity verification and screening provider, for example by submitting a photo of a government-issued ID and a selfie. Checkr may use facial comparison technology to confirm the selfie matches the ID. We receive and store only the result (for example, verified or not verified) and related dates, not your ID images, selfie, or any facial data.</>,
                 <><strong>Background check:</strong> you submit your screening information directly to our screening provider (GoodHire, powered by Checkr). We receive and store only the status of your check (for example, pending, passed, or failed) and related dates, not the full report contents.</>,
                 <><strong>Payout information:</strong> when you set up payouts, Stripe collects your bank account details and the identity details it needs to verify you, including your date of birth, directly on its own secure pages. We ask Stripe to collect these all at setup, rather than later when your payouts reach a certain amount, so your payouts aren&apos;t paused for missing details. We don&apos;t see or store your date of birth or bank details; we store only your Stripe account ID and whether onboarding is complete.</>,
-                <><strong>Job records:</strong> photos you take of tasks (an after photo of every completed task, plus any optional before photos), the photo of the location you must take before canceling a booking because you couldn&apos;t get in, completion status, earnings, tips, and acceptance and cancellation history.</>,
+                <><strong>Job records:</strong> photos you take of tasks (an after photo of every completed task, plus any optional before photos), optional before and after photos of a Standard or Deep Cleaning (up to 10 of each, of whole rooms or areas), the photo of the location you must take before canceling a booking because you couldn&apos;t get in, completion status, earnings, tips, and acceptance and cancellation history.</>,
                 <><strong>Work photos:</strong> when you finish a booking, you can choose before and after photo pairs to add to your profile, with the name of the task (for example, &ldquo;Clean bathtub&rdquo;). You can also upload photos of your cleanings from your device, alone or as a before and after pair, with a caption you write. We remove the location and other metadata from uploaded photos before they are shown. Work photos are shown to customers on your profile until you remove them.</>,
                 <><strong>Signature records:</strong> when you sign the Independent Contractor and Platform Agreement, the legal name, any business entity and authorized representative, and the address you enter, plus your account email, IP address, browser, and the time you signed, along with the signed copy of the agreement. When you sign an amendment to that agreement, we keep the same kind of record (the name you type, your account email, IP address, browser, and the time you signed, with the business entity, representative, and address carried over from your agreement) along with the signed copy of the amendment. Tydio receives a copy of each signed agreement and amendment by email, plus a separate notice when you sign an amendment.</>,
               ]} />
@@ -287,7 +288,7 @@ export default function PrivacyPolicyPage() {
                 <><strong>What customers see about Tidy Pros:</strong> full name, profile photo, bio, city and state, any allergies or sensitivities the Tidy Pro lists, rating, review count, approximate distance, availability, verification and insurance badges, and any work photos the Tidy Pro adds to their profile.</>,
                 <><strong>Work photos taken in your home:</strong> if you are a customer, your Tidy Pro may add before and after photos of your tasks to their profile, where any customer viewing that profile can see them. Only the photos and the task name are shown, never your name, address, or the photo&apos;s location. Contact us to ask for a photo of your home to be removed. Please put away anything private, like mail or photos of people, in the areas being cleaned.</>,
                 <><strong>If your Tidy Pro can&apos;t get in:</strong> before canceling a booking because they couldn&apos;t get into your home, your Tidy Pro must take a photo of the outside of your home, including the house or apartment number. Only Tydio sees this photo; we use it to review the no-access report, and it is deleted with the booking&apos;s other photos (see Task photos below).</>,
-                <><strong>What Tidy Pros see about customers:</strong> when a booking request is sent to or accepted by a Tidy Pro, they see the customer&apos;s full name, how long they&apos;ve been a member, the service address, the requested tasks and notes (including any photos added to pet enclosure and litter box tasks), the customer&apos;s pets (including any pet photos), directions and entry instructions, and ratings other Tidy Pros have given the customer. Please share only what your Tidy Pro needs to do the job.</>,
+                <><strong>What Tidy Pros see about customers:</strong> when a booking request is sent to or accepted by a Tidy Pro, they see the customer&apos;s full name, how long they&apos;ve been a member, the service address, the requested tasks and notes (including any photos added to pet enclosure and litter box tasks), the customer&apos;s pets (including any pet photos), the bio and cleaning preferences on the customer&apos;s profile, directions and entry instructions, and the ratings and written reviews other Tidy Pros have left of the customer (with each reviewer&apos;s first name). Customers don&apos;t see the reviews Tidy Pros leave of them. Please share only what your Tidy Pro needs to do the job.</>,
                 <><strong>Messages</strong> you send about a booking are visible to the other party on that booking.</>,
               ]} />
             </Sub>
@@ -420,7 +421,7 @@ export default function PrivacyPolicyPage() {
               <p>
                 Task photos are deleted automatically 7 days after their booking ends (is completed, cancelled, or declined).
                 This covers photos customers add to pet enclosure and litter box tasks and the before and after photos Tidy
-                Pros take of tasks, except copies a Tidy Pro adds to their profile (see Work photos below), and the location
+                Pros take of tasks and of Standard and Deep Cleanings, except copies a Tidy Pro adds to their profile (see Work photos below), and the location
                 photo a Tidy Pro takes when they can&apos;t get in. If a no-show or no-access report is made on a booking, its photos are kept until 7 days after that
                 report is settled. Photos customers add to tasks they never book are deleted 7 days after upload. Deleting
                 your account removes them sooner.
@@ -603,7 +604,8 @@ export default function PrivacyPolicyPage() {
                 deletion, portability, consent-withdrawal, and opt-out rights concerning sale, targeted advertising, or
                 profiling for decisions with legal or similarly significant effects, subject to that law&rsquo;s exceptions.
                 Tydio does not use personal information for targeted advertising or sell it. AI task estimates are used for
-                cleaning-task validation, duration, and pricing; this policy does not waive any rights applicable to automated
+                cleaning-task validation, duration, and pricing, and AI visit-length estimates for Standard and Deep Cleaning are
+                used only for scheduling; this policy does not waive any rights applicable to automated
                 decisions. Submit a request using the email above. We will respond within the period required by your
                 state&rsquo;s law, generally 45 days, and provide any legally permitted extension notice. If a request is
                 denied, the response will explain the reason and any available appeal process. Send an appeal to the same

@@ -123,6 +123,16 @@ describe('priceTaskAddition', () => {
     expect(quote.addedMinutes).toBe(quote.newDurationMinutes - visitDurationMinutes(existing))
   })
 
+  it('adds a Standard / Deep Cleaning’s time to the visit, and charges only for the added tasks', () => {
+    const withCleaning = { ...pricing, fullServiceMinutes: 150 }
+    const added = [tidyTask({ id: 'a', estimatedMinutes: 45 })]
+    // A cleaning-only booking: no Tidy Tasks yet.
+    const quote = priceTaskAddition([], added, withCleaning, 150)
+    expect(quote.amount).toBe(priceTaskListForState(added, 'GA', 240, null).total_customer_charge)
+    expect(quote.newDurationMinutes).toBe(195)
+    expect(quote.addedMinutes).toBe(45)
+  })
+
   it('never reports negative added time when the booking was stored longer', () => {
     const quote = priceTaskAddition([tidyTask({ id: 'x' })], [tidyTask({ id: 'a', estimatedMinutes: 15 })], pricing, 600)
     expect(quote.addedMinutes).toBe(0)

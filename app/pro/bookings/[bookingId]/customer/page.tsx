@@ -32,8 +32,8 @@ export default async function ProCustomerProfilePage({
   if (!booking) redirect('/pro/bookings')
 
   const [{ data: customer }, { data: reviews }, pets] = await Promise.all([
-    admin.from('profiles').select('first_name, last_name, photo_url, has_no_pets, created_at').eq('id', booking.user_id).maybeSingle(),
-    admin.from('cleaner_reviews_of_customers').select('customer_rating').eq('customer_id', booking.user_id),
+    admin.from('profiles').select('first_name, last_name, photo_url, has_no_pets, created_at, bio, cleaning_preferences').eq('id', booking.user_id).maybeSingle(),
+    admin.from('cleaner_reviews_of_customers').select('customer_rating').eq('customer_id', booking.user_id).not('customer_rating', 'is', null),
     loadCustomerPetsWithPhotos(admin, booking.user_id),
   ])
 
@@ -44,6 +44,9 @@ export default async function ProCustomerProfilePage({
     <CustomerProfileView
       name={[customer?.first_name, customer?.last_name].filter(Boolean).join(' ') || 'Customer'}
       photoUrl={customer?.photo_url ?? null}
+      bio={customer?.bio?.trim() || null}
+      preferences={customer?.cleaning_preferences?.trim() || null}
+      reviewsHref={`/pro/bookings/${bookingId}/customer/reviews`}
       pets={pets}
       hasNoPets={customer?.has_no_pets === true}
       memberSince={customer?.created_at ?? null}

@@ -72,3 +72,14 @@ export function readPhotoLocation(exif: Buffer | undefined | null): PhotoLocatio
     return null
   }
 }
+
+// EXIF is at most 64KB; anything bigger isn't an EXIF block.
+const MAX_EXIF_BYTES = 128 * 1024
+
+// The EXIF block of a photo as the phone took it, which the browser sends as
+// the form's "exif" field after shrinking the photo (lib/photoUpload.ts).
+export async function originalExifFromForm(formData: FormData): Promise<Buffer | null> {
+  const exif = formData.get('exif')
+  if (!(exif instanceof File) || exif.size === 0 || exif.size > MAX_EXIF_BYTES) return null
+  return Buffer.from(await exif.arrayBuffer())
+}

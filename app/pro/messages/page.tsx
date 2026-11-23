@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { cleanerCancelledNote } from '@/lib/bookingRequestGroups'
 import { scheduleForViewer } from '@/lib/bookingTime'
+import { listQuoteRequests } from '@/lib/quoteRequests'
 import ProMessagesListView, { type ProMessageThreadSummary } from './ProMessagesListView'
 
 export const metadata: Metadata = { title: 'Messages — Tydio' }
@@ -38,13 +39,23 @@ export default async function ProMessagesPage() {
     : { data: [] }
 
   const lastMessageByBooking = new Map<string, { senderRole: string; body: string }>()
+  const lastMessageAtByBooking = new Map<string, string>()
   for (const m of chatRows ?? []) {
     lastMessageByBooking.set(m.booking_id, { senderRole: m.sender_role, body: m.body })
+    lastMessageAtByBooking.set(m.booking_id, m.created_at)
   }
+
+  // Most recent activity first: the last chat message or booking change.
+  const lastActivity = (b: { id: string; updated_at: string | null }) =>
+    Math.max(
+      ...[lastMessageAtByBooking.get(b.id), b.updated_at].filter((at): at is string => !!at).map((at) => Date.parse(at)),
+      0
+    )
+  const sortedBookings = [...(bookings ?? [])].sort((a, b) => lastActivity(b) - lastActivity(a))
 
   const { data: me } = await admin.from('tidypro_profiles').select('time_zone').eq('id', session.profileId).maybeSingle()
 
-  const threads: ProMessageThreadSummary[] = (bookings ?? []).map((b) => {
+  const threads: ProMessageThreadSummary[] = sortedBookings.map((b) => {
     const customer = customerById.get(b.user_id)
     const schedule = scheduleForViewer(b.scheduled_date, b.scheduled_time, b.time_zone, me?.time_zone ?? null)
     return {
@@ -61,7 +72,8 @@ export default async function ProMessagesPage() {
     }
   })
 
-  const unreadMessageCount = threads.filter((t) => t.unread).length
+  const quotes = await listQuoteRequests(admin, 'TIDYPRO', session.profileId)
+  const unreadMessageCount = threads.filter((t) => t.unread).length + quotes.filter((q) => q.unread).length
 
-  return <ProMessagesListView threads={threads} unreadMessageCount={unreadMessageCount} />
+  return <ProMessagesListView threads={threads} quotes={quotes} unreadMessageCount={unreadMessageCount} />
 }

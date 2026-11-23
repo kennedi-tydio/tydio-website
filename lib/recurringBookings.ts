@@ -13,7 +13,10 @@ import {
   notifyRecurringVisitFailed,
   notifyRecurringVisitRequested,
 } from '@/lib/notifications'
-import { resolveStatePricing, priceTaskListForState, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
+import { resolveStatePricing, resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
+import { bookingDurationMinutes, combineWithFullService, priceTasksPart } from '@/lib/bookingPricing'
+import { requiredServiceForFullService, type FullServiceSelection } from '@/lib/fullService'
+import { bookableSelection, fullServiceMinutes, quotesForTidyPros } from '@/lib/fullServiceBooking'
 import { servicePriceForCleaner } from '@/lib/pricingRules'
 import { dropUnmatchedLaundryLinks } from '@/lib/laundry'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
@@ -49,6 +52,8 @@ export type RecurringSeries = {
   time_zone: string
   scheduled_location: unknown
   task_list: unknown
+  // Standard / Deep Cleaning every visit repeats (FullServiceSelection), or null.
+  full_service?: unknown
   notes: string | null
   entry_instructions: string | null
   will_provide_supplies: boolean
@@ -59,7 +64,7 @@ export type RecurringSeries = {
 }
 
 const SERIES_COLUMNS =
-  'id, user_id, tidy_pro_id, frequency, next_date, scheduled_time, time_zone, scheduled_location, task_list, notes, entry_instructions, will_provide_supplies, payment_method_id, tidy_pro_accepted_at, skipped_dates'
+  'id, user_id, tidy_pro_id, frequency, next_date, scheduled_time, time_zone, scheduled_location, task_list, full_service, notes, entry_instructions, will_provide_supplies, payment_method_id, tidy_pro_accepted_at, skipped_dates'
 
 // Started when the first visit is booked. That visit's requests are linked to it.
 export async function startRecurringSeries(
@@ -74,6 +79,7 @@ export async function startRecurringSeries(
     timeZone: string
     location: ScheduledLocation | null
     taskList: TidyTask[]
+    fullService?: FullServiceSelection | null
     notes: string | null
     entryInstructions: string | null
     suppliesProvided: boolean
@@ -96,6 +102,8 @@ export async function startRecurringSeries(
       time_zone: input.timeZone,
       scheduled_location: input.location as never,
       task_list: dropUnmatchedLaundryLinks(input.taskList.filter((t) => t.completed)) as never,
+      // With its visit-length estimate, so later visits (booked without the AI) keep it.
+      full_service: (input.fullService ? { ...input.fullService, step: 'notes' } : null) as never,
       notes: input.notes,
       entry_instructions: input.entryInstructions,
       will_provide_supplies: input.suppliesProvided,
@@ -210,6 +218,7 @@ async function bookVisit(
       timeZone,
       location: series.scheduled_location as ScheduledLocation | null,
       taskList: (series.task_list as TidyTask[] | null) ?? [],
+      fullService: bookableSelection(series.full_service),
       notes: series.notes,
       entryInstructions: series.entry_instructions,
       suppliesProvided: series.will_provide_supplies,
@@ -233,6 +242,7 @@ async function bookVisit(
     timeZone,
     location: series.scheduled_location as ScheduledLocation | null,
     taskList: (series.task_list as TidyTask[] | null) ?? [],
+    fullService: bookableSelection(series.full_service),
     notes: series.notes,
     entryInstructions: series.entry_instructions,
     suppliesProvided: series.will_provide_supplies,
@@ -301,12 +311,18 @@ export async function newTidyProOptions(admin: Admin, series: RecurringSeries): 
   const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null, profile ?? undefined)
   if (!statePricing.configured) return []
   const squareFootage = await resolveLocationSquareFootage(admin, series.user_id, location)
+  const fullService = bookableSelection(series.full_service)
   let breakdown
   try {
-    breakdown = priceTaskListForState(tasks, statePricing.state, statePricing.medianFourHourPrice, squareFootage)
+    breakdown = priceTasksPart(tasks, statePricing.state, statePricing.medianFourHourPrice, squareFootage)
   } catch {
     return []
   }
+  const durationMinutes = bookingDurationMinutes(
+    tasks,
+    squareFootage,
+    fullService ? (await fullServiceMinutes(fullService, squareFootage, { allowAi: false })).minutes : 0
+  )
 
   const cleaners = await findAvailableCleaners(
     {
@@ -314,15 +330,20 @@ export async function newTidyProOptions(admin: Admin, series: RecurringSeries): 
       longitude: location.longitude,
       date: series.next_date,
       time: series.scheduled_time.slice(0, 5),
-      durationMinutes: breakdown.total_task_minutes,
-      requiredServices: requiredServicesForTasks(tasks),
+      durationMinutes,
+      requiredServices: [...requiredServicesForTasks(tasks), ...(fullService ? [requiredServiceForFullService(fullService.type)] : [])],
+      customerId: series.user_id,
     },
     admin
   )
 
-  return cleaners
-    .filter((c) => c.id !== series.tidy_pro_id)
-    .map((c) => ({ ...c, price: servicePriceForCleaner(breakdown.total_customer_charge, c) }))
+  // With Standard / Deep Cleaning, each Tidy Pro is priced with their own rates,
+  // and anyone who can't do all of it is left out.
+  const others = cleaners.filter((c) => c.id !== series.tidy_pro_id)
+  const quotes = fullService ? await quotesForTidyPros(admin, others.map((c) => c.id), fullService, squareFootage) : null
+  return others
+    .filter((c) => !quotes || quotes.has(c.id))
+    .map((c) => ({ ...c, price: servicePriceForCleaner(combineWithFullService(breakdown, quotes?.get(c.id) ?? null).total_customer_charge, c) }))
 }
 
 export async function loadCustomerSeries(admin: Admin, customerId: string, seriesId: string): Promise<RecurringSeries | null> {

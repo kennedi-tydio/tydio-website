@@ -34,8 +34,13 @@ import { ALREADY_BANNED_MESSAGE, BAN_APPEAL_DAYS, BanAppealError, acceptAppeal, 
 import { pauseCleaner } from '@/lib/cleanerStatus'
 import { isRefundLevel, resolveBookingIncident } from '@/lib/bookingIncidents'
 import { ADMIN_REFUND_LABELS, cancelBookingAsAdmin, isAdminRefund } from '@/lib/bookingRequestGroups'
+import { isAdminPayoutChoice, type AdminPayoutChoice } from '@/lib/payoutHold'
+import { refundCompletedBooking } from '@/lib/bookingPayoutAdjustment'
 import { editBookingAsAdmin, parseAdminBookingEdit } from '@/lib/adminBookingEdits'
 import { parseUpchargeInput, requestUpcharge, withdrawUpcharge } from '@/lib/bookingUpcharges'
+import { completeBookingAsAdmin } from '@/lib/adminBookingCompletion'
+import { holdPayout, payTidyProNow, removePayoutHold } from '@/lib/adminPayout'
+import { cancelSeriesAsAdmin, isSeriesRefund, skipSeriesDatesAsAdmin } from '@/lib/adminRecurringCancellation'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -797,6 +802,26 @@ export async function setTidyProVerifiedAction(proId: string, verified: boolean)
   return {}
 }
 
+const ADMIN_NOTE_MAX_LENGTH = 2000
+
+// The admin's private note on a Tidy Pro (admin_tidy_pro_notes). Never shown to
+// the Tidy Pro or customers. An empty note deletes the row.
+export async function saveTidyProNoteAction(proId: string, note: string): Promise<{ error?: string }> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const trimmed = note.trim()
+  if (trimmed.length > ADMIN_NOTE_MAX_LENGTH) return { error: `Keep notes under ${ADMIN_NOTE_MAX_LENGTH} characters.` }
+
+  const admin = createAdminClient()
+  const { error } = trimmed
+    ? await admin.from('admin_tidy_pro_notes').upsert({ pro_id: proId, note: trimmed, updated_at: new Date().toISOString() })
+    : await admin.from('admin_tidy_pro_notes').delete().eq('pro_id', proId)
+  if (error) return { error: `Couldn't save the note: ${error.message}` }
+
+  revalidatePath('/admin/tidy-pros')
+  return {}
+}
+
 export async function resendSignedAgreementAction(signatureId: string): Promise<void> {
   if (!(await isAdminAuthed())) return
   const result = await emailSignedAgreement(createAdminClient(), signatureId)
@@ -1159,11 +1184,14 @@ export async function cancelBookingAction(
   const reason = String(formData.get('reason') ?? '').trim().slice(0, 1000) || null
   const amountText = String(formData.get('amount') ?? '').replace(/[$,\s]/g, '')
   const customAmount = refund === 'custom' && amountText !== '' ? Number(amountText) : null
+  const payout = readPayoutChoice(formData)
+  if ('error' in payout) return { error: payout.error }
 
-  const result = await cancelBookingAsAdmin(createAdminClient(), bookingId, refund, reason, customAmount)
+  const result = await cancelBookingAsAdmin(createAdminClient(), bookingId, refund, reason, customAmount, payout)
   if ('error' in result) return { error: result.error }
 
   revalidatePath('/admin/bookings')
+  revalidatePath('/admin/recurring')
   revalidatePath(`/dashboard/bookings/${bookingId}`)
   revalidatePath(`/dashboard/messages/${bookingId}`)
   revalidatePath('/dashboard/messages')
@@ -1172,7 +1200,46 @@ export async function cancelBookingAction(
   revalidatePath('/pro/messages')
   revalidatePath('/pro/bookings')
   const outcome = refund === 'custom' ? `Refunded $${customAmount!.toFixed(2)}` : ADMIN_REFUND_LABELS[refund]
-  return { message: `Canceled. ${outcome}. The customer has been emailed.` }
+  const paid = result.cleanerPay ? ` Tidy Pro paid $${result.cleanerPay.toFixed(2)}.` : ''
+  return { message: `Canceled. ${outcome}.${paid} The customer has been emailed.${result.warning ? ` ${result.warning}` : ''}` }
+}
+
+// The Tidy Pro payout fields shared by the cancel and completed-refund forms. No choice
+// means no payout.
+function readPayoutChoice(formData: FormData): { choice: AdminPayoutChoice; custom: number | null } | { error: string } {
+  const choice = String(formData.get('payout') ?? 'none') || 'none'
+  if (!isAdminPayoutChoice(choice)) return { error: 'Choose the Tidy Pro’s payout.' }
+  const text = String(formData.get('payout_amount') ?? '').replace(/[$,\s]/g, '')
+  return { choice, custom: choice === 'custom' && text !== '' ? Number(text) : null }
+}
+
+// A customer escalating after the Tidy Pro completed the booking: the admin refunds them
+// and sets what the Tidy Pro is paid (lib/bookingPayoutAdjustment).
+export async function refundCompletedBookingAction(bookingId: string, _prev: BookingAdminState, formData: FormData): Promise<BookingAdminState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const refund = String(formData.get('refund') ?? '')
+  if (!isAdminRefund(refund)) return { error: 'Choose a refund.' }
+  const amountText = String(formData.get('amount') ?? '').replace(/[$,\s]/g, '')
+  const customRefund = refund === 'custom' && amountText !== '' ? Number(amountText) : null
+  const payout = readPayoutChoice(formData)
+  if ('error' in payout) return { error: payout.error }
+  const note = String(formData.get('note') ?? '').trim().slice(0, 1000) || null
+
+  const result = await refundCompletedBooking(createAdminClient(), bookingId, {
+    refund,
+    customRefund,
+    payout: payout.choice,
+    customPayout: payout.custom,
+    note,
+  })
+  if ('error' in result) return { error: result.error }
+
+  revalidateBookingPages(bookingId)
+  revalidatePath('/admin/refunds')
+  revalidatePath('/pro/profile')
+  const refunded = refund === 'none' ? 'No refund' : result.refunded != null ? `Refunded $${result.refunded.toFixed(2)}` : 'Refunded'
+  return { message: `${refunded}. Tidy Pro payout set to $${result.cleanerPay.toFixed(2)}. Both have been emailed.${result.warning ? ` ${result.warning}` : ''}` }
 }
 
 // ─── Booking edits and upcharges ─────────────────────────────────────────────
@@ -1189,6 +1256,56 @@ function revalidateBookingPages(bookingId: string) {
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/pro/bookings')
   revalidatePath('/pro/dashboard')
+}
+
+// Finishes a booking for a Tidy Pro who did the job but can't finish it in the
+// app, without the after photos (lib/adminBookingCompletion).
+export async function completeBookingAction(bookingId: string, _prev: BookingAdminState, _formData: FormData): Promise<BookingAdminState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const result = await completeBookingAsAdmin(createAdminClient(), bookingId)
+  if ('error' in result) return result
+
+  revalidateBookingPages(bookingId)
+  revalidatePath('/admin/live')
+  revalidatePath(`/pro/bookings/${bookingId}/review`)
+  return { message: `Marked complete. The customer has been asked for a review, and the Tidy Pro is paid unless their payout is on hold.${result.warning ? ` ${result.warning}` : ''}` }
+}
+
+// Pays the Tidy Pro for a completed booking now, releasing any hold on it
+// (lib/adminPayout).
+export async function payTidyProNowAction(bookingId: string, _prev: BookingAdminState, _formData: FormData): Promise<BookingAdminState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const result = await payTidyProNow(createAdminClient(), bookingId)
+  if ('error' in result) return result
+
+  revalidatePath('/admin/bookings')
+  revalidatePath('/pro/profile')
+  revalidatePath('/pro/dashboard')
+  return { message: `Paid. $${result.amount.toFixed(2)} sent to the Tidy Pro’s Stripe account.` }
+}
+
+// Puts a booking's Tidy Pro payout on hold before it goes out (lib/adminPayout).
+export async function holdPayoutAction(bookingId: string, _prev: BookingAdminState, formData: FormData): Promise<BookingAdminState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const result = await holdPayout(createAdminClient(), bookingId, String(formData.get('note') ?? ''))
+  if ('error' in result) return result
+
+  revalidatePath('/admin/bookings')
+  return { message: 'Payout on hold. Nothing is sent until you press Pay Tidy Pro or refund the booking.' }
+}
+
+// Takes the hold off an accepted booking, which is then paid as usual when it completes.
+export async function removePayoutHoldAction(bookingId: string, _prev: BookingAdminState, _formData: FormData): Promise<BookingAdminState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const result = await removePayoutHold(createAdminClient(), bookingId)
+  if ('error' in result) return result
+
+  revalidatePath('/admin/bookings')
+  return { message: 'Hold removed. The Tidy Pro is paid when the booking completes.' }
 }
 
 export async function editBookingAction(bookingId: string, _prev: BookingAdminState, formData: FormData): Promise<BookingAdminState> {
@@ -1405,4 +1522,78 @@ export async function setReportSeverityAction(reportId: string, formData: FormDa
   const { error } = await admin.from('risk_events').update({ severity: severity as ReportSeverity }).eq('id', reportId)
   if (error) throw new Error(`Couldn't change the report's level: ${error.message}`)
   revalidatePath('/admin/reports')
+}
+
+// ─── Booking messages ─────────────────────────────────────────────────────────
+
+export type AdminBookingMessage = {
+  id: string
+  senderRole: string
+  body: string
+  createdAt: string
+  proposal: { date: string; time: string; status: string } | null
+}
+
+// The chat between the customer and the Tidy Pro on one booking, oldest first.
+// Loaded when an admin opens a booking's messages on the Bookings tab.
+export async function getBookingMessagesAction(bookingId: string): Promise<{ messages: AdminBookingMessage[] } | { error: string }> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+
+  const { data, error } = await createAdminClient()
+    .from('booking_messages')
+    .select('id, sender_role, body, created_at, kind, proposed_date, proposed_time, proposal_status')
+    .eq('booking_id', bookingId)
+    .order('created_at', { ascending: true })
+  if (error) return { error: error.message }
+
+  return {
+    messages: (data ?? []).map((m) => ({
+      id: m.id,
+      senderRole: m.sender_role,
+      body: m.body,
+      createdAt: m.created_at,
+      proposal:
+        m.kind === 'time_proposal' && m.proposed_date && m.proposed_time
+          ? { date: m.proposed_date, time: m.proposed_time, status: m.proposal_status ?? 'pending' }
+          : null,
+    })),
+  }
+}
+
+// ─── Recurring bookings ───────────────────────────────────────────────────────
+
+function revalidateRecurring(): void {
+  revalidatePath('/admin/recurring')
+  revalidatePath('/admin/bookings')
+  revalidatePath('/dashboard/bookings')
+  revalidatePath('/dashboard')
+  revalidatePath('/pro/bookings')
+}
+
+// Cancels a whole recurring series and every visit already booked that hasn't started.
+export async function cancelRecurringSeriesAction(seriesId: string, _prev: CancelBookingState, formData: FormData): Promise<CancelBookingState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+  const refund = String(formData.get('refund') ?? '')
+  if (!isSeriesRefund(refund)) return { error: 'Choose a refund for the visits already booked.' }
+  const reason = String(formData.get('reason') ?? '').trim().slice(0, 1000) || null
+
+  const result = await cancelSeriesAsAdmin(createAdminClient(), seriesId, refund, reason)
+  if ('error' in result) return { error: result.error }
+  revalidateRecurring()
+
+  const visits = result.cancelledVisits
+    ? ` ${result.cancelledVisits} booked visit${result.cancelledVisits === 1 ? '' : 's'} canceled (${ADMIN_REFUND_LABELS[refund]} where charged).`
+    : ''
+  const failed = result.failed.length ? ` Couldn’t cancel: ${result.failed.join('; ')}. Cancel ${result.failed.length === 1 ? 'it' : 'them'} from Bookings.` : ''
+  return { message: `Series canceled.${visits} The customer and Tidy Pro have been notified.${failed}` }
+}
+
+// Cancels upcoming visits a series hasn't booked yet. Nothing was charged for them.
+export async function skipRecurringVisitAction(seriesId: string, date: string): Promise<CancelBookingState> {
+  if (!(await isAdminAuthed())) return { error: 'Unauthorized' }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Invalid date.' }
+  const result = await skipSeriesDatesAsAdmin(createAdminClient(), seriesId, [date])
+  if ('error' in result) return { error: result.error }
+  revalidateRecurring()
+  return { message: 'Visit canceled. The customer and Tidy Pro have been notified.' }
 }

@@ -146,6 +146,8 @@ function BookingDetails({
 }
 
 type Props = {
+  // Either side blocked the other (lib/userBlocks): no composer, just a note.
+  blocked?: boolean
   bookingId: string
   cleanerName: string
   cleanerPhotoUrl: string | null
@@ -158,6 +160,8 @@ type Props = {
   suppliesProvided: boolean
   totalPrice: number
   canChooseReplacements: boolean
+  // A Standard / Deep Cleaning: one replacement at a time, at their own price (lib/replacementChain).
+  replacesOneAtATime?: boolean
   // The cleaner accepted, then canceled. Shown like a decline otherwise.
   cleanerCancelled: boolean
   cancelledNote: string | null
@@ -188,6 +192,7 @@ export default function MessageThreadView({
   suppliesProvided,
   totalPrice,
   canChooseReplacements,
+  replacesOneAtATime = false,
   cleanerCancelled,
   cancelledNote,
   status: initialStatus,
@@ -198,6 +203,7 @@ export default function MessageThreadView({
   noShowReportableAtMs,
   recurrence,
   taskAdditions,
+  blocked = false,
 }: Props) {
   const router = useRouter()
   const [status, setStatus] = useState(initialStatus)
@@ -392,7 +398,7 @@ export default function MessageThreadView({
           </div>
 
           {detailsOpen && (
-            <div className="mt-2 max-h-[45vh] overflow-y-auto">
+            <div className="mt-2 max-h-[45dvh] overflow-y-auto">
               <BookingDetails
                 tasks={tasks}
                 suppliesProvided={suppliesProvided}
@@ -621,9 +627,13 @@ export default function MessageThreadView({
               className="block w-full mt-4 py-3 rounded-2xl text-center text-sm font-semibold text-white"
               style={{ backgroundColor: 'var(--color-brand)' }}
             >
-              Choose up to 3 available Tidy Pros
+              {replacesOneAtATime ? 'Choose a replacement Tidy Pro' : 'Choose up to 3 available Tidy Pros'}
             </Link>
-            <p className="text-xs text-slate-500 text-center leading-relaxed mt-2">You won&apos;t be charged again. Your payment is held for your booking. If you cancel, you&apos;re refunded minus the nonrefundable Stripe fee.</p>
+            <p className="text-xs text-slate-500 text-center leading-relaxed mt-2">
+              {replacesOneAtATime
+                ? 'Your payment is held for your booking. You’ll see each Tidy Pro’s price before you confirm, and we’ll charge or refund the difference. If you cancel, you’re refunded minus the nonrefundable Stripe fee.'
+                : 'You won’t be charged again. Your payment is held for your booking. If you cancel, you’re refunded minus the nonrefundable Stripe fee.'}
+            </p>
             <button
               type="button"
               onClick={() => setAskingReason(true)}
@@ -636,46 +646,54 @@ export default function MessageThreadView({
       </div>
 
       <div className="flex-shrink-0 px-5 py-4 border-t border-slate-100 safe-area-inset-bottom">
-        {sendError && (
-          <p
-            id="message-send-error"
-            role="alert"
-            className="max-w-sm mx-auto w-full mb-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 leading-relaxed"
-          >
-            Your message wasn&apos;t sent. {sendError}
+        {blocked ? (
+          <p role="status" className="max-w-sm mx-auto w-full text-center text-sm text-slate-500 leading-relaxed">
+            {"You can’t message each other on Tydio anymore."}
           </p>
+        ) : (
+          <>
+            {sendError && (
+              <p
+                id="message-send-error"
+                role="alert"
+                className="max-w-sm mx-auto w-full mb-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 leading-relaxed"
+              >
+                Your message wasn&apos;t sent. {sendError}
+              </p>
+            )}
+            <div className="flex items-center gap-2 max-w-sm mx-auto w-full">
+              <input
+                aria-label="Message"
+                aria-invalid={sendError ? true : undefined}
+                aria-describedby={sendError ? 'message-send-error' : undefined}
+                type="text"
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value)
+                  if (sendError) setSendError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+                placeholder="Message..."
+                className="flex-1 rounded-full border border-slate-200 px-4 py-2.5 text-sm placeholder-slate-400"
+              />
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={sending || !draft.trim()}
+                aria-label="Send"
+                className="w-9 h-9 flex items-center justify-center rounded-full text-white disabled:opacity-40"
+                style={{ backgroundColor: 'var(--color-brand)' }}
+              >
+                <IconSend />
+              </button>
+            </div>
+          </>
         )}
-        <div className="flex items-center gap-2 max-w-sm mx-auto w-full">
-          <input
-            aria-label="Message"
-            aria-invalid={sendError ? true : undefined}
-            aria-describedby={sendError ? 'message-send-error' : undefined}
-            type="text"
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value)
-              if (sendError) setSendError(null)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-            placeholder="Message..."
-            className="flex-1 rounded-full border border-slate-200 px-4 py-2.5 text-sm placeholder-slate-400"
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={sending || !draft.trim()}
-            aria-label="Send"
-            className="w-9 h-9 flex items-center justify-center rounded-full text-white disabled:opacity-40"
-            style={{ backgroundColor: 'var(--color-brand)' }}
-          >
-            <IconSend />
-          </button>
-        </div>
       </div>
     </main>
   )

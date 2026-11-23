@@ -8,8 +8,15 @@ import { redirect } from 'next/navigation'
 import type { TidyTask } from './types'
 import { extensionForType } from '@/lib/uploadExtension'
 import { CUSTOMER_TASK_PHOTOS_BUCKET, isOwnTaskPhotoPath } from '@/lib/petTasks'
+import { withoutTidyProQuote } from '@/lib/taskQuotes'
+import { validateCustomerAbout } from '@/lib/customerAbout'
+import { userFacingError } from '@/lib/userFacingError'
+import { ENTIRE_HOME_ROOM } from '@/lib/entireHome'
+import { DEFAULT_TASK_ROOMS } from '@/lib/fullService'
 
-const DEFAULT_ROOMS = ['Entire home', 'Kitchen', 'Bedroom', 'Bathroom']
+// Built-in rooms are never saved as custom rooms. 'Bathroom' was a built-in
+// before the full/half split, so older tasks using it aren't saved either.
+const DEFAULT_ROOMS = [ENTIRE_HOME_ROOM, ...DEFAULT_TASK_ROOMS, 'Bathroom']
 
 export async function logoutAction() {
   await deleteSession()
@@ -26,12 +33,45 @@ export async function deleteAccountAction(): Promise<{ error: string }> {
   redirect('/')
 }
 
+// The bio and cleaning preferences Tidy Pros see on the customer's profile.
+export async function updateCustomerAboutAction(input: {
+  bio: string
+  preferences: string
+}): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const invalid = validateCustomerAbout(input.bio, input.preferences)
+  if (invalid) return { error: invalid }
+
+  const { error } = await createAdminClient()
+    .from('profiles')
+    .update({ bio: input.bio.trim() || null, cleaning_preferences: input.preferences.trim() || null })
+    .eq('id', session.profileId)
+  if (error) return { error: userFacingError(error) }
+
+  revalidatePath('/dashboard/profile')
+  return { success: true }
+}
+
 export async function deleteDraft(draftId: string): Promise<void> {
   const session = await getSession()
   if (!session) return
 
   const admin = createAdminClient()
-  await admin.from('booking_drafts').delete().eq('id', draftId).eq('customer_user_id', session.profileId)
+  // Called when the last Tidy Task is removed. A Standard / Deep Cleaning being
+  // booked lives on the same draft, so then only the tasks are cleared.
+  const { data: draft } = await admin
+    .from('booking_drafts')
+    .select('full_service')
+    .eq('id', draftId)
+    .eq('customer_user_id', session.profileId)
+    .maybeSingle()
+  if (draft?.full_service) {
+    await admin.from('booking_drafts').update({ task_list: [] as never }).eq('id', draftId).eq('customer_user_id', session.profileId)
+  } else {
+    await admin.from('booking_drafts').delete().eq('id', draftId).eq('customer_user_id', session.profileId)
+  }
   revalidatePath('/dashboard')
 }
 
@@ -84,6 +124,8 @@ export async function saveTasks(
   tasks = tasks.map(t =>
     t.pet ? { ...t, pet: { ...t.pet, photos: (t.pet.photos ?? []).filter(p => isOwnTaskPhotoPath(p, userId)) } } : t
   )
+  // A Tidy Pro's quoted price is never taken from the browser.
+  tasks = tasks.map(withoutTidyProQuote)
 
   // Persist any custom rooms (non-default) to the user's profile
   const taskRooms = [...new Set(tasks.map(t => t.room))]

@@ -35,7 +35,7 @@ export default function AmendmentView({ title, consentText, defaultName, next, s
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col px-6 pt-10 pb-10">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col px-6 pt-10 pb-10">
       <div className="max-w-sm mx-auto w-full flex-1 flex flex-col">
         <h1 className="text-[2rem] font-bold text-slate-900 leading-tight mb-4">Agreement update</h1>
         <p className="text-base text-slate-700 leading-relaxed mb-6">

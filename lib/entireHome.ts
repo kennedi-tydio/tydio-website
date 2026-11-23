@@ -20,6 +20,10 @@ export const ENTIRE_HOME_TIER: Record<EntireHomeTaskKind, Tier> = {
   mop: 'Standard',
 }
 
+// A Tidy Pro can add up to this many before photos, and the same number of
+// after photos, to an Entire home task (at least one after photo is required).
+export const MAX_ENTIRE_HOME_TASK_PHOTOS = 3
+
 export function isEntireHomeRoom(room: string | null | undefined): boolean {
   return (room ?? '').trim().toLowerCase() === ENTIRE_HOME_ROOM.toLowerCase()
 }

@@ -10,6 +10,7 @@ import { overlapsTimeOff, parseTimeOff } from '@/lib/timeOff'
 import { SERVICES_NOT_OFFERED_MESSAGE, providesServices, requiredServicesForTasks } from '@/lib/tidyProServices'
 import { bookedTaskName, dropUnmatchedLaundryLinks, needsWasherDryer } from '@/lib/laundry'
 import { isPetTask } from '@/lib/petTasks'
+import { hasQuoteTasks } from '@/lib/taskQuotes'
 import { customerNeedsPets } from '@/lib/customerPetsData'
 import { PETS_REQUIRED_MESSAGE } from '@/lib/customerPets'
 import { bookingBlockedBySuspension } from '@/lib/accountSuspension'
@@ -36,6 +37,7 @@ import {
 import type { SquareFootage } from '@/lib/squareFootage'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
+import { readSnapshot } from '@/lib/fullServiceBooking'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -120,7 +122,9 @@ export function tasksToAdd(dashboardTasks: TidyTask[], taskIds: string[], bookin
   return combined.slice(bookingTasks.length)
 }
 
-type PricingContext = { state: string; medianFourHourPrice: number; squareFootage: SquareFootage | null }
+// fullServiceMinutes: the booking's Standard / Deep Cleaning time (its snapshot),
+// which the visit length always includes. Time only, never price.
+type PricingContext = { state: string; medianFourHourPrice: number; squareFootage: SquareFootage | null; fullServiceMinutes?: number }
 
 type QuotableBooking = AddableBooking & {
   id: string
@@ -128,21 +132,23 @@ type QuotableBooking = AddableBooking & {
   task_list: unknown
   pricing_breakdown: unknown
   scheduled_location: unknown
+  full_service?: unknown
   estimated_duration_minutes: number | null
 }
 
 // Priced the way the booking was: its state's rate and home size at the time, so the
 // added tasks cost what they would have if booked with it.
 async function pricingContextFor(admin: Admin, booking: QuotableBooking): Promise<PricingContext | null> {
+  const fullServiceMinutes = readSnapshot(booking.full_service)?.duration_minutes ?? 0
   const breakdown = booking.pricing_breakdown as { state?: string; median_four_hour_price?: number; square_footage?: SquareFootage | null } | null
   if (breakdown?.state && typeof breakdown.median_four_hour_price === 'number') {
-    return { state: breakdown.state, medianFourHourPrice: breakdown.median_four_hour_price, squareFootage: breakdown.square_footage ?? null }
+    return { state: breakdown.state, medianFourHourPrice: breakdown.median_four_hour_price, squareFootage: breakdown.square_footage ?? null, fullServiceMinutes }
   }
   const { data: profile } = await admin.from('profiles').select('service_area_id, city, state').eq('id', booking.user_id).maybeSingle()
   const statePricing = await resolveStatePricing(admin, profile?.service_area_id ?? null, profile ?? undefined)
   if (!statePricing.configured) return null
   const squareFootage = await resolveLocationSquareFootage(admin, booking.user_id, booking.scheduled_location as ScheduledLocation | null)
-  return { state: statePricing.state, medianFourHourPrice: statePricing.medianFourHourPrice, squareFootage }
+  return { state: statePricing.state, medianFourHourPrice: statePricing.medianFourHourPrice, squareFootage, fullServiceMinutes }
 }
 
 export type TaskAdditionQuote = {
@@ -164,8 +170,8 @@ export function priceTaskAddition(bookingTasks: TidyTask[], added: TidyTask[], p
   const price = (tasks: TidyTask[]) =>
     tasks.length === 0 ? 0 : priceTaskListForState(tasks, pricing.state, pricing.medianFourHourPrice, pricing.squareFootage).total_customer_charge
   const amount = round2(Math.max(0, price(dropUnmatchedLaundryLinks([...bookingTasks, ...added])) - price(bookingTasks)))
-  const newDurationMinutes = visitDurationMinutes([...bookingTasks, ...added], pricing.squareFootage)
-  const before = currentDuration ?? visitDurationMinutes(bookingTasks, pricing.squareFootage)
+  const newDurationMinutes = visitDurationMinutes([...bookingTasks, ...added], pricing.squareFootage, pricing.fullServiceMinutes ?? 0)
+  const before = currentDuration ?? visitDurationMinutes(bookingTasks, pricing.squareFootage, pricing.fullServiceMinutes ?? 0)
   return { tasks: added, amount, cleanerPay: cleanerPayoutForServicePrice(amount), newDurationMinutes, addedMinutes: Math.max(0, newDurationMinutes - before) }
 }
 
@@ -190,7 +196,7 @@ async function scheduleProblem(admin: Admin, booking: QuotableBooking & { id: st
 }
 
 const BOOKING_COLUMNS =
-  'id, user_id, tidy_pro_id, tidy_pro_name, status, progress_status, scheduled_date, scheduled_time, time_zone, scheduled_location, estimated_duration_minutes, task_list, pricing_breakdown, recurring_booking_id, suspended_for_upcharge_at, suspended_for_payment_at, payment_failed_at, total_customer_charge, customer_subtotal, cleaner_pay'
+  'id, user_id, tidy_pro_id, tidy_pro_name, status, progress_status, scheduled_date, scheduled_time, time_zone, scheduled_location, estimated_duration_minutes, task_list, full_service, pricing_breakdown, recurring_booking_id, suspended_for_upcharge_at, suspended_for_payment_at, payment_failed_at, total_customer_charge, customer_subtotal, cleaner_pay'
 
 async function loadCustomerBooking(admin: Admin, bookingId: string, customerId: string) {
   const { data } = await admin.from('bookings').select(BOOKING_COLUMNS).eq('id', bookingId).eq('user_id', customerId).maybeSingle()
@@ -231,6 +237,11 @@ export async function quoteTaskAddition(admin: Admin, input: { customerId: strin
   const bookingTasks = (booking.task_list as TidyTask[] | null) ?? []
   const added = tasksToAdd((draft?.task_list as TidyTask[] | null) ?? [], input.taskIds, bookingTasks)
   if (added.length === 0) return { error: 'Choose at least one task to add.' }
+  // No price yet (added while automatic pricing was down), so they can't be charged
+  // as an add-on. They can be booked on their own, for a Tidy Pro to quote.
+  if (hasQuoteTasks(added)) {
+    return { error: 'One of these tasks needs a quote from a Tidy Pro, so it can’t be added to this booking. Book it on its own instead.' }
+  }
 
   if (added.some((t) => isPetTask(t)) && (await customerNeedsPets(admin, input.customerId))) return { error: PETS_REQUIRED_MESSAGE }
 
@@ -543,7 +554,7 @@ export async function acceptTaskAddition(admin: Admin, input: { additionId: stri
   const bookingTasks = (booking.task_list as TidyTask[] | null) ?? []
   const pricing = await pricingContextFor(admin, booking)
   const combined = dropUnmatchedLaundryLinks([...bookingTasks, ...added.filter((t) => !bookingTasks.some((b) => b.id === t.id))])
-  const newDuration = visitDurationMinutes(combined, pricing?.squareFootage ?? null)
+  const newDuration = visitDurationMinutes(combined, pricing?.squareFootage ?? null, pricing?.fullServiceMinutes ?? 0)
   const problem = await scheduleProblem(admin, booking, added, newDuration, true)
   if (problem) return { error: problem }
 
@@ -740,7 +751,7 @@ export async function removeAcceptedTaskAdditions(admin: Admin, bookingId: strin
   const pricing = await pricingContextFor(admin, booking)
   await admin
     .from('bookings')
-    .update({ task_list: remaining as never, estimated_duration_minutes: visitDurationMinutes(remaining, pricing?.squareFootage ?? null) })
+    .update({ task_list: remaining as never, estimated_duration_minutes: visitDurationMinutes(remaining, pricing?.squareFootage ?? null, pricing?.fullServiceMinutes ?? 0) })
     .eq('id', bookingId)
 
   const checklistIds = accepted.flatMap((a) => a.booking_task_ids ?? [])

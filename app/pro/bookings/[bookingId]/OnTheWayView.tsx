@@ -94,6 +94,8 @@ type Props = {
   tasks: { id: string; taskName: string }[]
   // Laundromat trips on this booking (see LaundromatNotice).
   laundromatTasks?: TidyTask[]
+  // The booking includes a Standard / Deep Cleaning.
+  fullService?: boolean
 }
 
 export default function OnTheWayView({
@@ -108,6 +110,7 @@ export default function OnTheWayView({
   entryInstructions,
   tasks,
   laundromatTasks = [],
+  fullService = false,
 }: Props) {
   const router = useRouter()
   const [showDirections, setShowDirections] = useState(false)
@@ -145,7 +148,7 @@ export default function OnTheWayView({
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
         <div className="flex items-center justify-between mb-6">
           <button
@@ -254,6 +257,7 @@ export default function OnTheWayView({
           working={working}
           onContinue={(wantsBeforePhotos) => handleImHere(true, wantsBeforePhotos)}
           onClose={() => setAskingBeforePhotos(false)}
+          fullService={fullService}
         />
       )}
     </main>

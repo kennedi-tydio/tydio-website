@@ -20,7 +20,7 @@ export default async function OnboardingVerifiedPage() {
   if (!shouldShowVerifiedScreen(tidyPro, backgroundCheck)) redirect('/pro/onboarding')
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col px-6 pt-10 pb-10">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col px-6 pt-10 pb-10">
       <div className="max-w-sm mx-auto w-full flex-1 flex flex-col">
         <h1 className="text-3xl font-bold text-slate-900 leading-tight mb-3">
           You&apos;ve Been

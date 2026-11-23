@@ -10,12 +10,15 @@ export default async function PaymentMethodsPage({
   searchParams,
 }: {
   // `declined`: a card that just failed to charge for this booking draft.
-  searchParams: Promise<{ draftId?: string; declined?: string }>
+  // `quoteId`: picking the card to approve and pay a Tidy Pro's quote with.
+  searchParams: Promise<{ draftId?: string; quoteId?: string; declined?: string }>
 }) {
   const session = await getSession()
   if (!session || session.role !== 'USER') redirect('/login')
 
-  const { draftId, declined } = await searchParams
+  const { draftId, quoteId: rawQuoteId, declined } = await searchParams
+  // A draft takes precedence; the two never come together.
+  const quoteId = draftId ? undefined : rawQuoteId
 
   const admin = createAdminClient()
 
@@ -37,9 +40,18 @@ export default async function PaymentMethodsPage({
       .eq('customer_user_id', session.profileId)
       .maybeSingle()
     selectedId = draft?.selected_payment_method_id ?? paymentMethods?.find((pm) => pm.is_default)?.id ?? null
+  } else if (quoteId) {
+    const { data: quote } = await admin
+      .from('booking_quote_requests')
+      .select('selected_payment_method_id')
+      .eq('id', quoteId)
+      .eq('user_id', session.profileId)
+      .maybeSingle()
+    if (!quote) redirect('/dashboard/messages')
+    selectedId = quote.selected_payment_method_id ?? paymentMethods?.find((pm) => pm.is_default)?.id ?? null
   }
 
-  const declinedId = draftId && paymentMethods?.some((pm) => pm.id === declined) ? declined! : null
+  const declinedId = (draftId || quoteId) && paymentMethods?.some((pm) => pm.id === declined) ? declined! : null
   // Make them pick again rather than leaving the card that failed selected.
   if (declinedId && selectedId === declinedId) selectedId = null
 
@@ -47,6 +59,7 @@ export default async function PaymentMethodsPage({
     <PaymentMethodsView
       initialPaymentMethods={paymentMethods ?? []}
       draftId={draftId ?? null}
+      quoteId={quoteId ?? null}
       initialSelectedId={selectedId}
       declinedId={declinedId}
     />

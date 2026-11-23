@@ -3,6 +3,7 @@ import { normalizePhone } from '@/lib/bannedUsers'
 import { DEFAULT_BOOKING_TIME_ZONE, bookingStartInstant } from '@/lib/bookingTime'
 import { RATE_LIMITS, isRateLimited, recordRateLimitEvent } from '@/lib/rateLimit'
 import { publicSiteUrl, twilioClient } from '@/lib/twilio'
+import { isBlockedBetween } from '@/lib/userBlocks'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -116,6 +117,7 @@ export async function startMaskedCall(
   const ownerId = caller.role === 'USER' ? booking?.user_id : booking?.tidy_pro_id
   if (!booking || ownerId !== caller.profileId) return { error: 'Booking not found.' }
   if (!canCall(booking)) return { error: CALL_WINDOW_MESSAGE }
+  if (await isBlockedBetween(admin, booking.user_id, booking.tidy_pro_id)) return { error: 'You can’t call this person.' }
 
   const [callerPhone, calleePhone] = await Promise.all([
     partyPhone(admin, booking, caller.role),

@@ -14,6 +14,7 @@ import { restoreBookingTasks } from '@/lib/bookingRequestGroups'
 import { notifyCustomer } from '@/lib/customerNotifications'
 import type { TidyTask } from '@/app/dashboard/types'
 import { userFacingError } from '@/lib/userFacingError'
+import { blockUser } from '@/lib/userBlocks'
 import { payUpcharge } from '@/lib/bookingUpcharges'
 import { payForVisit } from '@/lib/recurringPayments'
 import { chargeAndSendTip, isValidTipAttemptId } from '@/lib/tipPayout'
@@ -315,5 +316,29 @@ export async function payRecurringVisitAction(
   revalidatePath(`/pro/bookings/${bookingId}`)
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/pro/dashboard')
+  return { success: true }
+}
+
+// "Block Tidy Pro" at the bottom of the report sheet (lib/userBlocks): from then on,
+// neither of them can message the other, and this customer can't send them requests.
+export async function blockTidyProAction(bookingId: string): Promise<{ success: true } | { error: string }> {
+  const session = await getSession()
+  if (!session || session.role !== 'USER') return { error: 'Not authorized' }
+
+  const admin = createAdminClient()
+  const { data: booking } = await admin
+    .from('bookings')
+    .select('id, tidy_pro_id')
+    .eq('id', bookingId)
+    .eq('user_id', session.profileId)
+    .maybeSingle()
+  if (!booking?.tidy_pro_id) return { error: 'Booking not found.' }
+
+  const result = await blockUser(admin, session.profileId, booking.tidy_pro_id, bookingId)
+  if ('error' in result) return result
+
+  revalidatePath(`/dashboard/bookings/${bookingId}`)
+  revalidatePath(`/dashboard/messages/${bookingId}`)
+  revalidatePath(`/pro/messages/${bookingId}`)
   return { success: true }
 }

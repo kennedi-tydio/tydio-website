@@ -81,7 +81,7 @@ export default async function AppealPage({ searchParams }: { searchParams: Promi
   }
 
   return (
-    <main id="main-content" className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <main id="main-content" className="min-h-svh flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md">
         <Link href="/" className="block mb-8 text-center">
           <span className="text-2xl font-bold tracking-tight" style={{ color: '#1a2332' }}>

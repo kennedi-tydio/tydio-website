@@ -2,13 +2,16 @@ import { revalidatePath } from 'next/cache'
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { sendUnableToAccessEscalation } from '@/lib/bookingIncidentEmail'
 import { userFacingError } from '@/lib/userFacingError'
+import { notifyCustomer } from '@/lib/customerNotifications'
+import { notifyCustomerUnableToAccess } from '@/lib/notifications'
 
 type Admin = ReturnType<typeof createAdminClient>
 
 // Starts the "Unable to access location" countdown: puts the booking in 'arrived' (the
 // no-access countdown screen) and stamps when it began. Allowed at the door (on the way)
 // or from the task list before any task is done. Pressing it again while already waiting
-// keeps the countdown where it is. The admin is emailed the first time only.
+// keeps the countdown where it is. The admin is emailed, and the customer texted and
+// emailed, the first time only.
 // Used by the button and by a customer report of "I can't enter the property".
 export async function startNoAccessCountdown(
   admin: Admin,
@@ -17,7 +20,7 @@ export async function startNoAccessCountdown(
 ): Promise<{ success: true } | { error: string }> {
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, status, progress_status, arrived_at, no_access_reported_at')
+    .select('id, user_id, status, progress_status, arrived_at, no_access_reported_at')
     .eq('id', bookingId)
     .eq('tidy_pro_id', tidyProId)
     .maybeSingle()
@@ -51,6 +54,14 @@ export async function startNoAccessCountdown(
     await sendUnableToAccessEscalation(admin, bookingId, now).catch((err) =>
       console.error('[Tydio] Unable to access admin email failed:', bookingId, err)
     )
+
+    // Text + email (and push) the customer so they answer the Tidy Pro in the app.
+    if (booking.user_id) {
+      const { data: pro } = await admin.from('profiles').select('first_name').eq('id', tidyProId).maybeSingle()
+      await notifyCustomer(admin, booking.user_id, notifyCustomerUnableToAccess(pro?.first_name ?? 'Your Tidy Pro', bookingId)).catch((err) =>
+        console.error('[Tydio] Unable to access customer notification failed:', bookingId, err)
+      )
+    }
   }
 
   return { success: true }

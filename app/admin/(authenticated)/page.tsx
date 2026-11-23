@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isAvailableForBooking } from '@/lib/cleanerMatching'
-import { NOTIFICATIONS_REQUIRED, meetsNotificationRequirement, withPushStatus } from '@/lib/pushRequirement'
+import { withPushStatus } from '@/lib/pushRequirement'
 import { ACCEPTANCE_RATE_THRESHOLD, getAllAcceptanceStats, isAcceptanceRateLow } from '@/lib/acceptanceRate'
 
 // Approved Tidy Pros, and approved ones since paused, have been let into the app.
@@ -19,7 +19,6 @@ export default async function AdminOverviewPage() {
 
   const [
     { data: customers },
-    { data: areas },
     { count: recentCount },
     { count: tidyProCount },
     { data: activationEvents },
@@ -28,7 +27,6 @@ export default async function AdminOverviewPage() {
     { count: awayCount, error: awayError },
   ] = await Promise.all([
     admin.from('profiles').select('id, booking_access_status, suspended_at, banned_at').eq('role', 'USER'),
-    admin.from('service_areas').select('id, name, status'),
     admin.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'USER').gte('created_at', sevenDaysAgo),
     admin.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'TIDYPRO'),
     admin.from('service_area_activation_events').select('*').order('created_at', { ascending: false }).limit(5),
@@ -73,14 +71,12 @@ export default async function AdminOverviewPage() {
   // Tidy Pros who can receive bookings right now: every onboarding step done, the same
   // rules customer search uses (lib/cleanerMatching).
   const bookingAllowed = (await withPushStatus(admin, approvedPros ?? [])).filter(isAvailableForBooking).length
-  // Customers who can book right now: let in, not suspended or banned, and (while it's
-  // required) push, or texts once those count, turned on.
+  // Customers allowed to book (let in, not suspended or banned) plus Tidy Pros who can
+  // accept bookings (status=active on /admin/users).
   const allowedCustomers = (customers ?? []).filter(
     u => u.booking_access_status === 'booking_allowed' && !u.suspended_at && !u.banned_at
-  )
-  const activeUsers = NOTIFICATIONS_REQUIRED
-    ? (await withPushStatus(admin, allowedCustomers)).filter(meetsNotificationRequirement).length
-    : allowedCustomers.length
+  ).length
+  const activeUsers = allowedCustomers + bookingAllowed
 
   return (
     <div>
@@ -89,11 +85,10 @@ export default async function AdminOverviewPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <StatCard label="Total Customers" value={total} href="/admin/users?role=USER&state=" />
         <StatCard label="Total Waitlisted" value={totalWaitlisted} color="amber" href="/admin/users?status=all_waitlisted&state=" />
-        <StatCard label="Active Users" value={activeUsers} color="teal" href="/admin/users?role=USER&status=booking_allowed&state=" />
+        <StatCard label="Active Users" value={activeUsers} color="teal" href="/admin/users?status=active&state=" />
         <StatCard label="Tidy Pros" value={tidyProCount ?? 0} href="/admin/users?role=TIDYPRO&state=" />
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Total Areas" value={(areas ?? []).length} href="/admin/service-areas" />
         <StatCard label="New Users (7d)" value={recentCount ?? 0} color="teal" href={`/admin/users?role=USER&state=`} />
         <StatCard label="Tidy Pro Waitlist" value={tidyProWaitlist} color="amber" href="/admin/users?role=TIDYPRO&status=not_approved&state=" />
         <StatCard label="Tidy Pros Away" value={awayError ? null : awayCount ?? 0} color="amber" href="/admin/users?role=TIDYPRO&available=away&state=" />

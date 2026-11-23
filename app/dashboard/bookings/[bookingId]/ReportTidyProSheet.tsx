@@ -1,6 +1,6 @@
 'use client'
 
-import { reportTidyProAction } from './actions'
+import { blockTidyProAction, reportTidyProAction } from './actions'
 import ReportSheet from '@/app/components/ReportSheet'
 import { TIDY_PRO_REPORT_CATEGORIES } from '@/lib/reportCategories'
 import { NO_SHOW_REPORT_AFTER_MINUTES } from '@/lib/bookingTime'
@@ -22,6 +22,11 @@ export default function ReportTidyProSheet({
       categories={TIDY_PRO_REPORT_CATEGORIES}
       onSubmit={(categoryId, reasonId, details) => reportTidyProAction(bookingId, categoryId, reasonId, details)}
       onClose={onClose}
+      block={{
+        label: 'Tidy Pro',
+        consequence: 'You won’t be able to message each other, and they won’t show up when you book.',
+        onBlock: () => blockTidyProAction(bookingId),
+      }}
       waits={
         noShowReportableAtMs != null
           ? [

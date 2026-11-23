@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { broadTaskMessage, combinedTaskMessage, vagueFloorMessage, isSpecificFloorTask } from './taskSpecificity'
+import {
+  aiNamedSpecificThing,
+  broadTaskMessage,
+  combinedTaskMessage,
+  isSpecificFloorTask,
+  taskTextNamesOneThing,
+  vagueFloorMessage,
+} from './taskSpecificity'
 
 describe('broadTaskMessage', () => {
   it.each([
@@ -126,4 +133,37 @@ describe('isSpecificFloorTask', () => {
     expect(isSpecificFloorTask('Clean the floor')).toBe(false)
     expect(isSpecificFloorTask('Floor cleaning')).toBe(false)
   })
+})
+
+describe('aiNamedSpecificThing', () => {
+  it('accepts one action on one named thing', () => {
+    expect(aiNamedSpecificThing('clean', 'shower')).toBe(true)
+    expect(aiNamedSpecificThing('organize', 'the bookshelf')).toBe(true)
+    expect(aiNamedSpecificThing('wash', 'dishes')).toBe(true)
+  })
+  it.each([
+    ['', 'shower'],
+    ['clean', ''],
+    ['clean', 'bathroom'],
+    ['clean', 'kitchen stuff'],
+    ['clean', 'everything'],
+    ['clean', 'floor'],
+    ['clean', 'toilet and tub'],
+    ['clean', 'toilet, tub'],
+    [undefined, undefined],
+  ])('rejects action %j on thing %j', (action, thing) => {
+    expect(aiNamedSpecificThing(action, thing)).toBe(false)
+  })
+})
+
+describe('taskTextNamesOneThing', () => {
+  it.each(['Tidy the coffee table', 'Straighten the bookshelves', 'Clean the shower', 'Wipe down the stove'])(
+    'reads "%s" as one job on one thing',
+    (name) => expect(taskTextNamesOneThing(name)).toBe(true)
+  )
+  it.each([
+    'Dust', 'Tidy up', 'Clean', 'Clean bathroom', 'Clean everything', 'Make it nice', 'Help me',
+    'Clean the toilet and the tub', 'Clean the floor', 'Living room stuff', 'Declutter the garage',
+    'Clean entire kitchen top to bottom', 'Clean the whole guest bathroom',
+  ])('does not read "%s" as one job on one thing', (name) => expect(taskTextNamesOneThing(name)).toBe(false))
 })

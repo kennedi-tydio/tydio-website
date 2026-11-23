@@ -102,7 +102,7 @@ export default function BookingSummary({
   const router = useRouter()
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-10 max-w-sm mx-auto w-full">
         <div className="flex items-center justify-between mb-5">
           <button

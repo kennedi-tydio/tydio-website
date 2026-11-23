@@ -92,7 +92,7 @@ export default function RecurringCancelSheet({
     <ModalShell
       onClose={onClose}
       labelledBy={titleId}
-      panelClassName="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-5 max-h-[90vh] overflow-y-auto text-left"
+      panelClassName="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-5 max-h-[90dvh] overflow-y-auto text-left"
     >
       <h2 id={titleId} className="text-lg font-bold text-slate-900">
         What do you want to cancel?

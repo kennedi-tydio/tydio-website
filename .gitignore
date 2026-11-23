@@ -47,3 +47,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# Live task-validator matrix output
+scripts/task-vagueness-matrix/.results.json

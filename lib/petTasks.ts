@@ -64,7 +64,8 @@ export function isLitterOption(value: unknown): value is LitterOption {
 
 // ── Detection from what the customer typed ───────────────────────────────────
 
-const LITTER_RE = /\blitter\b|\bcat\s*box\b|\bkitty\s*box\b/i
+// "litter box", "litterbox", "litter-boxes", "cat box", "kitty box".
+const LITTER_RE = /\blitter(?:[\s-]*box(?:es)?)?\b|\b(?:cat|kitty)[\s-]*box(?:es)?\b/i
 const ENCLOSURE_RE =
   /\b(cage|cages|enclosure|enclosures|hutch|hutches|terrarium|terrariums|vivarium|vivariums|habitat|habitats|aviary|pen|playpen|tank|tanks|coop)\b/i
 

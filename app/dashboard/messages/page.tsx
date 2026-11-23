@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isHiddenGroupRequest } from '@/lib/bookingRequestGroups'
+import { listQuoteRequests } from '@/lib/quoteRequests'
 import MessagesListView, { type MessageThreadSummary } from './MessagesListView'
 
 export const metadata: Metadata = { title: 'Messages — Tydio' }
@@ -16,7 +17,7 @@ export default async function MessagesPage() {
   const { data: bookings, error } = await admin
     .from('bookings')
     .select(
-      'id, tidy_pro_name, tidy_pro_photo_url, status, decision_status, scheduled_date, scheduled_time, updated_at, user_unread, request_group_id, ended_at'
+      'id, tidy_pro_name, tidy_pro_photo_url, status, decision_status, scheduled_date, scheduled_time, updated_at, user_unread, request_group_id, ended_at, user_archived_at'
     )
     .eq('user_id', session.profileId)
     .order('updated_at', { ascending: false })
@@ -24,6 +25,7 @@ export default async function MessagesPage() {
   if (error) throw new Error(`Failed to load messages: ${error.message}`)
 
   const bookingIds = (bookings ?? []).map((b) => b.id)
+  const updatedAtById = new Map((bookings ?? []).map((b) => [b.id, b.updated_at as string | null]))
   const { data: chatRows } = bookingIds.length
     ? await admin
         .from('booking_messages')
@@ -62,9 +64,21 @@ export default async function MessagesPage() {
     lastMessage: lastMessageByBooking.get(b.id) ?? null,
     lastAddition: lastAdditionByBooking.get(b.id) ?? null,
     endedAt: b.ended_at,
+    archivedAt: b.user_archived_at,
   }))
 
-  const unreadMessageCount = threads.filter((t) => t.unread).length
+  // Most recent activity first: the last chat message, added-task update, or booking change.
+  const lastActivity = (t: MessageThreadSummary) =>
+    Math.max(
+      ...[t.lastMessage?.at, t.lastAddition?.at, updatedAtById.get(t.bookingId)]
+        .filter((at): at is string => !!at)
+        .map((at) => Date.parse(at)),
+      0
+    )
+  threads.sort((a, b) => lastActivity(b) - lastActivity(a))
 
-  return <MessagesListView threads={threads} unreadMessageCount={unreadMessageCount} />
+  const quotes = await listQuoteRequests(admin, 'USER', session.profileId)
+  const unreadMessageCount = threads.filter((t) => t.unread).length + quotes.filter((q) => q.unread).length
+
+  return <MessagesListView threads={threads} quotes={quotes} unreadMessageCount={unreadMessageCount} />
 }

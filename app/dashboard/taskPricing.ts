@@ -33,6 +33,7 @@ import { ENTIRE_HOME_ROOM, entireHomeTier, isEntireHomeRoom, isFloorSweepOrMopTa
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { isTaskPriceable } from './isTaskPriceable'
+import { QUOTE_PLACEHOLDER_MINUTES } from '@/lib/taskQuotes'
 import type { DirtLevel, LaundryLoads, TidyTask } from './types'
 
 export { isTaskPriceable } from './isTaskPriceable'
@@ -156,6 +157,36 @@ function entireHomeTaskToValidatedTask(task: TidyTask): ValidatedTask {
 // Regular room tasks don't scale with home size, except floor sweeping and
 // mopping.
 function regularTaskToValidatedTask(task: TidyTask): ValidatedTask {
+  // Waiting on the Tidy Pro's quote: no charge yet, but it holds the longest
+  // a Tidy Task can take on the calendar. placeBooking refuses to charge for
+  // a booking that still has one of these.
+  if (task.needsQuote === true) {
+    if (task.pet && (task.pet.photos ?? []).length === 0) throw new UnpriceableTaskError(task)
+    return {
+      normalized_task_name: task.name || task.room,
+      tier: 'Quote',
+      estimated_minutes: QUOTE_PLACEHOLDER_MINUTES,
+      has_estimated_duration: false,
+      cleaning_type_surcharge: 0,
+      additional_issue_surcharge: 0,
+      flat_price: 0,
+      unusual_notes: [...task.unusual, task.notes].filter(Boolean).join('; ') || undefined,
+    }
+  }
+  // Quoted by the Tidy Pro in dollars: their price is the whole charge for the
+  // task (no surcharges or home-size multiplier on top), holding the same time.
+  if (typeof task.quotedPrice === 'number' && task.quotedPrice > 0) {
+    return {
+      normalized_task_name: task.name || task.room,
+      tier: 'Tidy Pro quote',
+      estimated_minutes: QUOTE_PLACEHOLDER_MINUTES,
+      has_estimated_duration: false,
+      cleaning_type_surcharge: 0,
+      additional_issue_surcharge: 0,
+      flat_price: task.quotedPrice,
+      unusual_notes: [...task.unusual, task.notes].filter(Boolean).join('; ') || undefined,
+    }
+  }
   const tier = task.tier ?? tierFromEstimatedMinutes(task.estimatedMinutes ?? -1)
   if (!tier) throw new UnpriceableTaskError(task)
   // Pet task whose photos expired before it was booked (see isTaskPriceable).
@@ -254,9 +285,17 @@ const isHouseholdTask = (task: TidyTask) => !task.laundryService && !task.laundr
 // any other laundry tasks. Time only: the price is unaffected (see
 // buildValidatedTaskPool). Entire home tasks are scaled by the home's square
 // footage (visitMinutes). Throws UnpriceableTaskError like buildValidatedTaskPool.
-export function visitDurationMinutes(tasks: TidyTask[], squareFootage: SquareFootage | null = null): number {
+//
+// `extraHouseholdMinutes` is a Standard / Deep Cleaning's estimated time
+// (lib/aiFullServiceEstimate), which counts as household time: laundry runs
+// during it too. Time only, never price.
+export function visitDurationMinutes(
+  tasks: TidyTask[],
+  squareFootage: SquareFootage | null = null,
+  extraHouseholdMinutes = 0
+): number {
   let cycles = 0
-  let household = 0
+  let household = Math.max(0, extraHouseholdMinutes)
   let otherLaundry = 0
   for (const { task, items, fullCycle } of itemsPerTask(tasks)) {
     const minutes = items.reduce((sum, i) => sum + visitMinutes(i, squareFootage), 0)
@@ -298,12 +337,11 @@ export async function ensurePriceableTasks(
           dirtLevel: t.dirtLevel,
           unusual: t.unusual,
         })
-        return { id: t.id, tier: result.tier, estimatedMinutes: result.estimated_minutes }
+        return { id: t.id, tier: result.tier, estimatedMinutes: result.estimated_minutes, needsQuote: false }
       } catch {
-        // Genuinely no way to reach the AI right now (offline, provider
-        // down) — leave this one task unpriceable; the caller's existing
-        // UnpriceableTaskError handling still applies as the last resort.
-        return { id: t.id, tier: null, estimatedMinutes: null }
+        // No way to reach the AI right now (provider down, no key): the
+        // Tidy Pro quotes this task instead (lib/taskQuotes.ts).
+        return { id: t.id, tier: null, estimatedMinutes: null, needsQuote: true }
       }
     })
   )
@@ -311,9 +349,11 @@ export async function ensurePriceableTasks(
   const patchById = new Map(patches.map((p) => [p.id, p]))
   const repaired = allTasks.map((t) => {
     const patch = patchById.get(t.id)
+    if (patch?.needsQuote) return { ...t, needsQuote: true }
     if (!patch || patch.tier == null) return t
     return { ...t, tier: patch.tier, estimatedMinutes: patch.estimatedMinutes }
   })
+  if (!patches.some((p) => p.needsQuote || p.tier != null)) return allTasks
 
   const { error } = await admin.from('booking_drafts').update({ task_list: repaired as never }).eq('id', draftId)
   if (error) console.error('Failed to persist repaired task estimates', error)
@@ -337,7 +377,8 @@ export function priceTaskListForState(
 
 // The square footage that prices a booking, read from the customer's own
 // saved address - never trusted from the client. Null for a current-location
-// booking or an address with no square footage, which prices at the base rate.
+// search or an address with no square footage. Booking itself needs a saved
+// address with a size (lib/placeBooking, HOME_SIZE_REQUIRED_MESSAGE).
 export async function resolveLocationSquareFootage(
   admin: ReturnType<typeof createAdminClient>,
   customerId: string,

@@ -190,7 +190,7 @@ function ChooseTimeForm({
   const slots = selectedDate ? computeSlots(selectedDate) : []
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <div className="flex-1 overflow-y-auto px-5 pt-6 pb-16 max-w-sm mx-auto w-full">
         <button type="button" onClick={() => router.back()} aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none">

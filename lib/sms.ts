@@ -3,7 +3,7 @@ import { twilioClient } from '@/lib/twilio'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/bannedUsers'
 import { TYDIO_ADMIN_EMAIL } from '@/lib/email'
-import { emailAdminManualText, textBody } from '@/lib/manualTextEmail'
+import { emailAdminManualText, recipientRoleFromUrl, textBody } from '@/lib/manualTextEmail'
 import { rowsWithPhone } from '@/lib/smsPhone'
 
 type Admin = ReturnType<typeof createAdminClient>
@@ -64,15 +64,44 @@ export async function sendSms(to: string, body: string): Promise<void> {
   }
 }
 
-// 'email_admin' until Twilio approves our number: each text is emailed to the admin, with
-// the booking and both people's numbers, to send by hand (lib/manualTextEmail). Set to
-// 'twilio' once the number is approved.
-export const SMS_DELIVERY = 'email_admin' as 'twilio' | 'email_admin'
+// 'twilio' sends texts for real. 'email_admin' (used before Twilio approved our number)
+// emails each text to the admin, with the booking and both people's numbers, to send by
+// hand (lib/manualTextEmail).
+export const SMS_DELIVERY = 'twilio' as 'twilio' | 'email_admin'
+
+// During the beta, the admin gets a copy of every text sent to a customer or Tidy Pro,
+// to see exactly what people receive. Set to null to stop the copies.
+export const SMS_MONITOR_PHONE: string | null = '+18503452532'
+
+function lastFour(phone: string): string {
+  return normalizePhone(phone).slice(-4)
+}
+
+export function monitorCopyBody(to: string, text: string, delivered: boolean): string {
+  const role = recipientRoleFromUrl(text.match(/https?:\/\/\S+/)?.[0] ?? '')
+  const who = role === 'TIDYPRO' ? 'Tidy Pro' : role === 'USER' ? 'Customer' : 'Recipient'
+  return `[Copy: ${who} ...${lastFour(to)}${delivered ? '' : ', NOT DELIVERED'}] ${text}`
+}
+
+async function sendMonitorCopy(to: string, text: string, delivered: boolean): Promise<void> {
+  // Texts to the monitor number itself (the admin's own test accounts) aren't copied.
+  if (!SMS_MONITOR_PHONE || normalizePhone(to) === normalizePhone(SMS_MONITOR_PHONE)) return
+  await twilioClient()
+    .messages.create({ to: SMS_MONITOR_PHONE, from: process.env.TWILIO_PHONE_NUMBER!, body: monitorCopyBody(to, text, delivered) })
+    .catch((err) => console.error('[Tydio] SMS monitor copy failed:', err))
+}
 
 export async function sendSmsForPayload(to: string, payload: NotificationPayload): Promise<void> {
   if (SMS_DELIVERY === 'email_admin') {
     await emailAdminManualText(createAdminClient(), to, payload)
     return
   }
-  await sendSms(to, textBody(payload))
+  const text = textBody(payload)
+  try {
+    await sendSms(to, text)
+  } catch (err) {
+    await sendMonitorCopy(to, text, false)
+    throw err
+  }
+  await sendMonitorCopy(to, text, true)
 }

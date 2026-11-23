@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { label: 'Users', href: '/admin/users' },
   { label: 'Tidy Pros', href: '/admin/tidy-pros' },
   { label: 'Bookings', href: '/admin/bookings' },
+  { label: 'Recurring', href: '/admin/recurring' },
   { label: 'Live Board', href: '/admin/live' },
   { label: 'Cancellations', href: '/admin/cancellations' },
   { label: 'Refunds', href: '/admin/refunds' },
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { label: 'Background Checks', href: '/admin/background-checks' },
   { label: 'Appeals', href: '/admin/appeals' },
   { label: 'Push Notifications', href: '/admin/push-notifications' },
+  { label: 'Promo Codes', href: '/admin/promo-codes' },
 ]
 
 export default async function AdminAuthenticatedLayout({
@@ -39,7 +41,7 @@ export default async function AdminAuthenticatedLayout({
   if (!authed) redirect('/admin/login')
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-svh bg-slate-50 flex">
       {/* Sidebar */}
       <aside className="w-52 bg-white border-r border-slate-100 flex flex-col fixed inset-y-0 left-0 z-10">
         <div className="px-5 py-4 border-b border-slate-100 flex items-baseline gap-1.5">
@@ -69,7 +71,7 @@ export default async function AdminAuthenticatedLayout({
         </div>
       </aside>
       {/* Main content */}
-      <main id="main-content" className="flex-1 ml-52 p-8 min-h-screen">
+      <main id="main-content" className="flex-1 ml-52 p-8 min-h-svh">
         {children}
       </main>
     </div>

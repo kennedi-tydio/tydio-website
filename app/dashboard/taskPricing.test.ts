@@ -152,7 +152,7 @@ describe('ensurePriceableTasks — self-healing backfill', () => {
     expect(updateCalls).toHaveLength(1)
   })
 
-  it('leaves a task unpriceable, without throwing, if the AI itself is unreachable', async () => {
+  it('sends a task for a Tidy Pro quote, without throwing, if the AI itself is unreachable', async () => {
     const mockEstimate = vi.mocked(estimateTaskDuration)
     mockEstimate.mockReset()
     mockEstimate.mockRejectedValue(new Error('network down'))
@@ -162,7 +162,9 @@ describe('ensurePriceableTasks — self-healing backfill', () => {
 
     const result = await ensurePriceableTasks(admin, 'draft-1', [broken])
 
-    expect(isTaskPriceable(result[0])).toBe(false)
+    // Bookable, but only through a quote request (lib/quoteRequests.ts): no tier yet.
+    expect(result[0]).toMatchObject({ needsQuote: true, tier: null })
+    expect(isTaskPriceable(result[0])).toBe(true)
   })
 })
 

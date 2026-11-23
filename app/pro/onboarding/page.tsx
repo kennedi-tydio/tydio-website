@@ -35,7 +35,7 @@ export default async function OnboardingPage() {
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col px-6 pt-10 pb-10">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col px-6 pt-10 pb-10">
       <div className="max-w-sm mx-auto w-full flex-1 flex flex-col">
         <div className="flex items-center gap-2 mb-10">
           <Image src="/Tydio Logo No Bkg.png" alt="Tydio" width={100} height={36} priority />

@@ -8,10 +8,13 @@ type Props = {
   // task list can lead with the before photo buttons.
   onContinue: (wantsBeforePhotos: boolean) => void
   onClose: () => void
+  // A Standard / Deep Cleaning: rooms don't need after photos, only add-ons
+  // and Tidy Tasks do.
+  fullService?: boolean
 }
 
 // Asked when the Tidy Pro arrives and starts the job.
-export default function BeforePhotosPrompt({ working, onContinue, onClose }: Props) {
+export default function BeforePhotosPrompt({ working, onContinue, onClose, fullService = false }: Props) {
   return (
     <ModalShell
       className="fixed inset-0 flex items-end sm:items-center justify-center z-50 px-4 pb-4 sm:pb-0"
@@ -28,7 +31,11 @@ export default function BeforePhotosPrompt({ working, onContinue, onClose }: Pro
       </p>
       <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-3 mb-3">
         <p className="text-sm font-semibold text-slate-900">After photos are required</p>
-        <p className="text-xs text-slate-500 mt-0.5">You&apos;ll take one for every task to mark it complete.</p>
+        <p className="text-xs text-slate-500 mt-0.5">
+          {fullService
+            ? 'You’ll take at least one of the cleaning (up to 10, of whole rooms or areas) and one for every add-on and Tidy Task.'
+            : 'You’ll take one for every task to mark it complete.'}
+        </p>
       </div>
       <p className="text-sm text-slate-600 mb-5">
         With <span className="font-semibold">before and after</span> photos, you can show your work on your profile so

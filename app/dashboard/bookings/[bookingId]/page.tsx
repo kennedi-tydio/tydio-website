@@ -20,6 +20,7 @@ import { getPaidUpcharges, getPendingUpcharge, upchargeCustomerCharge } from '@/
 import { chargeableCards } from '@/lib/stripe/chargeableCards'
 import { getPendingTaskAddition, taskAdditionBlockedReason } from '@/lib/bookingTaskAdditions'
 import { bookedTaskName } from '@/lib/laundry'
+import { isEntireHomeRoom } from '@/lib/entireHome'
 
 export const metadata: Metadata = { title: 'Booking Details — Tydio' }
 
@@ -121,7 +122,19 @@ export default async function CurrentBookingPage({
   ])
 
   const alreadyReviewed = !!existingReview
-  const taskRows = tasks ?? []
+  // Entire home tasks can have up to 3 after photos; the rest are 1 per task.
+  const { data: afterPhotoRows } = (tasks ?? []).some((t) => isEntireHomeRoom(t.task_category))
+    ? await admin
+        .from('booking_task_photos')
+        .select('booking_task_id, photo_url')
+        .eq('booking_id', bookingId)
+        .eq('kind', 'after')
+        .order('created_at', { ascending: true })
+    : { data: [] }
+  const taskRows = (tasks ?? []).map((t) => {
+    const urls = (afterPhotoRows ?? []).filter((r) => r.booking_task_id === t.id).map((r) => r.photo_url)
+    return urls.length > 0 ? { ...t, after_photo_urls: urls } : t
+  })
   const totalPrice = booking.total_customer_charge ?? 0
   // A paid upcharge is part of the total (see lib/bookingUpcharges), shown as its own line.
   const paidUpcharges = await getPaidUpcharges(admin, booking.id)

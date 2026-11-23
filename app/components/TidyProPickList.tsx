@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import type { CleanerMatch } from '@/lib/cleanerMatching'
 import { VerifiedCheck } from '@/app/components/VerifiedCheck'
@@ -44,7 +44,8 @@ export function usePersistedPicks(scope: string, availableIds: string[], max: nu
 
   function toggle(id: string) {
     setPicks((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < max ? [...prev, id] : prev
+      // With one allowed, picking another swaps to them.
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : max === 1 ? [id] : prev.length < max ? [...prev, id] : prev
       writePicks(scope, next)
       return next
     })
@@ -98,16 +99,21 @@ export default function TidyProPickList({
   onToggle,
   max,
   disabled = false,
+  detail,
 }: {
   options: CleanerMatch[]
   picks: string[]
   onToggle: (id: string) => void
   max: number
   disabled?: boolean
+  // Shown under each Tidy Pro's details, like their price.
+  detail?: (cleaner: CleanerMatch) => ReactNode
 }) {
-  const atLimit = picks.length >= max
+  // With one allowed it's a choice between them, so picking another just swaps.
+  const single = max === 1
+  const atLimit = !single && picks.length >= max
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="flex flex-col gap-3" role={single ? 'radiogroup' : undefined} aria-label={single ? 'Choose a Tidy Pro' : undefined}>
       {options.map((cleaner) => {
         const checked = picks.includes(cleaner.id)
         return (
@@ -148,12 +154,13 @@ export default function TidyProPickList({
                   <IconPin />
                   <span className="text-xs text-slate-400">{cleaner.distanceMiles} miles</span>
                 </div>
+                {detail?.(cleaner)}
                 <p className="text-xs font-semibold mt-1" style={{ color: 'var(--color-brand)' }}>View profile</p>
               </div>
             </Link>
             <button
               type="button"
-              role="checkbox"
+              role={single ? 'radio' : 'checkbox'}
               aria-checked={checked}
               aria-label={`Ask ${cleaner.name}`}
               onClick={() => onToggle(cleaner.id)}

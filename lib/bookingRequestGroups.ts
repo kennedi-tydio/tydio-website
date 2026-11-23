@@ -23,13 +23,19 @@ import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import type { TidyTask } from '@/app/dashboard/types'
 import { userFacingError } from '@/lib/userFacingError'
 import { addToBookingTotals, dropPendingUpcharges, getPaidUpcharges, markUpchargesRefunded, refundUpchargesOfUnpaidVisit } from '@/lib/bookingUpcharges'
+import { requiredServiceForFullService } from '@/lib/fullService'
+import { quotesForTidyPros, readSnapshot } from '@/lib/fullServiceBooking'
+import { withoutTidyProQuote } from '@/lib/taskQuotes'
+import { adminCleanerPay, type AdminPayoutChoice } from '@/lib/payoutHold'
 
 type Admin = ReturnType<typeof createAdminClient>
 
 // The customer pays once, when they book, and that payment stays with Tydio until the
-// booking resolves. If a cleaner declines, it simply carries over: the customer can
-// ask up to 3 others, once, at the same price, and the first to accept gets the booking
-// with no new charge. It's only refunded when the whole booking is canceled: by the
+// booking resolves. If a cleaner declines a task booking, it simply carries over: the
+// customer can ask up to 3 others, once, at the same price, and the first to accept gets
+// the booking with no new charge. A Standard / Deep Cleaning instead goes to one
+// replacement at a time, at their own price, again and again until someone accepts
+// (lib/replacementChain). It's only refunded when the whole booking is canceled: by the
 // customer, because everyone declined, or because nobody accepted by an hour before the
 // start time. Every request in a group shares that one payment, so anything that
 // would refund it has to go through this file.
@@ -135,9 +141,35 @@ export function validateExtraCleanerSelection(cleanerIds: string[], primaryId: s
   return null
 }
 
-// A declined booking whose payment is still held, not already replaced, not itself one
-// of the requests in a group unless its cleaner canceled after accepting (otherwise
-// there's one replacement round), and not past its cutoff.
+// The replacement round under way for a declined booking (waiting on a Tidy Pro), or the
+// one that filled it. A Standard / Deep Cleaning asks one replacement at a time, so it can
+// have several earlier rounds, all closed; at most one is ever live (migration 099).
+export async function liveReplacementGroup(admin: Admin, originalBookingId: string): Promise<{ id: string; status: string } | null> {
+  const { data } = await admin
+    .from('booking_request_groups')
+    .select('id, status')
+    .eq('original_booking_id', originalBookingId)
+    .in('status', ['open', 'filled'])
+    .maybeSingle()
+  return data ?? null
+}
+
+// The original bookings among these with a live replacement round.
+export async function bookingsBeingReplaced(admin: Admin, originalBookingIds: string[]): Promise<Set<string>> {
+  if (originalBookingIds.length === 0) return new Set()
+  const { data } = await admin
+    .from('booking_request_groups')
+    .select('original_booking_id')
+    .in('original_booking_id', originalBookingIds)
+    .in('status', ['open', 'filled'])
+  return new Set((data ?? []).map((g) => g.original_booking_id).filter((id): id is string => id != null))
+}
+
+// A declined booking whose payment is still held, with no replacement round under way,
+// not itself one of the requests in a group unless its cleaner canceled after accepting,
+// and not past its cutoff. A task booking gets one round: if everyone in it declines, the
+// booking is canceled and refunded, so it's never back here. A Standard / Deep Cleaning
+// comes back here each time a replacement declines (lib/replacementChain).
 export function canRequestReplacements(
   booking: {
     status: string | null
@@ -166,16 +198,24 @@ export async function getReplacementOptions(
   booking: {
     // When given, cleaners who were already asked alongside it are left out too.
     id?: string
+    // The customer. Tidy Pros blocked either way (lib/userBlocks) are left out.
+    user_id?: string | null
     tidy_pro_id: string | null
     scheduled_location: unknown
     scheduled_date: string | null
     scheduled_time: string | null
     estimated_duration_minutes: number | null
     task_list: unknown
-  }
+    // A booking's Standard / Deep Cleaning snapshot (lib/fullServiceBooking).
+    full_service?: unknown
+  },
+  // A replacement chain prices each Tidy Pro on their own, charging or refunding the
+  // difference (lib/replacementChain), so nobody is left out for costing more.
+  { anyPrice = false }: { anyPrice?: boolean } = {}
 ): Promise<CleanerMatch[]> {
   const location = booking.scheduled_location as ScheduledLocation | null
   if (location?.latitude == null || location?.longitude == null || !booking.scheduled_date) return []
+  const fullService = readSnapshot(booking.full_service)
 
   const cleaners = await findAvailableCleaners(
     {
@@ -185,21 +225,44 @@ export async function getReplacementOptions(
       time: booking.scheduled_time?.slice(0, 5) ?? null,
       durationMinutes: booking.estimated_duration_minutes ?? 60,
       // A replacement has to do everything the original booking asked for.
-      requiredServices: requiredServicesForTasks((booking.task_list as TidyTask[] | null) ?? []),
+      requiredServices: [
+        ...requiredServicesForTasks((booking.task_list as TidyTask[] | null) ?? []),
+        ...(fullService ? [requiredServiceForFullService(fullService.selection.type)] : []),
+      ],
+      customerId: booking.user_id ?? null,
     },
     admin
   )
 
   const alreadyAsked = new Set([booking.tidy_pro_id, ...(booking.id ? await cleanersAskedWith(admin, booking.id) : [])])
-  return cleaners.filter((c) => !alreadyAsked.has(c.id))
+  const others = cleaners.filter((c) => !alreadyAsked.has(c.id))
+  if (!fullService) return others
+
+  // Standard / Deep Cleaning carries over at the price already paid, so only
+  // Tidy Pros who'd charge that much or less for it (with their own rates) are
+  // offered: none of them is paid below their own price.
+  const quotes = await quotesForTidyPros(
+    admin,
+    others.map((c) => c.id),
+    { ...fullService.selection, version: 1, step: 'notes' },
+    fullService.square_footage
+  )
+  return others.filter((c) => {
+    const quote = quotes.get(c.id)
+    return quote != null && (anyPrice || quote.customer_total <= fullService.customer_total)
+  })
 }
 
-// The other cleaners a booking was first sent to alongside it, who all declined
-// before it came back to the customer.
+// The other cleaners a booking was already sent to, who all declined before it came back
+// to the customer: those asked alongside it when it was first booked, and each earlier
+// replacement in a chain.
 async function cleanersAskedWith(admin: Admin, bookingId: string): Promise<string[]> {
-  const { data: group } = await admin.from('booking_request_groups').select('id').eq('primary_booking_id', bookingId).maybeSingle()
-  if (!group) return []
-  const { data: requests } = await admin.from('bookings').select('tidy_pro_id').eq('request_group_id', group.id)
+  const { data: groups } = await admin
+    .from('booking_request_groups')
+    .select('id')
+    .or(`primary_booking_id.eq.${bookingId},original_booking_id.eq.${bookingId}`)
+  if (!groups?.length) return []
+  const { data: requests } = await admin.from('bookings').select('tidy_pro_id').in('request_group_id', groups.map((g) => g.id))
   return (requests ?? []).map((r) => r.tidy_pro_id).filter((id): id is string => id != null)
 }
 
@@ -209,6 +272,59 @@ async function notifyCleaner(admin: Admin, id: string, payload: NotificationPayl
     await sendSmsForPayload(person!.phone!, payload).catch(() => {})
   }
   await sendPushForPayload(id, payload).catch(() => {})
+}
+
+// A replacement who costs less than what the customer had paid: the difference was
+// refunded from this payment when they confirmed (lib/replacementChain). Those refunds are
+// tagged with this, so a later refund of the booking works from what's left.
+export const REPLACEMENT_DIFFERENCE_REFUND = 'replacement_difference'
+
+type RefundKind = 'minus_fee' | 'full' | 'late' | 'half'
+
+// What's left of a payment after any replacement-difference refunds, or null when there
+// were none (almost every booking), in which case refunds work exactly as they always have.
+// A refund of `kind` already made after them is returned as `done`, so a retry never
+// refunds twice: its idempotency key can't protect it, since the amount depends on what's
+// been refunded so far.
+async function afterDifferenceRefunds(
+  intent: { id: string; amount_received: number; latest_charge?: unknown },
+  kind: RefundKind
+): Promise<null | { done: string } | { baseCents: number; remainingCents: number; lastRefundId: string | null }> {
+  const charge = typeof intent.latest_charge === 'object' && intent.latest_charge ? (intent.latest_charge as { amount_refunded?: number }) : null
+  // Every caller retrieves the payment with its latest charge expanded.
+  const refundedCents = charge?.amount_refunded ?? 0
+  if (!refundedCents) return null
+
+  const refunds = await stripe.refunds.list({ payment_intent: intent.id, limit: 100 })
+  const live = refunds.data.filter((r) => r.status !== 'failed' && r.status !== 'canceled')
+  const differences = live.filter((r) => r.metadata?.tydio_refund === REPLACEMENT_DIFFERENCE_REFUND)
+  if (differences.length === 0) return null
+  const done = live.find((r) => r.metadata?.tydio_refund === kind)
+  if (done) return { done: done.id }
+
+  const differenceCents = differences.reduce((sum, r) => sum + r.amount, 0)
+  return {
+    baseCents: intent.amount_received - differenceCents,
+    remainingCents: intent.amount_received - refundedCents,
+    lastRefundId: live[0]?.id ?? null,
+  }
+}
+
+// Refunds `cents` (capped at what's left) after difference refunds, or hands back the last
+// refund when there's nothing left to refund, so the booking still records one.
+async function refundAfterDifferences(
+  paymentIntentId: string,
+  kind: RefundKind,
+  plan: { remainingCents: number; lastRefundId: string | null },
+  cents: number
+): Promise<string> {
+  const amount = Math.min(cents, plan.remainingCents)
+  if (amount <= 0 && plan.lastRefundId) return plan.lastRefundId
+  const refund = await stripe.refunds.create(
+    { payment_intent: paymentIntentId, amount, metadata: { tydio_refund: kind } },
+    { idempotencyKey: `refund-booking-${kind}-after-differences-${paymentIntentId}` }
+  )
+  return refund.id
 }
 
 // Refunds what the customer paid minus the fee Stripe actually took on this charge. That
@@ -222,6 +338,10 @@ export async function refundBookingPayment(paymentIntentId: string): Promise<str
   const percentage = stripePercentageForCardCountry(charge?.payment_method_details?.card?.country)
   const feeCents = balance?.fee ?? Math.round(stripeProcessingFee(intent.amount_received / 100, percentage) * 100)
 
+  const plan = await afterDifferenceRefunds(intent, 'minus_fee')
+  if (plan && 'done' in plan) return plan.done
+  if (plan) return refundAfterDifferences(paymentIntentId, 'minus_fee', plan, plan.baseCents - feeCents)
+
   const refund = await stripe.refunds.create(
     { payment_intent: paymentIntentId, amount: intent.amount_received - feeCents },
     { idempotencyKey: `refund-booking-${paymentIntentId}` }
@@ -232,6 +352,11 @@ export async function refundBookingPayment(paymentIntentId: string): Promise<str
 // For a cleaner canceling at the last minute: everything comes back, Stripe's fee too,
 // which Tydio absorbs.
 export async function refundBookingInFull(paymentIntentId: string): Promise<string> {
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+  const plan = await afterDifferenceRefunds(intent, 'full')
+  if (plan && 'done' in plan) return plan.done
+  if (plan) return refundAfterDifferences(paymentIntentId, 'full', plan, plan.remainingCents)
+
   const refund = await stripe.refunds.create(
     { payment_intent: paymentIntentId },
     { idempotencyKey: `refund-booking-full-${paymentIntentId}` }
@@ -241,7 +366,11 @@ export async function refundBookingInFull(paymentIntentId: string): Promise<stri
 
 // For a customer canceling late: 50% of what they paid comes back.
 export async function refundLateCancellation(paymentIntentId: string): Promise<string> {
-  const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+  const plan = await afterDifferenceRefunds(intent, 'late')
+  if (plan && 'done' in plan) return plan.done
+  if (plan) return refundAfterDifferences(paymentIntentId, 'late', plan, Math.round(lateCancelRefund(plan.baseCents / 100) * 100))
+
   const refund = await stripe.refunds.create(
     { payment_intent: paymentIntentId, amount: Math.round(lateCancelRefund(intent.amount_received / 100) * 100) },
     { idempotencyKey: `refund-booking-late-${paymentIntentId}` }
@@ -252,7 +381,11 @@ export async function refundLateCancellation(paymentIntentId: string): Promise<s
 // The admin's half refund (an admin cancellation or a settled incident): half of what
 // they paid comes back.
 export async function refundHalf(paymentIntentId: string): Promise<string> {
-  const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+  const plan = await afterDifferenceRefunds(intent, 'half')
+  if (plan && 'done' in plan) return plan.done
+  if (plan) return refundAfterDifferences(paymentIntentId, 'half', plan, Math.round(halfRefund(plan.baseCents / 100) * 100))
+
   const refund = await stripe.refunds.create(
     { payment_intent: paymentIntentId, amount: Math.round(halfRefund(intent.amount_received / 100) * 100) },
     { idempotencyKey: `refund-booking-half-${paymentIntentId}` }
@@ -265,7 +398,8 @@ export async function refundHalf(paymentIntentId: string): Promise<string> {
 // this may need to start a new one.
 export async function restoreBookingTasks(admin: Admin, userId: string, tasks: TidyTask[]): Promise<void> {
   if (tasks.length === 0) return
-  const restored = tasks.map((task) => ({ ...task, completed: false }))
+  // A Tidy Pro's quoted price was for that booking only: re-booked, it's quoted again.
+  const restored = tasks.map((task) => ({ ...withoutTidyProQuote(task), completed: false }))
 
   const { data: draft } = await admin
     .from('booking_drafts')
@@ -310,7 +444,9 @@ async function closeAndRefundGroup(
   admin: Admin,
   groupId: string,
   reason: string | null,
-  refund: (paymentIntentId: string) => Promise<string | null> = refundBookingPayment
+  refund: (paymentIntentId: string) => Promise<string | null> = refundBookingPayment,
+  // For the upcharges held with it. Defaults to the same refund as the payment.
+  upchargeRefund: (paymentIntentId: string) => Promise<string | null> = refund
 ): Promise<{ closed: true; userId: string; requests: { id: string; tidy_pro_id: string | null }[] } | { closed: false; error: string }> {
   const { data: closed } = await admin
     .from('booking_request_groups')
@@ -338,6 +474,10 @@ async function closeAndRefundGroup(
     .eq('status', 'pending')
     .select('id, tidy_pro_id')
 
+  // A replacement chain's price differences are held on whichever booking holds the
+  // payment (lib/replacementChain): the pending request, or the original between picks.
+  await refundHeldUpcharges(admin, [...(requests ?? []).map((r) => r.id), (group.original_booking_id ?? group.primary_booking_id)!], upchargeRefund)
+
   // An initial group has no original booking, so the outcome goes on the request to the
   // customer's first choice, taken out of the group so it stays visible to them.
   const isInitial = group.original_booking_id == null
@@ -359,6 +499,24 @@ async function closeAndRefundGroup(
   return { closed: true, userId: group.user_id, requests: requests ?? [] }
 }
 
+// Refunds the paid upcharges on these bookings with the same refund as the booking's own
+// payment. The payment itself is already refunded by now, so a failure here is logged for
+// the admin rather than undoing that.
+async function refundHeldUpcharges(admin: Admin, bookingIds: string[], refund: (paymentIntentId: string) => Promise<string | null>): Promise<void> {
+  for (const bookingId of bookingIds) {
+    const upcharges = await getPaidUpcharges(admin, bookingId)
+    const refunds: { upchargeId: string; refundId: string | null }[] = []
+    for (const u of upcharges) {
+      try {
+        refunds.push({ upchargeId: u.id, refundId: await refund(u.paymentIntentId) })
+      } catch (err) {
+        console.error('Could not refund upcharge of a canceled booking', u.id, err)
+      }
+    }
+    await markUpchargesRefunded(admin, refunds)
+  }
+}
+
 // Called after a cleaner in the group declines. Ends the booking once nobody's left.
 export async function closeGroupIfNoRequestsLeft(admin: Admin, groupId: string): Promise<void> {
   const { count } = await admin
@@ -373,9 +531,18 @@ export async function closeGroupIfNoRequestsLeft(admin: Admin, groupId: string):
   // when a single cleaner declines.
   const { data: group } = await admin
     .from('booking_request_groups')
-    .select('original_booking_id, primary_booking_id, user_id')
+    .select('original_booking_id, primary_booking_id, user_id, chain')
     .eq('id', groupId)
     .maybeSingle()
+
+  // One replacement in a chain declined: the payment goes back to the original booking,
+  // and the customer picks someone else or cancels.
+  if (group?.chain && group.original_booking_id) {
+    // Imported here: lib/replacementChain imports this module.
+    const { returnChainPaymentToOriginal } = await import('@/lib/replacementChain')
+    await returnChainPaymentToOriginal(admin, groupId)
+    return
+  }
   if (group && group.original_booking_id == null && group.primary_booking_id) {
     const { data: closed } = await admin
       .from('booking_request_groups')
@@ -384,11 +551,13 @@ export async function closeGroupIfNoRequestsLeft(admin: Admin, groupId: string):
       .eq('status', 'open')
       .select('id')
     if (!closed?.length) return
-    await admin
+    const { data: primary } = await admin
       .from('bookings')
       .update({ status: 'declined', decision_status: 'declined', request_group_id: null, user_unread: true })
       .eq('id', group.primary_booking_id)
-    await notifyCustomer(admin, group.user_id, notifyAllRequestsDeclined(group.primary_booking_id))
+      .select('full_service')
+      .maybeSingle()
+    await notifyCustomer(admin, group.user_id, notifyAllRequestsDeclined(group.primary_booking_id, primary?.full_service != null))
     return
   }
 
@@ -494,8 +663,10 @@ export async function refundBookingTotal(
 // A cleaner backing out early: the booking goes back to the customer to choose someone
 // else, paid from its original charge. Any upcharge was for this cleaner's visit, so it
 // comes back in full and leaves the booking's totals.
+// A replacement's price difference is part of the booking's price, not extra for this
+// visit, so it stays held for the next replacement.
 export async function refundUpchargesForReplacement(admin: Admin, bookingId: string): Promise<void> {
-  const upcharges = await getPaidUpcharges(admin, bookingId)
+  const upcharges = (await getPaidUpcharges(admin, bookingId)).filter((u) => !u.replacementDifference)
   if (upcharges.length === 0) return
   const refundIds: { upchargeId: string; refundId: string | null }[] = []
   for (const u of upcharges) refundIds.push({ upchargeId: u.id, refundId: await refundBookingInFull(u.paymentIntentId) })
@@ -580,8 +751,9 @@ async function emailAdminCancellation(
 
 // The Tydio team canceling a booking from the admin dashboard, at any point before the
 // cleaner marks it complete, refunding as much as the admin chooses. No refund needs a
-// reason, which is emailed to the customer. The cleaner isn't paid; whatever isn't
-// refunded stays with Tydio. A request still out to several cleaners, or a declined
+// reason, which is emailed to the customer. An accepted booking's cleaner is paid what the
+// admin chooses (`payout`, nothing by default), straight away and emailed to them;
+// whatever isn't refunded or paid to them stays with Tydio. A request still out to several cleaners, or a declined
 // booking whose replacements are still out, ends the whole group: they all share one
 // payment, so it's refunded once. A custom refund is an amount in dollars, up to what
 // the customer paid.
@@ -590,11 +762,12 @@ export async function cancelBookingAsAdmin(
   bookingId: string,
   refund: AdminRefund,
   reason: string | null = null,
-  customAmount: number | null = null
-): Promise<{ success: true } | { error: string }> {
+  customAmount: number | null = null,
+  payout: { choice: AdminPayoutChoice; custom: number | null } | null = null
+): Promise<{ success: true; cleanerPay?: number; warning?: string } | { error: string }> {
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, user_id, tidy_pro_id, status, decision_status, request_group_id, cancelled_reason, cleaner_marked_complete_at, stripe_payment_intent_id, stripe_refund_id, task_list, scheduled_date, total_customer_charge')
+    .select('id, user_id, tidy_pro_id, status, decision_status, request_group_id, cancelled_reason, cleaner_marked_complete_at, stripe_payment_intent_id, stripe_refund_id, task_list, scheduled_date, total_customer_charge, cleaner_pay')
     .eq('id', bookingId)
     .maybeSingle()
   if (!booking) return { error: 'Booking not found.' }
@@ -603,6 +776,15 @@ export async function cancelBookingAsAdmin(
     if (!booking.stripe_payment_intent_id) return { error: 'There’s no payment to refund.' }
     const invalid = validateCustomRefund(customAmount, booking.total_customer_charge)
     if (invalid) return { error: invalid }
+  }
+
+  // Only an accepted booking has a cleaner to pay.
+  let cleanerPay = 0
+  if (payout && payout.choice !== 'none') {
+    if (booking.status !== 'scheduled' || !booking.tidy_pro_id) return { error: 'Only an accepted booking has a Tidy Pro to pay.' }
+    const result = adminCleanerPay(payout.choice, Number(booking.cleaner_pay ?? 0), payout.custom)
+    if ('error' in result) return { error: result.error }
+    cleanerPay = result.pay
   }
 
   // Whichever path refunds it, this is the refund the customer is told about.
@@ -622,13 +804,14 @@ export async function cancelBookingAsAdmin(
   if (booking.status === 'pending' && booking.request_group_id) groupId = booking.request_group_id
   let declinedAndHeld = false
   if (isAwaitingReplacements(booking) && !booking.stripe_refund_id) {
-    const { data: group } = await admin.from('booking_request_groups').select('id, status').eq('original_booking_id', bookingId).maybeSingle()
+    const group = await liveReplacementGroup(admin, bookingId)
     if (group?.status === 'open') groupId = group.id
     declinedAndHeld = group == null
   }
 
   if (groupId) {
-    const result = await closeAndRefundGroup(admin, groupId, ADMIN_CANCELLED_REASON, issueRefund)
+    // A custom amount comes off the booking's own payment; upcharges get the chosen share.
+    const result = await closeAndRefundGroup(admin, groupId, ADMIN_CANCELLED_REASON, issueRefund, refund === 'custom' ? async () => null : ADMIN_REFUNDS[refund])
     if (!result.closed) return { error: result.error }
     await Promise.all(
       result.requests
@@ -674,7 +857,36 @@ export async function cancelBookingAsAdmin(
   if (booking.tidy_pro_id && !declinedAndHeld) {
     await notifyCleaner(admin, booking.tidy_pro_id, notifyAdminCancelledRequest(bookingId))
   }
-  return { success: true }
+
+  let warning: string | undefined
+  if (cleanerPay > 0 && booking.tidy_pro_id) {
+    // The admin's choice settles any hold they'd put on the payout.
+    await admin
+      .from('bookings')
+      .update({ cleaner_pay: cleanerPay, payout_adjusted_at: new Date().toISOString(), payout_held_at: null, payout_hold_note: null })
+      .eq('id', bookingId)
+    // Imported here: lib/bookings imports this module.
+    const { completeBookingPayout } = await import('@/lib/bookings')
+    const result = await completeBookingPayout(admin, bookingId).catch((err) => ({ error: String(err) }))
+    if ('error' in result) warning = `The Tidy Pro's payout transfer failed and will be retried: ${result.error}.`
+    await emailCleanerPaidForCancellation(admin, booking.tidy_pro_id, booking.scheduled_date, cleanerPay)
+  }
+  return { success: true, ...(cleanerPay > 0 ? { cleanerPay } : {}), ...(warning ? { warning } : {}) }
+}
+
+async function emailCleanerPaidForCancellation(admin: Admin, tidyProId: string, scheduledDate: string | null, pay: number): Promise<void> {
+  const { data: cleaner } = await admin.from('profiles').select('email, first_name').eq('id', tidyProId).maybeSingle()
+  if (!cleaner?.email) return
+  const when = scheduledDate ? ` for ${escapeHtml(scheduledDate)}` : ''
+  const p = 'margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;'
+  await sendEmail({
+    to: [{ email: cleaner.email, name: cleaner.first_name ?? undefined }],
+    subject: `You'll be paid $${pay.toFixed(2)} for a canceled booking`,
+    htmlContent: emailShell(`
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1a2332;">Hi ${escapeHtml(cleaner.first_name ?? 'there')},</h2>
+      <p style="${p}">The Tydio team canceled your booking${when}. You'll still be paid $${pay.toFixed(2)} for it, sent to your payout account.</p>
+    `),
+  }).catch((err) => console.error('Cancellation payout email failed', tidyProId, err))
 }
 
 // The cutoff arrived with nobody having accepted.
@@ -706,7 +918,8 @@ export async function expireBooking(
   }
 ): Promise<void> {
   if (!booking.status) return
-  const refundId = booking.stripe_payment_intent_id ? await refundBookingPayment(booking.stripe_payment_intent_id) : null
+  // With any upcharges held on it: a replacement chain's price differences.
+  const refundId = booking.stripe_payment_intent_id ? (await refundBookingTotal(admin, booking, 'minus_fee')).refundId : null
 
   const { data: updated } = await admin
     .from('bookings')
@@ -737,8 +950,10 @@ export async function expireUnacceptedBookings(admin: Admin, now: Date = new Dat
   const started = (waiting ?? []).filter((b) => hasAcceptanceWindowClosed(b.scheduled_date, b.scheduled_time, now, b.time_zone))
 
   const declinedIds = started.filter(isAwaitingReplacements).map((b) => b.id)
+  // Only the live round: a chain's earlier rounds are closed, and the booking waits on the
+  // customer again, so it expires on its own.
   const { data: replacedFrom } = declinedIds.length
-    ? await admin.from('booking_request_groups').select('id, original_booking_id, status').in('original_booking_id', declinedIds)
+    ? await admin.from('booking_request_groups').select('id, original_booking_id, status').in('original_booking_id', declinedIds).in('status', ['open', 'filled'])
     : { data: [] }
   const groupByOriginal = new Map((replacedFrom ?? []).map((g) => [g.original_booking_id, g]))
 

@@ -10,11 +10,12 @@ import { sendPushForPayload } from '@/lib/push'
 
 type Admin = ReturnType<typeof createAdminClient>
 
-// A cleaner shows they're heading to a booking by tapping "I'm on the way". If they
-// haven't by the start time, they're reminded by text, push, and email. If they still
-// haven't 15 minutes later, the admin gets an urgent email with everything needed to
-// reach the cleaner and the customer. "Anytime" bookings have no start time, so they're
-// never checked.
+// At the start time, every Tidy Pro on a booking they haven't finished is reminded by
+// text, push, and email to open the app and complete the booking's steps, which they
+// need to do to be paid. Separately, a cleaner shows they're heading to a booking by
+// tapping "I'm on the way"; if they still haven't 15 minutes after the start, the admin
+// gets an urgent email with everything needed to reach the cleaner and the customer.
+// "Anytime" bookings have no start time, so they're never checked.
 
 export const ALERT_AFTER_MINUTES = 15
 
@@ -24,15 +25,27 @@ export const GIVE_UP_AFTER_MINUTES = 3 * 60
 
 export type UnresponsiveStep = 'remind' | 'alert' | null
 
+// Hasn't started, or started but not finished.
+const NOT_FINISHED = 'progress_status.is.null,progress_status.neq.done'
+
 export function unresponsiveStepDue(
-  booking: { scheduled_date: string | null; scheduled_time: string | null; time_zone: string | null; on_the_way_reminder_sent_at: string | null; unresponsive_alert_sent_at: string | null },
+  booking: {
+    scheduled_date: string | null
+    scheduled_time: string | null
+    time_zone: string | null
+    progress_status?: string | null
+    on_the_way_reminder_sent_at: string | null
+    unresponsive_alert_sent_at: string | null
+  },
   now: Date = new Date()
 ): UnresponsiveStep {
   if (!booking.scheduled_date || !booking.scheduled_time) return null
   const start = bookingStartInstant(booking.scheduled_date, booking.scheduled_time, booking.time_zone ?? undefined)
   const minutesLate = (now.getTime() - start.getTime()) / 60000
   if (minutesLate < 0 || minutesLate > GIVE_UP_AFTER_MINUTES) return null
-  if (minutesLate >= ALERT_AFTER_MINUTES) return booking.unresponsive_alert_sent_at ? null : 'alert'
+  if (booking.progress_status === 'done') return null
+  // Only a cleaner who never tapped "I'm on the way" is unresponsive.
+  if (minutesLate >= ALERT_AFTER_MINUTES) return booking.progress_status == null && !booking.unresponsive_alert_sent_at ? 'alert' : null
   return booking.on_the_way_reminder_sent_at ? null : 'remind'
 }
 
@@ -83,9 +96,10 @@ export async function checkUnresponsiveCleaners(
 ): Promise<{ reminded: number; alerted: number; failed: number }> {
   const { data: candidates } = await admin
     .from('bookings')
-    .select('id, tidy_pro_id, scheduled_date, scheduled_time, time_zone, on_the_way_reminder_sent_at, unresponsive_alert_sent_at')
+    .select('id, tidy_pro_id, scheduled_date, scheduled_time, time_zone, progress_status, on_the_way_reminder_sent_at, unresponsive_alert_sent_at')
     .eq('status', 'scheduled')
-    .is('progress_status', null)
+    // Started but not finished still gets the start-time reminder.
+    .or(NOT_FINISHED)
     .is('unresponsive_alert_sent_at', null)
     // On hold for an upcharge: they've been told not to set off yet.
     .is('suspended_for_upcharge_at', null)
@@ -106,12 +120,12 @@ export async function checkUnresponsiveCleaners(
 
     const column = step === 'remind' ? 'on_the_way_reminder_sent_at' : 'unresponsive_alert_sent_at'
     try {
-      const { data: claimed, error } = await admin
+      const claim = admin
         .from('bookings')
         .update({ [column]: now.toISOString() } as never)
         .eq('id', booking.id)
         .eq('status', 'scheduled')
-        .is('progress_status', null)
+      const { data: claimed, error } = await (step === 'remind' ? claim.or(NOT_FINISHED) : claim.is('progress_status', null))
         .is('suspended_for_upcharge_at', null)
         .is('payment_due_at', null)
         .is(column, null)

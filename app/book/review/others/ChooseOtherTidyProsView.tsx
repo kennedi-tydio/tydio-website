@@ -33,8 +33,8 @@ export default function ChooseOtherTidyProsView({
   const { picks, toggle } = usePersistedPicks(`draft:${draftId}`, options.map((o) => o.id), max)
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
-      <div className="flex-1 overflow-y-auto px-5 pt-6 pb-36 max-w-sm mx-auto w-full">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
+      <div className="flex-1 overflow-y-auto px-5 pt-6 pb-36 max-w-sm mx-auto w-full safe-area-inset-bottom">
         <Link href="/book/review" aria-label="Back" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 -ml-2 mb-4">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
             <path d="M10 12L6 8l4-4" stroke="#1a2332" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

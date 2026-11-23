@@ -80,7 +80,20 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/081_incident_cleaner_asked_cancel.sql` (widens `bookings.incident_type`). A customer canceling with "The cleaner asked me to cancel" fails without it
 - [x] Apply `supabase/migrations/082_customer_arrival_check.sql` (`bookings.customer_arrival_check_sent_at`). Rescheduling a booking (admin edits, recurring visits) and the customer arrival check fail without it
 - [x] Apply `supabase/migrations/083_customer_sms_phone.sql` (`profiles.sms_phone`). The customer dashboard, Notifications page, admin Users and Bookings tabs, and customer texts fail without it
+- [x] Apply `supabase/migrations/084_promo_codes.sql` (promo code discount columns, `promo_code_recipients`, `promo_code_failures`, `bookings.promo_code_id` / `promo_discount`). Booking checkout fails for every customer without it (the charge inserts `promo_code_id`), as do admin Promo Codes and applying a code
+- [x] Apply `supabase/migrations/087_booking_quote_requests.sql` (`booking_quote_requests` table: the Tidy Pro quote fallback when OpenAI is down). Without it, "Send for a quote" fails and the task-photo-retention cron stops before deleting anything
+- [x] Apply `supabase/migrations/088_booking_declines.sql` (`booking_declines` table). Declines still go through without it, but the reason isn't saved and admin Bookings shows an error in Declined requests
+- [x] Apply `supabase/migrations/086_promo_uses_per_customer.sql` (`promo_codes.max_uses_per_customer`). Applying a promo code, checkout with a code, and admin Promo Codes fail without it
+- [x] Apply `supabase/migrations/085_full_service_cleaning.sql` (`tidypro_full_service_rates`; `full_service` on `booking_drafts`, `bookings`, `recurring_bookings`; `booking_tasks.kind` / `service_price`). Tidy Pros can't save Standard & Deep Cleaning prices without it, and full-service bookings fail
+- [x] Apply `supabase/migrations/089_cleaning_photos.sql` (`booking_cleaning_photos`). Tidy Pros can't add photos of a Standard / Deep Cleaning without it
+- [x] Apply `supabase/migrations/091_user_archived_threads.sql` (`bookings.user_archived_at`). The customer Messages page errors without it
+- [x] Apply `supabase/migrations/094_entire_home_task_photos.sql` (`booking_task_photos` table). Tidy Pros can't add photos to Entire home tasks without it
+- [x] Apply `supabase/migrations/093_admin_tidy_pro_notes.sql` (`admin_tidy_pro_notes` table). The admin Tidy Pros page shows "Couldn't load notes" without it
 - [x] Apply `supabase/migrations/080_recurring_skipped_dates.sql` (`recurring_bookings.skipped_dates`). The Bookings tab, Jobs tab and the recurring-visit job fail without it
+- [x] Apply `supabase/migrations/090_payout_hold.sql` (`bookings.payout_adjusted_at`, `stripe_transfer_reversal_id`). Completing a booking, Tidy Pro payouts and admin refunds fail without it
+- [x] Apply `supabase/migrations/096_manual_payout_hold.sql` (`bookings.payout_held_at`, `payout_hold_note`). Completing a booking, Tidy Pro payouts and the admin Bookings page fail without it
+- [x] Apply `supabase/migrations/092_user_blocks.sql` (`user_blocks` table). Blocking from the report sheet fails without it
+- [x] Apply `supabase/migrations/095_customer_bio_preferences.sql` (`profiles.bio`, `cleaning_preferences`). Customer Profile → Edit and the customer profile Tidy Pros see fail without it
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel

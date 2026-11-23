@@ -10,8 +10,12 @@ import { withPushStatus } from '@/lib/pushRequirement'
 import { TIDY_PRO_SERVICES, normalizeServices, providesServices, serviceLabels } from '@/lib/tidyProServices'
 import { FavoriteStar } from '../users/FavoriteStar'
 import { VerifiedToggle } from './VerifiedToggle'
+import { ProNote } from './ProNote'
 import { amendmentStatuses } from '@/lib/legal/agreementAmendments'
 import AmendmentStatusList from '../AmendmentStatusList'
+import { loadRatesFor, type FullServiceRates } from '@/lib/fullServiceRates'
+import { FULL_SERVICE_LABEL, FULL_SERVICE_TYPES } from '@/lib/fullService'
+import { PricePair } from './ProPrices'
 
 export const metadata: Metadata = { title: 'Tidy Pros — Tydio Admin' }
 
@@ -71,7 +75,7 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
   const services = normalizeServices([service ?? []].flat())
   const admin = createAdminClient()
 
-  const [{ data: profiles, error }, { data: tidyPros, error: tidyProsError }, acceptanceById, { data: favorites }, { data: checks }] = await Promise.all([
+  const [{ data: profiles, error }, { data: tidyPros, error: tidyProsError }, acceptanceById, { data: favorites }, { data: checks }, { data: notes, error: notesError }] = await Promise.all([
     admin.from('profiles').select('id, first_name, last_name, email, banned_at, zip_code').eq('role', 'TIDYPRO').order('first_name'),
     admin
       .from('tidypro_profiles')
@@ -81,12 +85,22 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
     getAllAcceptanceStats(admin),
     admin.from('admin_favorite_tidy_pros').select('pro_id'),
     admin.from('background_checks').select('pro_id, status, requested_at, link_sent_at, submitted_at'),
+    admin.from('admin_tidy_pro_notes').select('pro_id, note'),
   ])
 
   const tidyProById = new Map((await withPushStatus(admin, tidyPros ?? [])).map((t) => [t.id, t]))
   const favoriteIds = new Set((favorites ?? []).map((f) => f.pro_id))
+  const noteById = new Map((notes ?? []).map((n) => [n.pro_id, n.note]))
   const checkById = new Map((checks ?? []).map((c) => [c.pro_id, c]))
   const amendmentsById = await amendmentStatuses(admin, (profiles ?? []).map((p) => p.id))
+  // A failed read shows as an error on the page, not as "not priced".
+  let ratesById = new Map<string, FullServiceRates>()
+  let ratesError: string | null = null
+  try {
+    ratesById = await loadRatesFor(admin, (profiles ?? []).map((p) => p.id))
+  } catch (err) {
+    ratesError = err instanceof Error ? err.message : String(err)
+  }
 
   const all = (profiles ?? []).map((p) => {
     const pro = tidyProById.get(p.id)
@@ -100,8 +114,10 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
       stats,
       lowAcceptance: isAcceptanceRateLow(stats),
       favorite: favoriteIds.has(p.id),
+      rates: ratesById.get(p.id),
       blockers: pro ? bookingBlockers(pro) : ['No Tidy Pro profile yet'],
       check: checkById.get(p.id),
+      note: noteById.get(p.id) ?? '',
       hours: weeklyHours(pro?.availability),
       timeOff: pro ? normalizeTimeOff(parseTimeOff(pro.time_off), todayInZone(pro.time_zone ?? DEFAULT_BOOKING_TIME_ZONE)) : [],
     }
@@ -110,7 +126,11 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
   const query = search.trim().toLowerCase()
   const rows = all.filter(
     (r) =>
-      (!query || r.name.toLowerCase().includes(query) || (r.profile.email ?? '').toLowerCase().includes(query) || (r.zip ?? '').includes(query)) &&
+      (!query ||
+        r.name.toLowerCase().includes(query) ||
+        (r.profile.email ?? '').toLowerCase().includes(query) ||
+        (r.zip ?? '').includes(query) ||
+        r.note.toLowerCase().includes(query)) &&
       (!status || (r.pro?.cleaner_status ?? 'applied') === status) &&
       (services.length === 0 || providesServices(r.pro?.services_provided, services)) &&
       (acceptance !== 'low' || r.lowAcceptance) &&
@@ -123,12 +143,22 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
       <h1 className="text-2xl font-bold text-slate-900 mb-2">Tidy Pros</h1>
       <p className="text-sm text-slate-500 mb-6">
         Every Tidy Pro, with what they offer and how they&apos;re doing. Acceptance rate counts only requests they answered; it&apos;s flagged below{' '}
-        {Math.round(ACCEPTANCE_RATE_THRESHOLD * 100)}% once they&apos;ve answered a few. Click a name to see their profile as customers do.
+        {Math.round(ACCEPTANCE_RATE_THRESHOLD * 100)}% once they&apos;ve answered a few. Prices are each Tidy Pro&apos;s whole-home rate, take-home → what the customer pays. Click a name to see their profile as customers do, with every room and add-on price.
       </p>
 
       {(error || tidyProsError) && (
         <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-4">
           Couldn&apos;t load Tidy Pros: {(error ?? tidyProsError)?.message}
+        </p>
+      )}
+      {notesError && (
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-4">
+          Couldn&apos;t load notes: {notesError.message}
+        </p>
+      )}
+      {ratesError && (
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-4">
+          Couldn&apos;t load prices: {ratesError}
         </p>
       )}
 
@@ -138,7 +168,7 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
           <input
             name="search"
             defaultValue={search}
-            placeholder="Name, email or ZIP"
+            placeholder="Name, email, ZIP or note"
             className="mt-1 block w-56 text-sm font-normal text-slate-700 border border-slate-200 rounded-lg px-2 py-1.5 bg-white"
           />
         </label>
@@ -205,8 +235,10 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 text-left">
                 <th className={TH}>Tidy Pro</th>
+                <th className={TH}>Notes</th>
                 <th className={TH}>Status</th>
                 <th className={TH}>Services</th>
+                <th className={TH}>Prices</th>
                 <th className={TH}>Acceptance</th>
                 <th className={TH}>Rating</th>
                 <th className={TH}>Area</th>
@@ -215,7 +247,7 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {rows.map(({ profile, pro, name, zip, stats, lowAcceptance, favorite: isFavorite, blockers, check, hours, timeOff }) => {
+              {rows.map(({ profile, pro, name, zip, stats, lowAcceptance, favorite: isFavorite, blockers, check, hours, timeOff, rates, note }) => {
                 const bookable = blockers.length === 0
                 const cleanerStatus = pro?.cleaner_status ?? 'applied'
                 const offered = serviceLabels(pro?.services_provided)
@@ -232,6 +264,9 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
                         </Link>
                       </div>
                       <div className="text-xs text-slate-400">{profile.email}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {notesError ? <span className="text-xs text-slate-400">—</span> : <ProNote proId={profile.id} name={name} initialNote={note} />}
                     </td>
                     <td className="px-4 py-3 text-xs">
                       {profile.banned_at ? (
@@ -255,6 +290,25 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
                     <td className="px-4 py-3 text-xs text-slate-600 max-w-60">
                       {offered.length > 0 ? offered.join(', ') : <span className="text-slate-400">Not chosen yet</span>}
                       {pro?.uses_organic_products && <div className="text-green-700 mt-0.5">Uses organic products</div>}
+                    </td>
+                    <td className="px-4 py-3 text-xs whitespace-nowrap">
+                      {rates && FULL_SERVICE_TYPES.some((t) => rates[t]) ? (
+                        <>
+                          {FULL_SERVICE_TYPES.map((t) => {
+                            const r = rates[t]
+                            return r ? (
+                              <div key={t}>
+                                <span className="text-slate-500">{FULL_SERVICE_LABEL[t].replace(' Cleaning', '')}</span> <PricePair takeHome={r.baseTakeHome} />
+                              </div>
+                            ) : null
+                          })}
+                          <Link href={`/admin/tidy-pros/${profile.id}`} className="text-slate-400 hover:underline">
+                            Rooms &amp; add-ons
+                          </Link>
+                        </>
+                      ) : (
+                        <span className="text-slate-400">{ratesError ? '—' : 'Not priced'}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs whitespace-nowrap">
                       <div className={`text-sm tabular-nums ${lowAcceptance ? 'font-bold text-red-600' : 'text-slate-700'}`}>{formatAcceptanceRate(stats)}</div>
@@ -317,7 +371,7 @@ export default async function AdminTidyProsPage({ searchParams }: { searchParams
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
                     {hasFilters ? 'No Tidy Pros match these filters.' : 'No Tidy Pros yet.'}
                   </td>
                 </tr>

@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { TidyTask } from '@/app/dashboard/types'
 import SchedulePicker from './SchedulePicker'
 import type { ScheduledLocation } from './actions'
+import { bookableSelection } from '@/lib/fullServiceBooking'
 
 export const metadata: Metadata = { title: 'Plan Your Booking — Tydio' }
 
@@ -26,7 +27,7 @@ export default async function SchedulePage() {
 
   const { data: draft, error: draftError } = await admin
     .from('booking_drafts')
-    .select('id, task_list, scheduled_location, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time, any_day_selected, recurrence_frequency')
+    .select('id, task_list, full_service, scheduled_location, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time, any_day_selected, recurrence_frequency')
     .eq('customer_user_id', session.profileId)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -36,7 +37,8 @@ export default async function SchedulePage() {
 
   const allTasks = (draft?.task_list as TidyTask[] | null) ?? []
   const hasSelectedTasks = allTasks.some((t) => t.completed)
-  if (!draft || !hasSelectedTasks) redirect('/dashboard')
+  // Tidy Tasks, or a Standard / Deep Cleaning (which can have no tasks at all).
+  if (!draft || (!hasSelectedTasks && !bookableSelection(draft.full_service))) redirect('/dashboard')
 
   const { data: addresses } = await admin
     .from('user_addresses')

@@ -64,7 +64,7 @@ async function cancelForTidyPro(
   const now = input.now ?? new Date()
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, user_id, status, progress_status, scheduled_date, scheduled_time, time_zone, stripe_payment_intent_id, task_list, payment_due_at')
+    .select('id, user_id, status, progress_status, scheduled_date, scheduled_time, time_zone, stripe_payment_intent_id, task_list, payment_due_at, full_service')
     .eq('id', input.bookingId)
     .eq('tidy_pro_id', input.tidyProId)
     .maybeSingle()
@@ -143,7 +143,7 @@ async function cancelForTidyPro(
     // cleaner's visit comes back.
     await dropPendingUpcharges(admin, input.bookingId)
     await refundUpchargesForReplacement(admin, input.bookingId).catch((err) => console.error('Upcharge refund failed', input.bookingId, err))
-    await notifyCustomer(admin, booking.user_id, notifyCleanerCancelled(cleanerName, input.bookingId))
+    await notifyCustomer(admin, booking.user_id, notifyCleanerCancelled(cleanerName, input.bookingId, booking.full_service != null))
   }
 
   return { success: true }
@@ -154,11 +154,12 @@ async function cancelForTidyPro(
 // so it can't undo an accept that just happened.
 export async function declineRequestForTidyPro(
   admin: Admin,
-  input: { bookingId: string; tidyProId: string }
+  // Why they declined, for admins only. Left out when an admin action ends the request.
+  input: { bookingId: string; tidyProId: string; reason?: { reason: string; note: string | null } }
 ): Promise<{ success: true } | { error: string }> {
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, user_id, status, request_group_id')
+    .select('id, user_id, status, request_group_id, full_service')
     .eq('id', input.bookingId)
     .eq('tidy_pro_id', input.tidyProId)
     .maybeSingle()
@@ -179,12 +180,20 @@ export async function declineRequestForTidyPro(
   if (error) return { error: userFacingError(error) }
   if (!declined?.length) return { error: 'This request has already been resolved.' }
 
+  // The decline already happened, so a failed save only loses the admin's record of why.
+  if (input.reason) {
+    const { error: reasonError } = await admin
+      .from('booking_declines')
+      .insert({ booking_id: input.bookingId, tidy_pro_id: input.tidyProId, reason: input.reason.reason, note: input.reason.note })
+    if (reasonError) console.error('Saving decline reason failed', input.bookingId, reasonError)
+  }
+
   if (booking.request_group_id) {
     await closeGroupIfNoRequestsLeft(admin, booking.request_group_id)
   } else {
     // The payment stays where it is: the customer can send this to other cleaners with no
     // new charge. It's refunded if they cancel, or when the booking time arrives.
-    await notifyCustomer(admin, booking.user_id, notifyBookingDeclined(input.bookingId))
+    await notifyCustomer(admin, booking.user_id, notifyBookingDeclined(input.bookingId, booking.full_service != null))
   }
   return { success: true }
 }

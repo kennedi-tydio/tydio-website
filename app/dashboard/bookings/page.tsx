@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { CLEANER_CANCELLED_REASON, isAwaitingReplacements, isHiddenGroupRequest } from '@/lib/bookingRequestGroups'
+import { CLEANER_CANCELLED_REASON, bookingsBeingReplaced, isAwaitingReplacements, isHiddenGroupRequest } from '@/lib/bookingRequestGroups'
 import { todayInZone } from '@/lib/bookingTime'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
 import { getUnreadMessageCountForUser } from '@/lib/bookings'
@@ -32,10 +32,7 @@ export default async function BookingsPage() {
   // Canceled or declined by the Tidy Pro with the payment still held, and no replacements
   // chosen yet: still the customer's to sort out, so it stays upcoming, flagged.
   const droppedIds = (rows ?? []).filter((b) => isAwaitingReplacements(b) && b.stripe_refund_id == null).map((b) => b.id)
-  const { data: replacedGroups } = droppedIds.length
-    ? await admin.from('booking_request_groups').select('original_booking_id').in('original_booking_id', droppedIds)
-    : { data: [] }
-  const alreadyReplacing = new Set((replacedGroups ?? []).map((g) => g.original_booking_id))
+  const alreadyReplacing = await bookingsBeingReplaced(admin, droppedIds)
 
   const bookings: BookingRow[] = (rows ?? []).filter((b) => !isHiddenGroupRequest(b)).map((b) => {
     const location = b.scheduled_location as ScheduledLocation | null

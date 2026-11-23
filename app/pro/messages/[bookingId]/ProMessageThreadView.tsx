@@ -26,6 +26,9 @@ import { occurrenceLabel } from '@/lib/recurrence'
 import TaskAdditionRequestCard, { type TaskAdditionRequest } from './TaskAdditionRequestCard'
 import TaskAdditionRecordCard, { TaskAdditionOutcomeBubble, type TaskAdditionRecordView } from '@/app/components/TaskAdditionRecordCard'
 import { CLEANER_CANCEL_REASONS, type Cancellation } from '@/lib/cancellationReasons'
+import { DECLINE_REASONS, type Decline } from '@/lib/declineReasons'
+import FullServiceSummary, { type SummaryLine } from '@/app/components/FullServiceSummary'
+import { FULL_SERVICE_LABEL, type FullServiceSelection } from '@/lib/fullService'
 
 export type ChatMessage = {
   id: string
@@ -140,11 +143,13 @@ function BookingDetails({
   addressLabel,
   addressLine,
   tasks,
+  fullService,
   photoUrls,
   suppliesProvided,
   pets,
   notes,
 }: {
+  fullService: ProFullService | null
   isAccepted: boolean
   distanceMiles: number | null
   addressLabel: string | null
@@ -170,10 +175,14 @@ function BookingDetails({
         </>
       )}
 
-      <p className="text-sm font-bold text-slate-900 mt-3">Tasks</p>
+      {fullService && (
+        <FullServiceSummary selection={fullService.selection} lines={fullService.lines} showPrices={false} className="mt-3 bg-white" />
+      )}
+      {tasks.length > 0 && <p className="text-sm font-bold text-slate-900 mt-3">{fullService ? 'Tidy Tasks' : 'Tasks'}</p>}
       {tasks.map((task) => (
         <p key={task.id} className="text-sm text-slate-600">
           {bookedTaskName(task)}
+          {task.overlapAnswer === 'different_room' && <span className="text-xs text-slate-400"> (a different room from the cleaning)</span>}
         </p>
       ))}
       <p className="text-xs text-slate-400">
@@ -198,7 +207,13 @@ function BookingDetails({
   )
 }
 
+type ProFullService = { selection: FullServiceSelection; lines: SummaryLine[] }
+
 type Props = {
+  // Either side blocked the other (lib/userBlocks): no composer, just a note.
+  blocked?: boolean
+  // The request's Standard / Deep Cleaning.
+  fullService?: ProFullService | null
   bookingId: string
   customerName: string
   customerPhotoUrl: string | null
@@ -267,6 +282,8 @@ export default function ProMessageThreadView({
   taskAddition = null,
   taskAdditionPhotoUrls = {},
   taskAdditionHistory = [],
+  fullService = null,
+  blocked = false,
 }: Props) {
   const router = useRouter()
   const [status, setStatus] = useState(initialStatus)
@@ -279,6 +296,8 @@ export default function ProMessageThreadView({
   // Canceling just this visit, or every visit of the recurring booking.
   const [cancelScope, setCancelScope] = useState<'visit' | 'series'>('visit')
   const [choosingScope, setChoosingScope] = useState(false)
+  // The decline reason sheet is open.
+  const [askingDeclineReason, setAskingDeclineReason] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [editingTime, setEditingTime] = useState(false)
   const [newTime, setNewTime] = useState(scheduledTime?.slice(0, 5) ?? '09:00')
@@ -399,17 +418,17 @@ export default function ProMessageThreadView({
     setDecisionStatus('accepted')
   }
 
-  async function handleDecline() {
+  // The reason goes to admins only; the customer isn't shown it.
+  async function handleDeclineConfirmed(decline: Decline): Promise<string | null> {
     setWorking('decline')
     setActionError(null)
-    const result = await declineBookingRequestAction(bookingId)
+    const result = await declineBookingRequestAction(bookingId, decline)
     setWorking(null)
-    if ('error' in result) {
-      setActionError(result.error)
-      return
-    }
+    if ('error' in result) return result.error
+    setAskingDeclineReason(false)
     setStatus('declined')
     setDecisionStatus('declined')
+    return null
   }
 
   // Matches cancelAcceptedBookingAction: within an hour of the start, the customer is
@@ -474,7 +493,7 @@ export default function ProMessageThreadView({
   }
 
   return (
-    <main id="main-content" className="min-h-screen bg-white flex flex-col">
+    <main id="main-content" className="min-h-svh bg-white flex flex-col">
       <h1 className="sr-only">Messages</h1>
       {/* Header, booking summary and status banners stay pinned while the chat scrolls */}
       <div className="sticky top-0 z-20 bg-white shadow-sm safe-area-inset-top">
@@ -487,10 +506,15 @@ export default function ProMessageThreadView({
         >
           <IconBack />
         </button>
-        <Link href={`/pro/bookings/${bookingId}/customer`} aria-label={`View ${customerName}'s profile`} className="flex-shrink-0">
+        {/* Name and photo both open the customer's profile */}
+        <Link
+          href={`/pro/bookings/${bookingId}/customer`}
+          aria-label={`View ${customerName}'s profile`}
+          className="flex items-center gap-3 flex-1 min-w-0 rounded-lg hover:opacity-80"
+        >
           <Avatar name={customerName} photoUrl={customerPhotoUrl} />
+          <span className="font-semibold text-slate-900 truncate underline-offset-2 hover:underline">{customerName}</span>
         </Link>
-        <p className="font-semibold text-slate-900 flex-1 truncate">{customerName}</p>
         {canCall && (
           <button
             type="button"
@@ -596,13 +620,14 @@ export default function ProMessageThreadView({
           {actionError && canStartBooking && <p role="alert" className="text-xs text-red-600 mt-2">{actionError}</p>}
 
           {detailsOpen && (
-            <div className="mt-2 max-h-[45vh] overflow-y-auto">
+            <div className="mt-2 max-h-[45dvh] overflow-y-auto">
               <BookingDetails
                 isAccepted={isAccepted}
                 distanceMiles={distanceMiles}
                 addressLabel={addressLabel}
                 addressLine={addressLine}
                 tasks={tasks}
+                fullService={fullService}
                 photoUrls={photoUrls}
                 suppliesProvided={suppliesProvided}
                 pets={pets}
@@ -645,7 +670,9 @@ export default function ProMessageThreadView({
           className="rounded-2xl rounded-bl-sm px-4 py-3 mb-4 mr-auto max-w-[85%] text-sm leading-relaxed text-white"
           style={{ backgroundColor: '#1a2332' }}
         >
-          {`${firstName} has requested a Tidy Task booking! Please review the tasks and confirm.`}
+          {fullService
+            ? `${firstName} has requested a ${FULL_SERVICE_LABEL[fullService.selection.type]}! Please review the details and confirm.`
+            : `${firstName} has requested a Tidy Task booking! Please review the tasks and confirm.`}
         </div>
 
         <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
@@ -684,6 +711,7 @@ export default function ProMessageThreadView({
             addressLabel={addressLabel}
             addressLine={addressLine}
             tasks={tasks}
+            fullService={fullService}
             photoUrls={photoUrls}
             suppliesProvided={suppliesProvided}
             pets={pets}
@@ -706,7 +734,10 @@ export default function ProMessageThreadView({
             <div className="flex gap-3 mt-4">
               <button
                 type="button"
-                onClick={handleDecline}
+                onClick={() => {
+                  setActionError(null)
+                  setAskingDeclineReason(true)
+                }}
                 disabled={working !== null}
                 className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 disabled:opacity-50"
               >
@@ -722,6 +753,20 @@ export default function ProMessageThreadView({
                 {working === 'accept' ? 'Accepting…' : 'Accept'}
               </button>
             </div>
+          )}
+          {outcome === 'pending' && askingDeclineReason && (
+            <CancelReasonSheet
+              reasons={DECLINE_REASONS}
+              title="Why are you declining?"
+              warning={`Only the Tydio team sees your reason. ${firstName} won't.`}
+              verb="declining"
+              confirmLabel="Decline request"
+              workingLabel="Declining…"
+              keepLabel="Go back"
+              noteOnlyFor="other"
+              onConfirm={handleDeclineConfirmed}
+              onClose={() => setAskingDeclineReason(false)}
+            />
           )}
           {(outcome === 'cancelled' || outcome === 'cancelled_by_me') && (
             <div className="flex items-center justify-center gap-1.5 w-full mt-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-bold text-red-600">
@@ -893,46 +938,54 @@ export default function ProMessageThreadView({
       </div>
 
       <div className="px-5 py-4 border-t border-slate-100 safe-area-inset-bottom">
-        {sendError && (
-          <p
-            id="message-send-error"
-            role="alert"
-            className="max-w-sm mx-auto w-full mb-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 leading-relaxed"
-          >
-            Your message wasn&apos;t sent. {sendError}
+        {blocked ? (
+          <p role="status" className="max-w-sm mx-auto w-full text-center text-sm text-slate-500 leading-relaxed">
+            {"You can’t message each other on Tydio anymore."}
           </p>
+        ) : (
+          <>
+            {sendError && (
+              <p
+                id="message-send-error"
+                role="alert"
+                className="max-w-sm mx-auto w-full mb-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 leading-relaxed"
+              >
+                Your message wasn&apos;t sent. {sendError}
+              </p>
+            )}
+            <div className="flex items-center gap-2 max-w-sm mx-auto w-full">
+              <input
+                aria-label="Message"
+                aria-invalid={sendError ? true : undefined}
+                aria-describedby={sendError ? 'message-send-error' : undefined}
+                type="text"
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value)
+                  if (sendError) setSendError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+                placeholder="Message..."
+                className="flex-1 rounded-full border border-slate-200 px-4 py-2.5 text-sm placeholder-slate-400"
+              />
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={sending || !draft.trim()}
+                aria-label="Send"
+                className="w-9 h-9 flex items-center justify-center rounded-full text-white disabled:opacity-40"
+                style={{ backgroundColor: 'var(--color-brand)' }}
+              >
+                <IconSend />
+              </button>
+            </div>
+          </>
         )}
-        <div className="flex items-center gap-2 max-w-sm mx-auto w-full">
-          <input
-            aria-label="Message"
-            aria-invalid={sendError ? true : undefined}
-            aria-describedby={sendError ? 'message-send-error' : undefined}
-            type="text"
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value)
-              if (sendError) setSendError(null)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-            placeholder="Message..."
-            className="flex-1 rounded-full border border-slate-200 px-4 py-2.5 text-sm placeholder-slate-400"
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={sending || !draft.trim()}
-            aria-label="Send"
-            className="w-9 h-9 flex items-center justify-center rounded-full text-white disabled:opacity-40"
-            style={{ backgroundColor: 'var(--color-brand)' }}
-          >
-            <IconSend />
-          </button>
-        </div>
       </div>
     </main>
   )

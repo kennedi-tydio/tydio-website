@@ -18,8 +18,27 @@ import { userFacingError } from '@/lib/userFacingError'
 import { bookedTaskName, dropUnmatchedLaundryLinks } from '@/lib/laundry'
 import { SERVICES_NOT_OFFERED_MESSAGE, providesServices, requiredServicesForTasks } from '@/lib/tidyProServices'
 import { getReplacementOptions, validateExtraCleanerSelection } from '@/lib/bookingRequestGroups'
+import { PROMO_UNFUNDED_MESSAGE, promoDiscountAmount } from '@/lib/promoCodes'
+import { ensurePromoFunded } from '@/lib/promoFunding'
+import { findPromoForCustomer } from '@/lib/promoCodesData'
 import type { TidyTask } from '@/app/dashboard/types'
+import { hasQuoteTasks } from '@/lib/taskQuotes'
+import { BLOCKED_BOOKING_MESSAGE, isBlockedBetween } from '@/lib/userBlocks'
+
+export const QUOTE_NEEDED_MESSAGE = 'Some of your tasks need a quote from your Tidy Pro first. Send your request for a quote instead.'
 import type { ScheduledLocation } from '@/app/book/schedule/actions'
+import { bookingDurationMinutes, combineWithFullService, priceTasksPart } from '@/lib/bookingPricing'
+import { requiredServiceForFullService, type FullServiceSelection } from '@/lib/fullService'
+import {
+  FULL_SERVICE_UNAVAILABLE_MESSAGE,
+  HOME_SIZE_REQUIRED_MESSAGE,
+  buildSnapshot,
+  checklistInsertRows,
+  fullServiceLabel,
+  fullServiceMinutes,
+  quoteForTidyPro,
+  type FullServiceSnapshot,
+} from '@/lib/fullServiceBooking'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -32,6 +51,10 @@ export interface BookingToPlace {
   location: ScheduledLocation | null
   // Every task on the draft; only the selected ones are booked.
   taskList: TidyTask[]
+  // Standard / Deep Cleaning, read from the draft or series by the caller
+  // (lib/fullServiceBooking bookableSelection). Priced here with this Tidy
+  // Pro's own rates; the Tidy Tasks are priced as usual and added on top.
+  fullService?: FullServiceSelection | null
   notes: string | null
   entryInstructions: string | null
   suppliesProvided: boolean
@@ -47,6 +70,9 @@ export interface BookingToPlace {
   // straight on their schedule, accepted, and the card is charged at dueAt instead of
   // now (see lib/recurringPayments).
   deferPayment?: { dueAt: Date }
+  // A promo code the customer applied. Checked again here, right before the charge.
+  // Never used with deferPayment: a recurring series' later visits are full price.
+  promoCode?: string | null
 }
 
 // Prices the booking, checks the Tidy Pro can still take it, charges the card, and
@@ -59,12 +85,21 @@ export interface BookingToPlace {
 export async function placeBooking(
   admin: Admin,
   input: BookingToPlace
-): Promise<{ bookingId: string; total: number; tidyProName: string } | { error: string; paymentFailed?: true }> {
+): Promise<{ bookingId: string; total: number; tidyProName: string } | { error: string; paymentFailed?: true; promoFailed?: true }> {
   const deferred = input.deferPayment ?? null
   // An accepted visit has one Tidy Pro, so there's nobody else to ask.
   const extraCleanerIds = deferred ? [] : input.extraCleanerIds ?? []
   const tasks = dropUnmatchedLaundryLinks(input.taskList.filter((t) => t.completed))
-  if (tasks.length === 0) return { error: 'No tasks selected.' }
+  const fullService = input.fullService ?? null
+  if (tasks.length === 0 && !fullService) return { error: 'No tasks selected.' }
+  // Tasks added while automatic pricing was down are priced at nothing until
+  // the Tidy Pro quotes them, so they're only ever booked through a quote
+  // request (lib/quoteRequests.ts), with the quote filled in.
+  if (hasQuoteTasks(tasks)) return { error: QUOTE_NEEDED_MESSAGE }
+
+  // Either of them blocked the other (lib/userBlocks): no request is sent, and a
+  // recurring visit isn't booked with them. Checked before anything is charged.
+  if (await isBlockedBetween(admin, input.customerId, input.tidyProId)) return { error: BLOCKED_BOOKING_MESSAGE }
 
   const { data: profile } = await admin
     .from('profiles')
@@ -78,14 +113,42 @@ export async function placeBooking(
   // The Tidy Pro sees the pets as they were when the booking was requested.
   const petsText = await customerPetsSummary(admin, input.customerId)
 
+  // Every booking needs the home's size: it prices floor and Entire home tasks
+  // and every Standard / Deep Cleaning.
   const squareFootage = await resolveLocationSquareFootage(admin, input.customerId, input.location)
+  if (!squareFootage) return { error: HOME_SIZE_REQUIRED_MESSAGE }
 
-  let breakdown
+  let taskPart
   try {
-    breakdown = priceTaskListForState(tasks, statePricing.state, statePricing.medianFourHourPrice, squareFootage)
+    taskPart = priceTasksPart(tasks, statePricing.state, statePricing.medianFourHourPrice, squareFootage)
   } catch {
     return { error: 'Could not price one of your tasks.' }
   }
+
+  // The Tidy Pro's own price for the cleaning, and how long it should take
+  // (scheduling only: the minutes never touch the price). A recurring visit
+  // booked by the cron never waits on the AI.
+  let fullServiceSnapshot: FullServiceSnapshot | null = null
+  if (fullService) {
+    const quote = await quoteForTidyPro(admin, input.tidyProId, fullService, squareFootage)
+    if (!quote) return { error: FULL_SERVICE_UNAVAILABLE_MESSAGE }
+    fullServiceSnapshot = buildSnapshot(fullService, quote, await fullServiceMinutes(fullService, squareFootage, { allowAi: !deferred }))
+  }
+
+  let breakdown
+  try {
+    breakdown = combineWithFullService(
+      taskPart,
+      fullServiceSnapshot,
+      bookingDurationMinutes(tasks, squareFootage, fullServiceSnapshot?.duration_minutes ?? 0)
+    )
+  } catch {
+    return { error: 'Could not price one of your tasks.' }
+  }
+  const requiredServices = [
+    ...requiredServicesForTasks(tasks),
+    ...(fullService ? [requiredServiceForFullService(fullService.type)] : []),
+  ]
 
   const [{ data: tidyProStats }, { data: tidyProIdentity }] = await Promise.all([
     admin
@@ -102,7 +165,7 @@ export async function placeBooking(
   }
 
   // Or stopped offering something this booking needs.
-  if (tidyProStats && !providesServices(tidyProStats.services_provided, requiredServicesForTasks(tasks))) {
+  if (tidyProStats && !providesServices(tidyProStats.services_provided, requiredServices)) {
     return { error: SERVICES_NOT_OFFERED_MESSAGE }
   }
 
@@ -121,12 +184,16 @@ export async function placeBooking(
   let extraCleaners: CleanerMatch[] = []
   if (extraCleanerIds.length > 0) {
     const options = await getReplacementOptions(admin, {
+      user_id: input.customerId,
       tidy_pro_id: input.tidyProId,
       scheduled_location: input.location,
       scheduled_date: input.date,
       scheduled_time: input.time,
       estimated_duration_minutes: breakdown.total_task_minutes,
       task_list: tasks,
+      // With Standard / Deep Cleaning, only Tidy Pros whose own price for it is no
+      // more than this one's. Whoever accepts is paid the same as this Tidy Pro would be.
+      full_service: fullServiceSnapshot,
     })
     const selectionError = validateExtraCleanerSelection(extraCleanerIds, input.tidyProId, options.map((o) => o.id))
     if (selectionError) return { error: selectionError }
@@ -167,6 +234,7 @@ export async function placeBooking(
     return insertAcceptedVisit(admin, input, deferred.dueAt, {
       tasks,
       breakdown,
+      fullServiceSnapshot,
       servicePrice,
       totalPrice: grossUpForStripeFee(servicePrice, percentage),
       petsText,
@@ -179,11 +247,29 @@ export async function placeBooking(
 
   if (!savedPaymentMethod?.stripe_payment_method_id) return { error: 'Payment method not found.' }
 
+  // The discount comes off what the customer pays. cleaner_pay below is still worked out
+  // from the full servicePrice, so the Tidy Pro's 80% isn't touched; Tydio covers it.
+  let promo: { id: string; code: string; discount: number } | null = null
+  if (input.promoCode?.trim()) {
+    const found = await findPromoForCustomer(admin, input.promoCode, input.customerId)
+    if ('error' in found) return { error: `${found.error} Remove the promo code to book at full price.`, promoFailed: true }
+    // Tydio's Stripe balance must cover what the Tidy Pro's full pay needs on top of the
+    // discounted charge; if not, the admin is emailed and the code refused.
+    const funded = await ensurePromoFunded(
+      admin,
+      { promo: found.promo, customerId: input.customerId, tidyProId: input.tidyProId, date: input.date, time: input.time, tasks, servicePrice },
+      'confirmed'
+    )
+    if (!funded) return { error: `${PROMO_UNFUNDED_MESSAGE} Remove the promo code to book at full price.`, promoFailed: true }
+    promo = { id: found.promo.id, code: found.promo.code, discount: promoDiscountAmount(servicePrice, found.promo) }
+  }
+  const chargedServicePrice = Math.round((servicePrice - (promo?.discount ?? 0)) * 100) / 100
+
   // Stripe's fee for this card, added up front. If the card can't be read, stop rather
   // than guess and charge the wrong amount.
   let totalPrice: number
   try {
-    totalPrice = grossUpForStripeFee(servicePrice, await stripePercentageForPaymentMethod(savedPaymentMethod.stripe_payment_method_id))
+    totalPrice = grossUpForStripeFee(chargedServicePrice, await stripePercentageForPaymentMethod(savedPaymentMethod.stripe_payment_method_id))
   } catch {
     return { error: 'We could not verify your card. Please try again.' }
   }
@@ -200,7 +286,11 @@ export async function placeBooking(
         payment_method: savedPaymentMethod.stripe_payment_method_id,
         off_session: true,
         confirm: true,
-        metadata: { profile_id: input.customerId, ...(input.stripeMetadata ?? {}) },
+        metadata: {
+          profile_id: input.customerId,
+          ...(promo ? { promo_code: promo.code, promo_discount: promo.discount.toFixed(2) } : {}),
+          ...(input.stripeMetadata ?? {}),
+        },
       },
       input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined
     )
@@ -250,11 +340,17 @@ export async function placeBooking(
       scheduled_location: input.location as never,
       estimated_duration_minutes: breakdown.total_task_minutes,
       task_list: tasks as never,
+      full_service: fullServiceSnapshot as never,
       pricing_version: breakdown.pricing_version,
       pricing_breakdown: breakdown as never,
       customer_subtotal: breakdown.total_customer_charge,
       total_customer_charge: totalPrice,
+      // Before Stripe's fee: what a replacement's price is compared to (lib/replacementChain).
+      charged_price: chargedServicePrice,
+      // The full price, not the discounted one: a promo never comes out of the Tidy Pro's pay.
       cleaner_pay: cleanerPayoutForServicePrice(servicePrice),
+      promo_code_id: promo?.id ?? null,
+      promo_discount: promo?.discount ?? null,
       tip: 0,
       will_provide_supplies: input.suppliesProvided,
       pets: petsText,
@@ -281,21 +377,22 @@ export async function placeBooking(
   if (groupId) await admin.from('booking_request_groups').update({ primary_booking_id: booking.id }).eq('id', groupId)
 
   await admin.from('booking_tasks').insert(
-    requests.flatMap((request) =>
-      tasks.map((task) => ({
+    requests.flatMap((request) => [
+      ...(fullServiceSnapshot ? checklistInsertRows(request.id, fullServiceSnapshot) : []),
+      ...tasks.map((task) => ({
         booking_id: request.id,
         task_name: bookedTaskName(task),
         task_category: task.room,
         task_icon: task.room.toLowerCase(),
         is_completed: false,
-      }))
-    ) as never
+      })),
+    ]) as never
   )
 
   await Promise.all(
     requests.map(async (request) => {
       if (!request.tidy_pro_id) return
-      const payload = notifyNewBookingRequest(profile?.first_name ?? 'A customer', request.id)
+      const payload = notifyNewBookingRequest(profile?.first_name ?? 'A customer', request.id, fullServiceLabel(fullServiceSnapshot))
       const contact =
         request.tidy_pro_id === input.tidyProId
           ? tidyProStats
@@ -313,6 +410,7 @@ export async function placeBooking(
 type PricedVisit = {
   tasks: TidyTask[]
   breakdown: ReturnType<typeof priceTaskListForState>
+  fullServiceSnapshot: FullServiceSnapshot | null
   servicePrice: number
   totalPrice: number
   petsText: string | null
@@ -343,6 +441,7 @@ async function insertAcceptedVisit(
       scheduled_location: input.location as never,
       estimated_duration_minutes: visit.breakdown.total_task_minutes,
       task_list: visit.tasks as never,
+      full_service: visit.fullServiceSnapshot as never,
       pricing_version: visit.breakdown.pricing_version,
       pricing_breakdown: visit.breakdown as never,
       customer_subtotal: visit.breakdown.total_customer_charge,
@@ -366,15 +465,16 @@ async function insertAcceptedVisit(
     .single()
   if (error || !booking) return { error: userFacingError(error, 'Failed to create booking.') }
 
-  await admin.from('booking_tasks').insert(
-    visit.tasks.map((task) => ({
+  await admin.from('booking_tasks').insert([
+    ...(visit.fullServiceSnapshot ? checklistInsertRows(booking.id, visit.fullServiceSnapshot) : []),
+    ...visit.tasks.map((task) => ({
       booking_id: booking.id,
       task_name: bookedTaskName(task),
       task_category: task.room,
       task_icon: task.room.toLowerCase(),
       is_completed: false,
-    })) as never
-  )
+    })),
+  ] as never)
 
   const payload = notifyRecurringVisitScheduled(visit.customerFirstName, input.date, booking.id)
   if (canSendSms(visit.tidyProContact?.sms_consent ?? null, visit.tidyProContact?.phone ?? null)) {

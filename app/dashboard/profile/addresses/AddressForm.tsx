@@ -70,7 +70,7 @@ export default function AddressForm({ onSaved, onClose }: Props) {
   }
 
   return (
-    <ModalShell panelClassName="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl max-h-[85vh] overflow-y-auto" onClose={onClose} labelledBy="address-form-title">
+    <ModalShell panelClassName="w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl px-6 pt-6 pb-8 shadow-2xl max-h-[85dvh] overflow-y-auto" onClose={onClose} labelledBy="address-form-title">
       <div className="flex items-center justify-between mb-5">
         <h2 id="address-form-title" className="text-xl font-bold text-slate-900">Add Address</h2>
         <button onClick={onClose} aria-label="Close" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100">

@@ -10,6 +10,10 @@ function roundCents(amount: number): number {
   return Math.round(amount * 100) / 100
 }
 
+function money(amount: number): string {
+  return `$${amount.toFixed(2)}`
+}
+
 export function newTipAttemptId(): string {
   return crypto.randomUUID()
 }
@@ -102,9 +106,34 @@ export default function TipPicker({
         </div>
       )}
       {tipAmount > 0 && (
-        <p className="text-xs text-slate-400 mb-2">
-          ${tipAmount.toFixed(2)} tip + ${tipProcessingFee.toFixed(2)} processing fee = ${tipChargeAmount.toFixed(2)} charged
-        </p>
+        <div aria-live="polite" className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 flex flex-col gap-2 mt-1 mb-2 text-xs text-slate-900">
+          <div className="flex justify-between">
+            <span>
+              Original booking total <span className="text-slate-400">(already paid)</span>
+            </span>
+            <span>{money(totalPrice)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Tip amount</span>
+            <span>{money(tipAmount)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Processing fee</span>
+            <span>{money(tipProcessingFee)}</span>
+          </div>
+          <div className="flex justify-between border-t border-slate-100 pt-2">
+            <span>New total</span>
+            <span>{money(roundCents(totalPrice + tipChargeAmount))}</span>
+          </div>
+          <div className="flex justify-between font-bold rounded-lg bg-[#e8f9fa] -mx-1.5 px-1.5 py-1.5">
+            <span>Additional charge today</span>
+            <span>{money(tipChargeAmount)}</span>
+          </div>
+          <p className="text-slate-500">
+            Your booking is already paid. Only the tip and its processing fee ({money(tipChargeAmount)}) will be charged to
+            your card.
+          </p>
+        </div>
       )}
     </>
   )

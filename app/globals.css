@@ -104,6 +104,13 @@ body {
   border-bottom: env(safe-area-inset-bottom, 0px) solid transparent;
 }
 
+/* Floating buttons that sit just above a bottom nav bar. The nav grows by the
+   home indicator inset (.safe-area-inset-bottom), so the offset has to grow
+   with it or the nav covers the buttons on iPhones without a home button. */
+.above-bottom-nav {
+  bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+}
+
 /* The chatbot only shows on the public home page (ChatbaseScript sets
    data-chatbot there); everywhere else, including the signed-in app, its
    elements stay hidden. Chatbase pins its bubble 1rem from the bottom with

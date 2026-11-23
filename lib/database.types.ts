@@ -39,6 +39,9 @@ export interface Database {
           sms_consent: 'opted_in' | 'declined' | null
           // A different number for texts than `phone`; null means text `phone`.
           sms_phone: string | null
+          // Free text the customer writes on their Profile; shown to Tidy Pros they book.
+          bio: string | null
+          cleaning_preferences: string | null
           push_consent: 'opted_in' | 'declined' | null
           suspended_at: string | null
           banned_at: string | null
@@ -78,6 +81,8 @@ export interface Database {
           stripe_customer_id?: string | null
           sms_consent?: 'opted_in' | 'declined' | null
           sms_phone?: string | null
+          bio?: string | null
+          cleaning_preferences?: string | null
           push_consent?: 'opted_in' | 'declined' | null
           suspended_at?: string | null
           banned_at?: string | null
@@ -347,6 +352,10 @@ export interface Database {
           customer_subtotal: number | null
           total_customer_charge: number | null
           cleaner_pay: number | null
+          promo_code_id: string | null
+          // Dollars the promo took off the booking price; cleaner_pay is unaffected.
+          promo_discount: number | null
+          charged_price: number | null
           quote_locked_at: string | null
           unusual_notes: string | null
           stripe_payment_link: string | null
@@ -370,6 +379,7 @@ export interface Database {
           cancellation_admin_note: string | null
           scheduled_location: Json | null
           user_unread: boolean
+          user_archived_at: string | null
           tidy_pro_unread: boolean
           reminder_sent_at: string | null
           on_the_way_reminder_sent_at: string | null
@@ -393,8 +403,13 @@ export interface Database {
           incident_resolved_at: string | null
           incident_refund_level: 'full' | 'half' | 'minus_fee' | 'none' | null
           incident_note: string | null
+          payout_adjusted_at: string | null
+          stripe_transfer_reversal_id: string | null
+          payout_held_at: string | null
+          payout_hold_note: string | null
           created_at: string
           updated_at: string
+          full_service: Json | null
         }
         Insert: {
           id?: string
@@ -427,6 +442,9 @@ export interface Database {
           customer_subtotal?: number | null
           total_customer_charge?: number | null
           cleaner_pay?: number | null
+          promo_code_id?: string | null
+          promo_discount?: number | null
+          charged_price?: number | null
           quote_locked_at?: string | null
           unusual_notes?: string | null
           stripe_payment_link?: string | null
@@ -450,6 +468,7 @@ export interface Database {
           cancellation_admin_note?: string | null
           scheduled_location?: Json | null
           user_unread?: boolean
+          user_archived_at?: string | null
           tidy_pro_unread?: boolean
           reminder_sent_at?: string | null
           on_the_way_reminder_sent_at?: string | null
@@ -473,8 +492,13 @@ export interface Database {
           incident_resolved_at?: string | null
           incident_refund_level?: 'full' | 'half' | 'minus_fee' | 'none' | null
           incident_note?: string | null
+          payout_adjusted_at?: string | null
+          stripe_transfer_reversal_id?: string | null
+          payout_held_at?: string | null
+          payout_hold_note?: string | null
           created_at?: string
           updated_at?: string
+          full_service?: Json | null
         }
         Update: Partial<Database['public']['Tables']['bookings']['Insert']>
         Relationships: []
@@ -538,6 +562,7 @@ export interface Database {
           task_name: string
           before_photo_path: string | null
           after_photo_path: string
+          source_key: string | null
           created_at: string
         }
         Insert: {
@@ -548,6 +573,7 @@ export interface Database {
           task_name: string
           before_photo_path?: string | null
           after_photo_path: string
+          source_key?: string | null
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['tidypro_portfolio_items']['Insert']>
@@ -590,6 +616,8 @@ export interface Database {
           completed_at: string | null
           created_at: string
           updated_at: string
+          kind: 'task' | 'full_service_home' | 'full_service_room' | 'full_service_addon'
+          service_price: number | null
         }
         Insert: {
           id?: string
@@ -607,6 +635,8 @@ export interface Database {
           completed_at?: string | null
           created_at?: string
           updated_at?: string
+          kind?: 'task' | 'full_service_home' | 'full_service_room' | 'full_service_addon'
+          service_price?: number | null
         }
         Update: Partial<Database['public']['Tables']['booking_tasks']['Insert']>
         Relationships: []
@@ -647,6 +677,7 @@ export interface Database {
           amount_cents: number
           status: string
           accepted_booking_id: string | null
+          chain: boolean
           created_at: string
         }
         Insert: {
@@ -658,6 +689,7 @@ export interface Database {
           amount_cents: number
           status?: string
           accepted_booking_id?: string | null
+          chain?: boolean
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['booking_request_groups']['Insert']>
@@ -685,6 +717,7 @@ export interface Database {
           recurrence_frequency: 'weekly' | 'biweekly' | 'every_4_weeks' | null
           created_at: string
           updated_at: string
+          full_service: Json | null
         }
         Insert: {
           id?: string
@@ -707,6 +740,7 @@ export interface Database {
           recurrence_frequency?: 'weekly' | 'biweekly' | 'every_4_weeks' | null
           created_at?: string
           updated_at?: string
+          full_service?: Json | null
         }
         Update: Partial<Database['public']['Tables']['booking_drafts']['Insert']>
         Relationships: []
@@ -736,6 +770,7 @@ export interface Database {
           skipped_dates: string[]
           created_at: string
           updated_at: string
+          full_service: Json | null
         }
         Insert: {
           id?: string
@@ -761,8 +796,119 @@ export interface Database {
           skipped_dates?: string[]
           created_at?: string
           updated_at?: string
+          full_service?: Json | null
         }
         Update: Partial<Database['public']['Tables']['recurring_bookings']['Insert']>
+        Relationships: []
+      }
+      tidypro_full_service_rates: {
+        Row: {
+          tidy_pro_id: string
+          standard_base_take_home: number | null
+          deep_base_take_home: number | null
+          standard_room_percents: Json
+          deep_room_percents: Json
+          add_ons: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          tidy_pro_id: string
+          standard_base_take_home?: number | null
+          deep_base_take_home?: number | null
+          standard_room_percents?: Json
+          deep_room_percents?: Json
+          add_ons?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['tidypro_full_service_rates']['Insert']>
+        Relationships: []
+      }
+      booking_declines: {
+        Row: {
+          id: string
+          booking_id: string
+          tidy_pro_id: string
+          reason: string
+          note: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          booking_id: string
+          tidy_pro_id: string
+          reason: string
+          note?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['booking_declines']['Insert']>
+        Relationships: []
+      }
+      user_blocks: {
+        Row: {
+          blocker_id: string
+          blocked_id: string
+          booking_id: string | null
+          created_at: string
+        }
+        Insert: {
+          blocker_id: string
+          blocked_id: string
+          booking_id?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['user_blocks']['Insert']>
+        Relationships: []
+      }
+      booking_cleaning_photos: {
+        Row: {
+          id: string
+          booking_id: string
+          kind: 'before' | 'after'
+          photo_path: string
+          photo_url: string
+          latitude: number | null
+          longitude: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          booking_id: string
+          kind: 'before' | 'after'
+          photo_path: string
+          photo_url: string
+          latitude?: number | null
+          longitude?: number | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['booking_cleaning_photos']['Insert']>
+        Relationships: []
+      }
+      booking_task_photos: {
+        Row: {
+          id: string
+          booking_task_id: string
+          booking_id: string
+          kind: 'before' | 'after'
+          photo_path: string
+          photo_url: string
+          latitude: number | null
+          longitude: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          booking_task_id: string
+          booking_id: string
+          kind: 'before' | 'after'
+          photo_path: string
+          photo_url: string
+          latitude?: number | null
+          longitude?: number | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['booking_task_photos']['Insert']>
         Relationships: []
       }
       booking_upcharges: {
@@ -780,6 +926,7 @@ export interface Database {
           cancelled_at: string | null
           refunded_at: string | null
           task_addition_id: string | null
+          replacement_difference: boolean
           created_at: string
         }
         Insert: {
@@ -796,6 +943,7 @@ export interface Database {
           cancelled_at?: string | null
           refunded_at?: string | null
           task_addition_id?: string | null
+          replacement_difference?: boolean
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['booking_upcharges']['Insert']>
@@ -839,6 +987,72 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['booking_task_additions']['Insert']>
+        Relationships: []
+      }
+      booking_quote_requests: {
+        Row: {
+          id: string
+          user_id: string
+          tidy_pro_id: string
+          task_list: Json
+          full_service: Json | null
+          scheduled_location: Json
+          scheduled_date: string
+          scheduled_time: string
+          time_zone: string
+          notes: string | null
+          entry_instructions: string | null
+          supplies_provided: boolean
+          gift_code: string | null
+          recurrence_frequency: string | null
+          save_entry_instructions: boolean
+          selected_payment_method_id: string | null
+          quoted_task_list: Json | null
+          quoted_service_price: number | null
+          quoted_cleaner_pay: number | null
+          tidy_pro_note: string | null
+          decline_reason: string | null
+          status: 'requested' | 'quoted' | 'paying' | 'paid' | 'pro_declined' | 'customer_declined' | 'expired'
+          booking_id: string | null
+          user_unread: boolean
+          tidy_pro_unread: boolean
+          quoted_at: string | null
+          ended_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          tidy_pro_id: string
+          task_list: Json
+          full_service?: Json | null
+          scheduled_location: Json
+          scheduled_date: string
+          scheduled_time: string
+          time_zone: string
+          notes?: string | null
+          entry_instructions?: string | null
+          supplies_provided?: boolean
+          gift_code?: string | null
+          recurrence_frequency?: string | null
+          save_entry_instructions?: boolean
+          selected_payment_method_id?: string | null
+          quoted_task_list?: Json | null
+          quoted_service_price?: number | null
+          quoted_cleaner_pay?: number | null
+          tidy_pro_note?: string | null
+          decline_reason?: string | null
+          status?: 'requested' | 'quoted' | 'paying' | 'paid' | 'pro_declined' | 'customer_declined' | 'expired'
+          booking_id?: string | null
+          user_unread?: boolean
+          tidy_pro_unread?: boolean
+          quoted_at?: string | null
+          ended_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['booking_quote_requests']['Insert']>
         Relationships: []
       }
       unmet_booking_searches: {
@@ -984,15 +1198,91 @@ export interface Database {
           id: string
           code: string
           active: boolean
+          discount_type: 'percent' | 'amount'
+          discount_value: number
+          expires_at: string | null
+          max_redemptions: number | null
+          max_uses_per_customer: number | null
+          recipients_only: boolean
           created_at: string
         }
         Insert: {
           id?: string
           code: string
           active?: boolean
+          discount_type?: 'percent' | 'amount'
+          discount_value?: number
+          expires_at?: string | null
+          max_redemptions?: number | null
+          max_uses_per_customer?: number | null
+          recipients_only?: boolean
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['promo_codes']['Insert']>
+        Relationships: []
+      }
+      promo_code_failures: {
+        Row: {
+          id: string
+          promo_code_id: string | null
+          code: string
+          discount_label: string
+          stage: 'applied' | 'confirmed'
+          customer_id: string | null
+          customer_label: string | null
+          tidy_pro_id: string | null
+          tidy_pro_label: string | null
+          scheduled_date: string | null
+          scheduled_time: string | null
+          task_names: string[]
+          service_price: number
+          discount: number
+          customer_pays: number
+          cleaner_pay: number
+          shortfall: number
+          available_balance: number | null
+          committed: number
+          resolved_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          promo_code_id?: string | null
+          code: string
+          discount_label: string
+          stage: 'applied' | 'confirmed'
+          customer_id?: string | null
+          customer_label?: string | null
+          tidy_pro_id?: string | null
+          tidy_pro_label?: string | null
+          scheduled_date?: string | null
+          scheduled_time?: string | null
+          task_names?: string[]
+          service_price: number
+          discount: number
+          customer_pays: number
+          cleaner_pay: number
+          shortfall: number
+          available_balance?: number | null
+          committed?: number
+          resolved_at?: string | null
+          created_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['promo_code_failures']['Insert']>
+        Relationships: []
+      }
+      promo_code_recipients: {
+        Row: {
+          promo_code_id: string
+          profile_id: string
+          emailed_at: string
+        }
+        Insert: {
+          promo_code_id: string
+          profile_id: string
+          emailed_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['promo_code_recipients']['Insert']>
         Relationships: []
       }
       job_notifications: {
@@ -1287,6 +1577,20 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Database['public']['Tables']['admin_favorite_tidy_pros']['Insert']>
+        Relationships: []
+      }
+      admin_tidy_pro_notes: {
+        Row: {
+          pro_id: string
+          note: string
+          updated_at: string
+        }
+        Insert: {
+          pro_id: string
+          note: string
+          updated_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['admin_tidy_pro_notes']['Insert']>
         Relationships: []
       }
       rate_limit_events: {

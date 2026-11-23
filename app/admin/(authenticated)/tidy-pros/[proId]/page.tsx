@@ -14,6 +14,8 @@ import { VerifiedToggle } from '../VerifiedToggle'
 import { ICA_VERSION } from '@/lib/legal/contractorAgreement'
 import { amendmentStatuses } from '@/lib/legal/agreementAmendments'
 import AmendmentStatusList from '../../AmendmentStatusList'
+import { loadRates } from '@/lib/fullServiceRates'
+import ProPrices from '../ProPrices'
 
 export const metadata: Metadata = { title: 'Tidy Pro profile — Tydio Admin' }
 
@@ -24,7 +26,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
   const { proId } = await params
   const admin = createAdminClient()
 
-  const [{ data: tidyPro, error }, { data: profile }, { data: favoriteRow }, portfolio, { data: agreement }, amendmentsById] = await Promise.all([
+  const [{ data: tidyPro, error }, { data: profile }, { data: favoriteRow }, portfolio, { data: agreement }, amendmentsById, rates] = await Promise.all([
     admin
       .from('tidypro_profiles')
       .select(
@@ -37,6 +39,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
     loadPortfolio(admin, proId),
     admin.from('agreement_signatures').select('id, signed_at').eq('pro_id', proId).eq('agreement_version', ICA_VERSION).maybeSingle(),
     amendmentStatuses(admin, [proId]),
+    loadRates(admin, proId),
   ])
 
   if (error) throw new Error(`Failed to load Tidy Pro: ${error.message}`)
@@ -55,7 +58,7 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
         ← Back to Tidy Pros
       </Link>
 
-      <div className="mt-4 flex flex-col lg:flex-row gap-6 items-start">
+      <div className="mt-4 flex flex-col lg:flex-row lg:flex-wrap gap-6 items-start">
         <div className="w-full max-w-sm rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <p className="px-4 py-2 text-xs text-slate-500 bg-slate-50 border-b border-slate-200">What customers see</p>
           <CleanerDetailView
@@ -144,6 +147,8 @@ export default async function AdminTidyProProfilePage({ params }: { params: Prom
             <p className="text-sm text-slate-400">None scheduled</p>
           )}
         </section>
+
+        <ProPrices rates={rates} servicesProvided={tidyPro.services_provided} />
       </div>
     </div>
   )

@@ -6,9 +6,10 @@ import { canCall } from '@/lib/maskedCalls'
 import { noShowReportableAt } from '@/lib/bookingTime'
 import { isRecurrenceFrequency, recurrenceScheduleLabel } from '@/lib/recurrence'
 import { listTaskAdditions } from '@/lib/bookingTaskAdditions'
-import { CLEANER_CANCELLED_REASON, canRequestReplacements, customerCancelledNote } from '@/lib/bookingRequestGroups'
+import { CLEANER_CANCELLED_REASON, canRequestReplacements, customerCancelledNote, liveReplacementGroup } from '@/lib/bookingRequestGroups'
 import type { TidyTask } from '@/app/dashboard/types'
 import MessageThreadView, { type ChatMessage } from './MessageThreadView'
+import { isBlockedBetween } from '@/lib/userBlocks'
 
 export const metadata: Metadata = { title: 'Messages — Tydio' }
 
@@ -31,7 +32,7 @@ export default async function MessageThreadPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, tidy_pro_id, tidy_pro_name, tidy_pro_photo_url, scheduled_date, scheduled_time, estimated_duration_minutes, task_list, will_provide_supplies, total_customer_charge, status, decision_status, progress_status, user_unread, request_group_id, scheduled_date, stripe_payment_intent_id, stripe_refund_id, cancelled_reason, time_zone, recurring_booking_id'
+      'id, tidy_pro_id, tidy_pro_name, tidy_pro_photo_url, scheduled_date, scheduled_time, estimated_duration_minutes, task_list, will_provide_supplies, total_customer_charge, status, decision_status, progress_status, user_unread, request_group_id, scheduled_date, stripe_payment_intent_id, stripe_refund_id, cancelled_reason, time_zone, recurring_booking_id, full_service'
     )
     .eq('id', bookingId)
     .eq('user_id', session.profileId)
@@ -51,11 +52,7 @@ export default async function MessageThreadPage({
   const recurrence =
     series && isRecurrenceFrequency(series.frequency) ? recurrenceScheduleLabel(series.frequency, booking.scheduled_date, booking.scheduled_time) : null
 
-  const { data: replacementGroup } = await admin
-    .from('booking_request_groups')
-    .select('id')
-    .eq('original_booking_id', bookingId)
-    .maybeSingle()
+  const replacementGroup = await liveReplacementGroup(admin, bookingId)
 
   const { data: chatRows } = await admin
     .from('booking_messages')
@@ -74,12 +71,15 @@ export default async function MessageThreadPage({
         : null,
   }))
 
+  const blocked = await isBlockedBetween(admin, session.profileId, booking.tidy_pro_id)
+
   return (
     <MessageThreadView
+      blocked={blocked}
       bookingId={booking.id}
       cleanerName={booking.tidy_pro_name ?? 'your Tidy Pro'}
       cleanerPhotoUrl={booking.tidy_pro_photo_url}
-      canCall={canCall(booking)}
+      canCall={!blocked && canCall(booking)}
       scheduledDate={booking.scheduled_date}
       scheduledTime={booking.scheduled_time}
       durationMinutes={booking.estimated_duration_minutes ?? 30}
@@ -87,6 +87,7 @@ export default async function MessageThreadPage({
       suppliesProvided={booking.will_provide_supplies ?? false}
       totalPrice={booking.total_customer_charge ?? 0}
       canChooseReplacements={canRequestReplacements(booking, replacementGroup != null)}
+      replacesOneAtATime={booking.full_service != null}
       cleanerCancelled={booking.cancelled_reason === CLEANER_CANCELLED_REASON}
       cancelledNote={customerCancelledNote(booking.cancelled_reason)}
       status={booking.status ?? 'pending'}

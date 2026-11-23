@@ -9,6 +9,7 @@ import type { TidyTask } from '@/app/dashboard/types'
 import { bookedTaskName } from '@/lib/laundry'
 import CardPayForm from '../CardPayForm'
 import { quoteTaskAdditionAction, requestTaskAdditionAction, type TaskAdditionQuoteView } from './actions'
+import type { FullServiceSelection } from '@/lib/fullService'
 
 type Props = {
   bookingId: string
@@ -19,6 +20,9 @@ type Props = {
   dashboardTasks: TidyTask[]
   bookingTaskIds: string[]
   savedRooms: string[]
+  // The booking's Standard / Deep Cleaning. Not used to question tasks here:
+  // picking a task for an upcoming booking just adds it.
+  fullService?: FullServiceSelection | null
 }
 
 function formatMinutes(minutes: number): string {
@@ -110,7 +114,7 @@ export default function AddTasksView({ bookingId, cleanerFirstName, isRecurring,
   const rooms = [...new Set(allTasks.map((t) => t.room))]
 
   return (
-    <main id="main-content" className="min-h-screen bg-white">
+    <main id="main-content" className="min-h-svh bg-white">
       <div className="max-w-md mx-auto px-5 py-6">
         <Link href={`/dashboard/bookings/${bookingId}`} className="inline-flex items-center gap-1 text-sm text-slate-500 mb-4">
           <IconBack /> Back to booking

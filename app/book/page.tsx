@@ -3,7 +3,9 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dropUnmatchedLaundryLinks } from '@/lib/laundry'
-import { resolveStatePricing, priceTaskListForState, ensurePriceableTasks } from '@/app/dashboard/taskPricing'
+import { resolveStatePricing, ensurePriceableTasks } from '@/app/dashboard/taskPricing'
+import { priceTasksPart } from '@/lib/bookingPricing'
+import { bookableSelection } from '@/lib/fullServiceBooking'
 import type { TidyTask } from '@/app/dashboard/types'
 import BookingSummary from './BookingSummary'
 import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
@@ -28,7 +30,7 @@ export default async function BookPage() {
       .single(),
     admin
       .from('booking_drafts')
-      .select('id, task_list')
+      .select('id, task_list, full_service')
       .eq('customer_user_id', session.profileId)
       .order('updated_at', { ascending: false })
       .limit(1)
@@ -44,7 +46,8 @@ export default async function BookPage() {
   // only selected tasks are included in the booking.
   const allTasks = (draft?.task_list as TidyTask[] | null) ?? []
   let tasks = dropUnmatchedLaundryLinks(allTasks.filter((t) => t.completed))
-  if (tasks.length === 0) redirect('/dashboard')
+  const fullService = bookableSelection(draft?.full_service)
+  if (tasks.length === 0 && !fullService) redirect('/dashboard')
 
   const statePricing = await resolveStatePricing(admin, profile.service_area_id, profile)
   if (!statePricing.configured) redirect('/dashboard?priceError=state_pricing_not_configured')
@@ -59,7 +62,8 @@ export default async function BookPage() {
 
   let breakdown
   try {
-    breakdown = priceTaskListForState(tasks, statePricing.state, statePricing.medianFourHourPrice)
+    // Tidy Tasks only: Standard / Deep Cleaning is priced by each Tidy Pro once one is chosen.
+    breakdown = priceTasksPart(tasks, statePricing.state, statePricing.medianFourHourPrice, null)
   } catch {
     redirect('/dashboard?priceError=1')
   }
@@ -81,6 +85,7 @@ export default async function BookPage() {
   return (
     <BookingSummary
       tasks={tasks}
+      fullService={fullService}
       firstName={profile.first_name ?? 'Your'}
       photoUrls={photoUrls}
     />

@@ -1,3 +1,4 @@
+import { FULL_SERVICE_CUSTOMER_ENABLED } from '@/lib/fullService'
 // Everything the FAQ says, in one place: the full /faq page and the home page
 // section both render from this, and search reads the same text.
 //
@@ -50,6 +51,134 @@ export const ANDROID_INSTALL_STEPS = [
   'Tap the ⋮ menu at the top right of your browser.',
   'Tap Add to Home screen (it may say Install app).',
   'Tap Install, then Add if asked.',
+]
+
+// Before customers can book Standard / Deep Cleaning, a full cleaning is a long
+// list of Tidy Tasks.
+const TASK_LIST_FULL_CLEANING_FAQ: FaqItem = {
+  id: 'full-cleaning',
+  question: 'Can I book a full home cleaning?',
+  keywords: 'full service deep clean whole house entire home everything standard clean move out',
+  answer: [
+    {
+      type: 'p',
+      text: 'Yes. Add a task for everything you’d like cleaned, and your Tidy Pro will take care of all of it. There’s no limit on how many tasks you add, so a full cleaning is just a longer list.',
+    },
+    {
+      type: 'p',
+      text: 'List specific tasks rather than a whole room. For example, instead of “Clean bathroom”, add “Scrub the bathtub”, “Clean the toilet”, “Wipe the sink and mirror”, and “Mop the floor”. That way your Tidy Pro knows exactly what you want done, and your price matches it.',
+    },
+    {
+      type: 'p',
+      text: 'For tasks that cover your whole home, choose Entire home in Add Task. It covers baseboard cleaning, window cleaning, and sweeping and mopping the floors, priced by the size of your home.',
+    },
+  ],
+}
+
+// Shown once customers can book Standard / Deep Cleaning (FULL_SERVICE_CUSTOMER_ENABLED).
+const FULL_SERVICE_FAQ: FaqItem[] = [
+  {
+    id: 'full-cleaning',
+    question: 'Can I book a full home cleaning?',
+    keywords: 'full service deep clean whole house entire home everything standard clean move out rooms',
+    answer: [
+      {
+        type: 'p',
+        text: 'Yes. On your Home page, tap Book a Standard Cleaning or Book a Deep Cleaning. Choose your entire home or the rooms you want cleaned (and how many of each), tell your Tidy Pro what matters most, pick any add-ons, and add Tidy Tasks for anything else.',
+      },
+      {
+        type: 'p',
+        text: 'You can also still book just the tasks you need, or combine a cleaning with Tidy Tasks, laundry and pet enclosure cleaning in one booking.',
+      },
+    ],
+  },
+  {
+    id: 'standard-vs-deep',
+    question: 'What’s the difference between Standard and Deep Cleaning?',
+    keywords: 'standard deep included includes what is covered scope checklist',
+    answer: [
+      { type: 'p', text: 'Standard Cleaning is a routine clean of your whole home or the rooms you choose:' },
+      {
+        type: 'list',
+        items: [
+          'Dusting accessible surfaces',
+          'Wiping countertops and surfaces',
+          'Cleaning sinks, faucets, toilets, bathtubs and showers',
+          'Cleaning appliance exteriors and mirrors',
+          'Sweeping, mopping and vacuuming',
+          'General tidying',
+        ],
+      },
+      {
+        type: 'p',
+        text: 'Deep Cleaning includes all of that, plus detailed baseboards, blinds, ceiling fans, doors and doorframes, wall spot-cleaning, and more intensive cleaning of fixtures, edges, corners and buildup.',
+      },
+      {
+        type: 'note',
+        text: 'Inside the refrigerator, freezer, oven, cabinets and drawers are paid add-ons for both.',
+      },
+    ],
+  },
+  {
+    id: 'full-service-prices',
+    question: 'How are Standard and Deep Cleaning priced?',
+    keywords: 'cost price how much tidy pro sets own rates home size square feet rooms percentage',
+    answer: [
+      {
+        type: 'p',
+        text: 'Each Tidy Pro sets their own prices. Your price depends on the Tidy Pro, your home’s size, whether you book your entire home or specific rooms, and any add-ons. You’ll see each Tidy Pro’s total when you choose one, before you book.',
+      },
+      {
+        type: 'p',
+        text: 'Tidy Tasks you add are priced the usual way and added to the total. The card processing fee is shown at checkout.',
+      },
+    ],
+  },
+  {
+    id: 'add-ons',
+    question: 'What are add-ons?',
+    keywords: 'add on extra inside fridge oven cabinets drawers windows linens dishes pet hair baseboards blinds fan',
+    answer: [
+      {
+        type: 'p',
+        text: 'Add-ons are extras you can add to a Standard or Deep Cleaning, priced per item, like inside the refrigerator, inside the oven, inside cabinets and drawers, interior windows, changing bed linens or washing dishes. They’re the same price whatever your home’s size.',
+      },
+      {
+        type: 'p',
+        text: 'Detailed baseboards, blinds, ceiling fans, doors and wall spot-cleaning are add-ons for Standard Cleaning and already included in Deep Cleaning. Prices shown while you choose are typical; your Tidy Pro’s exact prices are in the total you see before booking.',
+      },
+    ],
+  },
+  {
+    id: 'cleaning-priorities',
+    question: 'What are cleaning priorities and notes for?',
+    keywords: 'priorities preferences what does clean look like notes special instructions focus extra cost',
+    answer: [
+      {
+        type: 'p',
+        text: 'Priorities and notes tell your Tidy Pro what matters most to you, like floors, bathroom fixtures or mirrors. They’re free.',
+      },
+      {
+        type: 'p',
+        text: 'They can’t add work outside the service you booked. Anything extra needs to be an add-on or a Tidy Task, so your Tidy Pro is paid for it.',
+      },
+    ],
+  },
+  {
+    id: 'already-included',
+    question: 'Why am I asked if a task is for the same room?',
+    keywords: 'same room different room duplicate already included bathroom bedroom pop up',
+    answer: [
+      {
+        type: 'p',
+        text: 'If you add a Tidy Task for a kind of room your cleaning already covers, we ask whether it’s for the same room or a different one. If it’s the same room, the task is already part of your cleaning, so you don’t pay for it twice. If it’s a different room, it’s added as usual.',
+      },
+      {
+        type: 'p',
+        text: 'Laundry, laundromat trips, pet enclosures and litter boxes are separate services, so they’re never already included.',
+      },
+    ],
+  },
 ]
 
 export const FAQ_CATEGORIES: FaqCategory[] = [
@@ -175,25 +304,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           },
         ],
       },
-      {
-        id: 'full-cleaning',
-        question: 'Can I book a full home cleaning?',
-        keywords: 'full service deep clean whole house entire home everything standard clean move out',
-        answer: [
-          {
-            type: 'p',
-            text: 'Yes. Add a task for everything you’d like cleaned, and your Tidy Pro will take care of all of it. There’s no limit on how many tasks you add, so a full cleaning is just a longer list.',
-          },
-          {
-            type: 'p',
-            text: 'List specific tasks rather than a whole room. For example, instead of “Clean bathroom”, add “Scrub the bathtub”, “Clean the toilet”, “Wipe the sink and mirror”, and “Mop the floor”. That way your Tidy Pro knows exactly what you want done, and your price matches it.',
-          },
-          {
-            type: 'p',
-            text: 'For tasks that cover your whole home, choose Entire home in Add Task. It covers baseboard cleaning, window cleaning, and sweeping and mopping the floors, priced by the size of your home.',
-          },
-        ],
-      },
+      ...(FULL_SERVICE_CUSTOMER_ENABLED ? FULL_SERVICE_FAQ : [TASK_LIST_FULL_CLEANING_FAQ]),
       {
         id: 'pricing',
         question: 'How is my price calculated?',
@@ -228,7 +339,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         answer: [
           {
             type: 'p',
-            text: 'Your card is charged once, when you confirm your request. If the Tidy Pro declines and you choose a replacement, your payment carries over with no new charge. If your booking is canceled, you’re refunded under our refund policy.',
+            text: 'Your card is charged once, when you confirm your request. If the Tidy Pro declines and you choose a replacement, your payment carries over. For Tidy Tasks there’s no new charge; for a Standard or Deep Cleaning, the replacement’s own price applies, and we charge or refund the difference when you confirm. If your booking is canceled, you’re refunded under our refund policy.',
           },
           {
             type: 'p',
@@ -489,7 +600,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         answer: [
           {
             type: 'p',
-            text: 'We’ll notify you, and you can choose up to 3 other Tidy Pros at no extra charge. Your payment carries over to whoever accepts first. Rather not? Cancel instead, and you’re refunded everything except the processing fee.',
+            text: 'We’ll notify you with a link to choose a replacement or cancel. For Tidy Tasks, you can choose up to 3 other Tidy Pros at no extra charge, and your payment carries over to whoever accepts first. For a Standard or Deep Cleaning, you choose one Tidy Pro at a time and see their price first: if it’s higher, the difference is charged when you confirm, and if it’s lower, the difference is refunded. If they decline too, you can choose someone else, up until an hour before your booking. Rather not? Cancel instead, and you’re refunded everything except the processing fee.',
           },
           {
             type: 'p',
@@ -769,6 +880,30 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           {
             type: 'p',
             text: 'Manage where your money goes in Profile → Payout methods. If a customer cancels an accepted booking within 2 hours of the start, you’re paid 50% of what you would have earned for it.',
+          },
+        ],
+      },
+      {
+        id: 'tidy-pro-full-service-prices',
+        question: 'How do I set my Standard and Deep Cleaning prices?',
+        keywords: 'standard deep cleaning price rate set my own prices room add-ons earn take home',
+        answer: [
+          {
+            type: 'steps',
+            items: [
+              'Go to Profile → Services Provided and check Standard cleaning and/or Deep cleaning.',
+              'Tap Standard & Deep Cleaning prices.',
+              'Enter what you want to earn for cleaning a whole home under 1,000 sq ft. Bigger homes pay more automatically.',
+              'Check the price for each single room and each add-on, change any you like, and tap Save prices.',
+            ],
+          },
+          {
+            type: 'p',
+            text: 'Every price you enter is what you earn for that job, before tips. Room prices follow your whole-home price: if you raise it, your room prices go up with it. Add-ons are a flat price per item.',
+          },
+          {
+            type: 'note',
+            text: 'Until you set your prices you won’t receive Standard or Deep Cleaning requests, but you’ll still get everything else. Don’t offer them? Uncheck them on Services Provided.',
           },
         ],
       },

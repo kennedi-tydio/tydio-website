@@ -39,9 +39,11 @@ import {
 } from './LaundryQuantityPicker'
 import { litterOptionFromName, petTaskKindFromName, type PetTaskDetails } from '@/lib/petTasks'
 import { unsupportedTaskMessage } from '@/lib/unsupportedTasks'
+import { AI_UNAVAILABLE_TASK_MESSAGE } from '@/lib/taskQuotes'
+import { DEFAULT_TASK_ROOMS } from '@/lib/fullService'
 import PetTaskStep, { discardPetDraftPhotos, newPetDraft, type PetDraft } from './PetTaskStep'
 
-const DEFAULT_ROOMS = [ENTIRE_HOME_ROOM, 'Kitchen', 'Bedroom', 'Bathroom']
+const DEFAULT_ROOMS = [ENTIRE_HOME_ROOM, ...DEFAULT_TASK_ROOMS]
 
 const DIRT_OPTIONS: { value: DirtLevel; label: string }[] = [
   { value: 'light', label: 'Light touch-up' },
@@ -102,9 +104,12 @@ type Props = {
   onRemoveTask?: (taskId: string) => void
   onSave: (task: TidyTask) => void
   onClose: () => void
+  // Opens with this room already picked (a category tapped on the Standard /
+  // Deep Cleaning wizard's Tidy Tasks step). The customer can still change it.
+  initialRoom?: string
 }
 
-export default function AddTaskModal({ savedRooms, existingRooms, existingTasks = [], onRoomSaved, onRemoveTask, onSave, onClose }: Props) {
+export default function AddTaskModal({ savedRooms, existingRooms, existingTasks = [], onRoomSaved, onRemoveTask, onSave, onClose, initialRoom }: Props) {
   // savedRooms = rooms persisted to the user's profile (survives task deletion)
   // existingRooms = rooms from current in-progress tasks
   const [addedRooms, setAddedRooms] = useState<string[]>([])
@@ -113,13 +118,16 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
   const [step, setStep] = useState<Step>('create')
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
-  const [room, setRoom] = useState('')
+  const [room, setRoom] = useState(initialRoom ?? '')
   const [newRoom, setNewRoom] = useState('')
   const [showNewRoom, setShowNewRoom] = useState(false)
   const [dirtLevel, setDirtLevel] = useState<DirtLevel | null>(null)
   const [unusual, setUnusual] = useState<string[]>([])
   const [validating, setValidating] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+  // Automatic pricing was down for exactly these inputs: offer to add the
+  // task for the Tidy Pro to quote instead (lib/taskQuotes.ts).
+  const [quoteOfferKey, setQuoteOfferKey] = useState<string | null>(null)
   const [hasDishwasher, setHasDishwasher] = useState<boolean | null>(null)
   // One laundry service per task, each with its own quantity. Kept in state
   // across Back so a customer going back and forth doesn't lose them.
@@ -347,7 +355,9 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
   // Pet tasks are priced like any other task, from the estimate made off
   // their checked photos. Mess level and "anything unusual" come from the
   // photos too, so those steps are skipped.
-  function handlePetAdd(details: PetTaskDetails, tier: Tier, estimatedMinutes: number) {
+  // estimate is null when the photo check was down: the Tidy Pro looks at
+  // the photos and quotes the task instead.
+  function handlePetAdd(details: PetTaskDetails, estimate: { tier: Tier; minutes: number } | null) {
     onSave({
       id: crypto.randomUUID(),
       name: name.trim() || selectedRoom,
@@ -362,12 +372,16 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
       laundryBaskets: null,
       ironItems: null,
       pet: details,
-      tier,
-      estimatedMinutes,
+      needsQuote: estimate ? null : true,
+      tier: estimate?.tier ?? null,
+      estimatedMinutes: estimate?.minutes ?? null,
     })
   }
 
-  async function handleFinalSave() {
+  const quoteInputsKey = JSON.stringify({ name: name.trim(), notes, room: selectedRoom, dirtLevel, unusual })
+  const quoteOffered = quoteOfferKey === quoteInputsKey
+
+  async function handleFinalSave({ forQuote = false }: { forQuote?: boolean } = {}) {
     setValidationError(null)
     // Dishwashing and laundry are built-in task types with fixed price tiers
     // (dishwasher availability / load type), so they skip the free-text
@@ -375,7 +389,8 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
     // Entire home tasks, which get a fixed tier scaled by square footage.
     let tier: Tier | null = isEntireHome ? entireHomeTier(name) : null
     let estimatedMinutes: number | null = null
-    if (!isDish && !isLaundry && !isEntireHome) {
+    const quoteTask = forQuote && quoteOffered && !isDish && !isLaundry && !isEntireHome
+    if (!isDish && !isLaundry && !isEntireHome && !quoteTask) {
       setValidating(true)
       try {
         const res = await fetch('/api/validate-task', {
@@ -383,6 +398,12 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), notes, room: selectedRoom, dirtLevel, unusual }),
         })
+        // The estimate service itself is down (e.g. the AI provider): the
+        // task can still be added, for the Tidy Pro to quote.
+        if (res.status === 503) {
+          setQuoteOfferKey(quoteInputsKey)
+          return
+        }
         if (!res.ok) throw new Error(`validate-task returned ${res.status}`)
         const data = await res.json() as { valid: boolean; reason: string; tier: Tier | null; estimated_minutes: number | null }
         if (!data.valid) {
@@ -429,6 +450,7 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
       sameLaundryAsTaskId: isLaundry && linkedTask ? linkedTask.id : null,
       ironItems: isLaundry && laundryService === 'iron' ? ironItems : null,
       hasWasherDryer: isLaundry && needsWasherDryer(laundryService) ? hasWasherDryer : null,
+      ...(quoteTask ? { needsQuote: true } : {}),
       tier,
       estimatedMinutes,
     })
@@ -910,17 +932,24 @@ export default function AddTaskModal({ savedRooms, existingRooms, existingTasks 
             </p>
           )}
 
+          {quoteOffered && !validationError && (
+            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 mb-4">
+              <p className="text-sm font-semibold text-amber-900 mb-1">Get a quote instead</p>
+              <p className="text-xs text-amber-900 leading-relaxed">{AI_UNAVAILABLE_TASK_MESSAGE}</p>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button onClick={handleClose} className="flex-1 py-3 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600">
               Delete
             </button>
             <button
-              onClick={handleFinalSave}
+              onClick={() => void handleFinalSave({ forQuote: quoteOffered })}
               disabled={validating}
               className="flex-1 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-60 transition-opacity"
               style={{ backgroundColor: '#1a2332' }}
             >
-              {validating ? 'Checking…' : 'Save'}
+              {validating ? 'Checking…' : quoteOffered ? 'Add for a quote' : 'Save'}
             </button>
           </div>
         </>

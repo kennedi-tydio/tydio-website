@@ -1,6 +1,6 @@
 import { backgroundCheckStage } from '@/lib/backgroundCheck'
 import { hasPaidFee } from '@/lib/backgroundCheckFee'
-import { adminStepLabel, missingOnboardingSteps } from '@/lib/cleanerOnboarding'
+import { adminStepLabel, fullServicePricingSteps, missingOnboardingSteps } from '@/lib/cleanerOnboarding'
 
 // Where a Tidy Pro is in getting from signup to bookable, as the admin Users page shows it:
 //
@@ -25,6 +25,9 @@ export type TidyProProgress = {
   hasSignedAgreement: boolean
   backgroundCheck: BackgroundCheckFields | null | undefined
   profile: Parameters<typeof missingOnboardingSteps>[0] | null | undefined
+  // Standard / Deep Cleaning they offer but haven't priced (lib/fullServiceRates
+  // unpricedFullServices). Listed as a step even after onboarding is done.
+  fullServiceUnpriced?: readonly ('standard' | 'deep')[]
 }
 
 export function isOnWaitlist(bookingAccessStatus: string | null): boolean {
@@ -78,5 +81,6 @@ export function remainingOnboardingActions(progress: TidyProProgress): string[] 
   if (progress.profile) {
     for (const step of missingOnboardingSteps(progress.profile)) actions.push(adminStepLabel(step.label))
   }
+  for (const step of fullServicePricingSteps(progress.fullServiceUnpriced ?? [])) actions.push(adminStepLabel(step.label))
   return actions
 }

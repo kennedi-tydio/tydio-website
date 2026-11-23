@@ -14,6 +14,10 @@ type SubmitResult = { success: true } | { error: string }
 // after the start). Choosing one early shows a countdown and keeps Submit off until then.
 export type ReportWait = { reasonId: string; availableAtMs: number; message: string }
 
+// "Block" at the bottom of the sheet (lib/userBlocks). `label` names who's blocked
+// ("Tidy Pro", "customer"); `consequence` says what blocking them stops.
+export type ReportBlock = { label: string; consequence: string; onBlock: () => Promise<SubmitResult> }
+
 function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000))
   const minutes = Math.floor(total / 60)
@@ -27,12 +31,14 @@ export default function ReportSheet({
   onSubmit,
   onClose,
   waits = [],
+  block,
 }: {
   title: string
   categories: readonly ReportCategory[]
   onSubmit: (categoryId: string, reasonId: string | null, details: string) => Promise<SubmitResult>
   onClose: () => void
   waits?: ReportWait[]
+  block?: ReportBlock
 }) {
   const ids = useId()
   const [categoryId, setCategoryId] = useState('')
@@ -41,6 +47,7 @@ export default function ReportSheet({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
+  const [blockStep, setBlockStep] = useState<'none' | 'confirm' | 'done'>('none')
 
   const category = categories.find((c) => c.id === categoryId) ?? null
   const choice = findReportChoice(categories, categoryId, reasonId)
@@ -75,22 +82,72 @@ export default function ReportSheet({
     setSubmitted(true)
   }
 
+  async function handleBlock() {
+    if (!block) return
+    setSubmitting(true)
+    setError(null)
+    const result = await block.onBlock()
+    setSubmitting(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setBlockStep('done')
+  }
+
   const titleId = `${ids}-title`
 
   return (
     <ModalShell
       className="fixed inset-0 z-50 flex items-end justify-center"
-      panelClassName="w-full max-w-sm max-h-[90vh] overflow-y-auto bg-white rounded-t-3xl px-6 pt-6 pb-10 shadow-2xl"
+      panelClassName="w-full max-w-sm max-h-[90dvh] overflow-y-auto bg-white rounded-t-3xl px-6 pt-6 pb-10 shadow-2xl"
       onClose={onClose}
       labelledBy={titleId}
     >
-      {submitted ? (
+      {block && blockStep === 'done' ? (
         <>
-          <h2 id={titleId} className="font-bold text-slate-900 text-lg mb-1">Report submitted</h2>
-          <p className="text-sm text-slate-500 mb-6">Thanks for letting us know — our team will look into it.</p>
+          <h2 id={titleId} className="font-bold text-slate-900 text-lg mb-1">{`${capitalize(block.label)} blocked`}</h2>
+          <p className="text-sm text-slate-500 mb-6">{block.consequence}</p>
           <button onClick={onClose} className="w-full py-3 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm">
             Close
           </button>
+        </>
+      ) : block && blockStep === 'confirm' ? (
+        <>
+          <h2 id={titleId} className="font-bold text-slate-900 text-lg mb-1">{`Block this ${block.label}?`}</h2>
+          <p className="text-sm text-slate-500 mb-6">{block.consequence} Your current bookings with them aren’t changed.</p>
+          {error && <p role="alert" className="text-xs text-red-600 mb-4">{error}</p>}
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleBlock}
+              disabled={submitting}
+              className="w-full py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
+              style={{ backgroundColor: '#ef4444' }}
+            >
+              {submitting ? 'Blocking…' : `Block ${block.label}`}
+            </button>
+            <button
+              onClick={() => {
+                setBlockStep('none')
+                setError(null)
+              }}
+              disabled={submitting}
+              className="w-full py-3 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : submitted ? (
+        <>
+          <h2 id={titleId} className="font-bold text-slate-900 text-lg mb-1">Report submitted</h2>
+          <p className="text-sm text-slate-500 mb-6">Thanks for letting us know — our team will look into it.</p>
+          <div className="flex flex-col gap-3">
+            <button onClick={onClose} className="w-full py-3 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm">
+              Close
+            </button>
+            {block && <BlockLink label={block.label} onClick={() => setBlockStep('confirm')} />}
+          </div>
         </>
       ) : (
         <>
@@ -188,9 +245,42 @@ export default function ReportSheet({
             <button onClick={onClose} disabled={submitting} className="w-full py-3 rounded-xl bg-slate-100 text-slate-700 font-semibold text-sm disabled:opacity-50">
               Go back
             </button>
+            {block && (
+              <BlockLink
+                label={block.label}
+                disabled={submitting}
+                onClick={() => {
+                  setBlockStep('confirm')
+                  setError(null)
+                }}
+              />
+            )}
           </div>
         </>
       )}
     </ModalShell>
+  )
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function BlockLink({ label, disabled, onClick }: { label: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <div className="border-t border-slate-100 pt-3 mt-1">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className="w-full py-2.5 flex items-center justify-center gap-2 text-sm font-semibold text-red-600 disabled:opacity-50"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M5.6 5.6l12.8 12.8" />
+        </svg>
+        {`Block ${label}`}
+      </button>
+    </div>
   )
 }

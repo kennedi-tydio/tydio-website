@@ -1,6 +1,6 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { stripe } from '@/lib/stripe'
-import { LATE_CANCEL_REASON } from '@/lib/bookingRequestGroups'
+import { OWES_CLEANER_FILTER } from '@/lib/bookings'
 import { deleteMarketingContact, removeMarketingContact } from '@/lib/marketingContacts'
 
 type Admin = ReturnType<typeof createAdminClient>
@@ -38,7 +38,7 @@ export async function deleteOwnAccount(admin: Admin, profileId: string): Promise
       .from('bookings')
       .select('id')
       .or(asEitherSide)
-      .or(`status.eq.completed,cancelled_reason.eq.${LATE_CANCEL_REASON},incident_resolved_at.not.is.null`)
+      .or(OWES_CLEANER_FILTER)
       .is('stripe_transfer_id', null)
       .gt('cleaner_pay', 0)
       .not('tidy_pro_id', 'is', null)
