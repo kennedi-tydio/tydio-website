@@ -1,10 +1,12 @@
+import BookingFeesRow from "./BookingFeesRow";
+
 // Mirrors the live price model in lib/pricingRules.ts. The example is a real
 // quote: Georgia's $215 median 4-hour clean, and the AI estimator's times for
 // these tasks (15 + 10 + 25 minutes), so 50 minutes of tasks is
 // 50 / 240 × $215 = $44.79 before surcharges. None of these are Entire home
 // or floor sweep/mop tasks, so no home size multiplier applies.
 // Cleaning fees combine the cleaning-level surcharges and extra issues
-// ($5 standard + $10 heavy). The last line is the $1.99 Trust & Support fee plus
+// ($5 standard + $10 heavy). Booking fees are the $1.99 Trust & Support fee plus
 // Stripe's US card fee on the whole charge: bookingChargeTotal($59.79) = $63.93.
 // Update if pricing changes.
 const exampleTasks = [
@@ -16,8 +18,10 @@ const exampleTasks = [
 const exampleLines = [
   { label: "Base price", value: "$44.79" },
   { label: "Cleaning fees", value: "+$15.00" },
-  { label: "Stripe and Trust & Support fee", value: "+$4.14" },
 ];
+
+// Booking fees: Stripe's card fee ($2.15) plus the Trust & Support fee ($1.99).
+const exampleBookingFees = 4.14;
 
 export default function Pricing() {
   return (
@@ -65,6 +69,14 @@ export default function Pricing() {
                   <dd className="text-slate-700 tabular-nums">{line.value}</dd>
                 </div>
               ))}
+              <BookingFeesRow
+                amount={exampleBookingFees}
+                prefix="+"
+                variant="dl"
+                className="text-sm"
+                labelClassName="text-slate-500"
+                valueClassName="text-slate-700"
+              />
             </dl>
             <div className="border-t border-slate-200 pt-4 flex items-center justify-between">
               <span className="text-slate-500 text-sm">Total</span>
@@ -77,8 +89,8 @@ export default function Pricing() {
         </div>
 
         <p className="text-center text-slate-400 text-sm mt-8 max-w-2xl mx-auto">
-          Exact price confirmed before booking. No surprises. The Stripe and Trust &amp; Support fee ($1.99 plus
-          Stripe&apos;s card fee) is added at checkout, and top-rated or farther-away Tidy Pros may add $5.
+          Exact price confirmed before booking. No surprises. Booking fees (Stripe&apos;s card fee plus a $1.99
+          Trust &amp; Support fee) are added at checkout, and top-rated or farther-away Tidy Pros may add $5.
         </p>
       </div>
     </section>

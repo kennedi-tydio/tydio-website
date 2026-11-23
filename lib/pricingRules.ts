@@ -38,7 +38,7 @@ export function grossUpForStripeFee(netAmount: number, percentage: number = STRI
 // A flat Trust & Support fee Tydio adds once to every booking payment (a new booking,
 // an approved quote, each recurring visit). Tips, upcharges, added tasks and
 // replacement-price differences don't carry it. Shown with Stripe's fee as one line,
-// "Stripe and Trust & Support fee", and nonrefundable along with it: a "minus the fee"
+// "Booking fees" (app/components/BookingFeesRow), and nonrefundable along with it: a "minus the fee"
 // refund keeps both. Bookings record it in pricing_breakdown.trust_support_fee and on
 // the PaymentIntent's metadata, so bookings paid before it existed are handled as before.
 export const TRUST_SUPPORT_FEE = 1.99

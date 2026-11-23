@@ -218,7 +218,7 @@ export default function UpcomingBookingDetailView({
           reasons={CUSTOMER_CANCEL_REASONS}
           warning={
             cancelScope === 'series'
-              ? 'No more visits will be booked. This visit and any others already booked are canceled: one you’ve paid for is refunded minus the nonrefundable Stripe and Trust & Support fee, and one not charged yet is free.'
+              ? 'No more visits will be booked. This visit and any others already booked are canceled: one you’ve paid for is refunded minus the nonrefundable booking fees, and one not charged yet is free.'
               : lateCancelRefund != null
                 ? `Canceling now refunds 50% ($${lateCancelRefund.toFixed(2)}).`
                 : recurringSeriesId

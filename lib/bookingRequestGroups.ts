@@ -83,8 +83,8 @@ export function cleanerCancelledNote(reason: string | null): string | null {
 }
 
 export function customerCancelledNote(reason: string | null): string | null {
-  if (reason === NO_RESPONSE_REASON) return 'No Tidy Pro accepted by an hour before the booking time, so it was canceled and your payment refunded, minus the nonrefundable Stripe and Trust & Support fee.'
-  if (reason === ALL_DECLINED_REASON) return 'The Tidy Pros you asked declined, so your booking was canceled and your payment refunded, minus the nonrefundable Stripe and Trust & Support fee.'
+  if (reason === NO_RESPONSE_REASON) return 'No Tidy Pro accepted by an hour before the booking time, so it was canceled and your payment refunded, minus the nonrefundable booking fees.'
+  if (reason === ALL_DECLINED_REASON) return 'The Tidy Pros you asked declined, so your booking was canceled and your payment refunded, minus the nonrefundable booking fees.'
   if (reason === CLEANER_CANCELLED_REASON) return 'Your Tidy Pro canceled less than an hour before the booking, so your payment has been refunded in full.'
   if (reason === NO_ACCESS_REASON) return 'Your Tidy Pro couldn’t get into your home, so the booking was canceled. Our team will review it and email you about any refund.'
   if (reason === CLEANER_NO_SHOW_REASON) return 'You reported that your Tidy Pro didn’t arrive, so the booking was canceled. Our team will review it and email you about your refund.'
@@ -580,7 +580,7 @@ export type AdminRefund = 'full' | 'minus_fee' | 'half' | 'custom' | 'none'
 
 export const ADMIN_REFUND_LABELS: Record<AdminRefund, string> = {
   full: 'Full refund, Stripe fee included',
-  minus_fee: 'Full refund minus Stripe and Trust & Support fee',
+  minus_fee: 'Full refund minus booking fees',
   half: 'Half refund (50%)',
   custom: 'Custom amount',
   none: 'No refund',
@@ -730,7 +730,7 @@ async function emailAdminCancellation(
   const amount = refunded != null ? `: $${refunded.toFixed(2)}` : ''
   const outcome = {
     full: `Full refund${amount}, including the Stripe processing fee.`,
-    minus_fee: `Refund${amount}. The Stripe and Trust & Support fee isn’t refundable, so it was kept back.`,
+    minus_fee: `Refund${amount}. Booking fees aren’t refundable, so they were kept back.`,
     half: `Partial refund (50%)${amount}.`,
     custom: `Partial refund${amount}.`,
     none: 'No refund.',

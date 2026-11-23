@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import BookingFeesRow from '@/app/components/BookingFeesRow'
 
 // What this card would be charged, Stripe's fee for it included.
 export type PayCard = { id: string; label: string; chargeCents: number }
@@ -23,7 +24,7 @@ export default function CardPayForm({
   cards,
   defaultCardId,
   itemLabel,
-  feeLabel = 'Processing fee',
+  bookingFees = false,
   amountCents,
   onPay,
   onPaid,
@@ -33,8 +34,8 @@ export default function CardPayForm({
   defaultCardId: string | null
   // The line above the processing fee, like "Extra charge" or "Booking".
   itemLabel: string
-  // The fee line's label: a booking payment's carries the Trust & Support fee too.
-  feeLabel?: string
+  // A booking payment: its fee line is "Booking fees" (Stripe's plus Trust & Support).
+  bookingFees?: boolean
   amountCents: number
   onPay: (card: PayCard, attemptId: string) => Promise<PayResult>
   onPaid: () => void
@@ -103,10 +104,14 @@ export default function CardPayForm({
             <span>{itemLabel}</span>
             <span>{money(amountCents)}</span>
           </div>
-          <div className="flex justify-between">
-            <span>{feeLabel}</span>
-            <span>{money(card.chargeCents - amountCents)}</span>
-          </div>
+          {bookingFees ? (
+            <BookingFeesRow amount={(card.chargeCents - amountCents) / 100} />
+          ) : (
+            <div className="flex justify-between">
+              <span>Processing fee</span>
+              <span>{money(card.chargeCents - amountCents)}</span>
+            </div>
+          )}
           <div className="flex justify-between font-bold">
             <span>Total</span>
             <span>{money(card.chargeCents)}</span>

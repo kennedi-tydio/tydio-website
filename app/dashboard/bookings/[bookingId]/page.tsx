@@ -152,7 +152,8 @@ export default async function CurrentBookingPage({
     { label: 'Booking', amount: bookingPrice },
     ...(addedTasksAmount > 0 ? [{ label: 'Added tasks', amount: addedTasksAmount }] : []),
     ...(extraChargeAmount > 0 ? [{ label: 'Extra charge', amount: extraChargeAmount }] : []),
-    { label: trustSupportFee > 0 ? 'Stripe and Trust & Support fee' : 'Processing fee', amount: Math.round((totalPrice - bookingPrice - upchargeAmount) * 100) / 100 },
+    // Bookings paid before the Trust & Support fee keep their plain "Processing fee" line.
+    { label: trustSupportFee > 0 ? 'Booking fees' : 'Processing fee', bookingFees: trustSupportFee > 0, amount: Math.round((totalPrice - bookingPrice - upchargeAmount) * 100) / 100 },
   ]
 
   // Shown on the cancel button, so the customer knows before they tap it. A recurring

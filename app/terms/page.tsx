@@ -461,11 +461,11 @@ export default function TermsPage() {
               <p>
                 When you book through Tydio, your payment includes a payment processing fee charged by Stripe and a
                 $1.99 Trust &amp; Support fee charged by Tydio, which supports our trust and safety work and customer
-                support. Together they are shown at checkout as the &ldquo;Stripe and Trust &amp;
-                Support fee&rdquo; and are <strong>nonrefundable</strong>. The Trust &amp; Support fee is charged once per
+                support. Together they are shown at checkout as &ldquo;Booking fees&rdquo; and are
+                <strong>nonrefundable</strong>. The Trust &amp; Support fee is charged once per
                 booking, including each charged visit of a recurring booking; it is not added to tips, extra charges, or
                 tasks added to a booking. If your booking is canceled, you will be refunded the amount you paid less the
-                Stripe and Trust &amp; Support fee. This applies when:
+                booking fees. This applies when:
               </p>
               <List items={[
                 'you cancel a booking while it is still waiting for a Tidy Pro to accept it;',
@@ -486,13 +486,13 @@ export default function TermsPage() {
                 the request, we charge you the difference (plus the card processing fee on that charge) if their price
                 is higher, or refund the difference if it is lower. If they decline, you may choose another. If none
                 accepts by one hour before the start time, or you cancel instead, you will be refunded the amount you
-                paid less the Stripe and Trust &amp; Support fee. If your Tidy Pro cancels less than one hour before the scheduled start time, you will be
-                refunded the full amount, including the Stripe and Trust &amp; Support fee.
+                paid less the booking fees. If your Tidy Pro cancels less than one hour before the scheduled start time, you will be
+                refunded the full amount, including the booking fees.
               </p>
               <p>
                 <strong>Recurring bookings.</strong> When a Tidy Pro accepts the first visit of a recurring booking, they
                 accept each later visit too. You authorize us to charge the card on your recurring booking for each later
-                visit 3 days before it starts, at the price shown in the app, plus the Stripe and Trust &amp; Support fee for that card. If the
+                visit 3 days before it starts, at the price shown in the app, plus the booking fees for that card. If the
                 charge fails, we will notify you and may try again once a day; you may also pay in the app with another
                 card. If a visit is still unpaid 24 hours before it starts, it is put on hold, and to keep it you must pay
                 and choose a new date. A visit still unpaid at its scheduled start time is canceled without charge. Canceling
@@ -521,7 +521,7 @@ export default function TermsPage() {
               </p>
               <p>
                 If you are charged in error, or your payment goes through but your booking could not be created, we will
-                refund the full amount, including the Stripe and Trust &amp; Support fee.
+                refund the full amount, including the booking fees.
               </p>
             </Sub>
             <Sub title="Tidy Pro background screening fee">

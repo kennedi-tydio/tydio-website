@@ -10,6 +10,7 @@ import { laundryDetailLabel } from '@/lib/laundry'
 import { petDetailLabel } from '@/lib/petTasks'
 import { QUOTE_TASK_LABEL } from '@/lib/taskQuotes'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
+import BookingFeesRow from '@/app/components/BookingFeesRow'
 import LateCancelNotice, { useStartsWithinLateCancelWindow } from '@/app/components/LateCancelNotice'
 import { approveQuoteAction, declineQuoteAction, removeQuotePromoAction } from './actions'
 
@@ -282,10 +283,15 @@ export default function QuoteView(props: Props) {
                   </button>
                 </div>
               )}
-              <Row label="Stripe and Trust & Support fee" value={`$${pricing.processingFee.toFixed(2)}`} />
+              <BookingFeesRow
+                amount={pricing.processingFee}
+                className="px-4 py-3.5 border-b border-slate-100"
+                labelClassName="text-sm text-slate-800"
+                valueClassName="text-sm font-semibold text-slate-900"
+              />
               <Row label="Total" value={`$${pricing.totalPrice.toFixed(2)}`} strong />
               <p className="text-xs text-slate-500 leading-relaxed px-4 pb-3.5">
-                The ${pricing.processingFee.toFixed(2)} Stripe and Trust &amp; Support fee is nonrefundable. If your booking is canceled or {cleanerName}{' '}
+                The ${pricing.processingFee.toFixed(2)} in booking fees is nonrefundable. If your booking is canceled or {cleanerName}{' '}
                 doesn&apos;t accept it, you&apos;ll be refunded ${pricing.discountedPrice.toFixed(2)}. If you cancel an accepted booking less than
                 2 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(pricing.totalPrice).toFixed(2)}).
               </p>

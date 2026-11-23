@@ -14,6 +14,7 @@ import { VerifiedCheck } from '@/app/components/VerifiedCheck'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
 import LaundromatNotice from '@/app/components/LaundromatNotice'
 import FullServiceSummary, { type SummaryLine } from '@/app/components/FullServiceSummary'
+import BookingFeesRow from '@/app/components/BookingFeesRow'
 import LateCancelNotice, { useStartsWithinLateCancelWindow } from '@/app/components/LateCancelNotice'
 import { NOTES_COPY, type FullServiceSelection } from '@/lib/fullService'
 import type { CleanerMatch } from '@/lib/cleanerMatching'
@@ -749,10 +750,12 @@ export default function ReviewRequestView({
             )}
 
             {!quoteMode && (<>
-            <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100">
-              <span className="text-sm text-slate-800">Stripe and Trust &amp; Support fee</span>
-              <span className="text-sm font-semibold text-slate-900">${processingFee.toFixed(2)}</span>
-            </div>
+            <BookingFeesRow
+              amount={processingFee}
+              className="px-4 py-3.5 border-b border-slate-100"
+              labelClassName="text-sm text-slate-800"
+              valueClassName="text-sm font-semibold text-slate-900"
+            />
 
             <div className="flex items-center justify-between px-4 py-3.5">
               <span className="text-sm font-bold" style={{ color: 'var(--color-brand)' }}>
@@ -763,7 +766,7 @@ export default function ReviewRequestView({
               </span>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed px-4 pb-3.5">
-              The ${processingFee.toFixed(2)} Stripe and Trust &amp; Support fee is nonrefundable. If your booking is canceled, you&apos;ll be refunded ${discountedPrice.toFixed(2)}. If you cancel an accepted booking less than 2 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(totalPrice).toFixed(2)}).
+              The ${processingFee.toFixed(2)} in booking fees is nonrefundable. If your booking is canceled, you&apos;ll be refunded ${discountedPrice.toFixed(2)}. If you cancel an accepted booking less than 2 hours before it starts, you&apos;ll be refunded 50% (${lateCancelRefund(totalPrice).toFixed(2)}).
             </p>
             </>)}
           </div>

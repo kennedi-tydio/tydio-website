@@ -97,7 +97,7 @@ export default function ReplacementPickerView({
         {options.length > 0 && (
           <p className="text-xs text-slate-500 leading-relaxed mt-5">
             You won&apos;t be charged again. Your payment is held and goes to the Tidy Pro who accepts. If nobody accepts by an hour before your booking, it&apos;s
-            canceled and refunded, minus the nonrefundable Stripe and Trust & Support fee.
+            canceled and refunded, minus the nonrefundable booking fees.
           </p>
         )}
 
@@ -127,7 +127,7 @@ export default function ReplacementPickerView({
         {askingReason && (
           <CancelReasonSheet reasons={CUSTOMER_CANCEL_REASONS} onConfirm={handleCancelBooking} onClose={() => setAskingReason(false)} />
         )}
-        <p className="text-xs text-slate-400 text-center">The Stripe and Trust & Support fee is nonrefundable.</p>
+        <p className="text-xs text-slate-400 text-center">Booking fees are nonrefundable.</p>
       </div>
     </main>
   )

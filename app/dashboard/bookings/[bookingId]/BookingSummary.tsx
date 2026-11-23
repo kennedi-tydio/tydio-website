@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { BookingTaskRow } from './CurrentBookingView'
+import BookingFeesRow from '@/app/components/BookingFeesRow'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -58,7 +59,9 @@ export function groupByCategory(tasks: BookingTaskRow[]): { category: string; ta
   return order.map((category) => ({ category, tasks: map.get(category)! }))
 }
 
-export type OrderLine = { label: string; amount: number }
+// bookingFees: the "Booking fees" line (Stripe's fee plus Trust & Support), shown with
+// its "What's included?" toggle.
+export type OrderLine = { label: string; amount: number; bookingFees?: boolean }
 
 // The shared body of the Upcoming / Past booking screens: who, when, where,
 // what, and what it cost. Each screen supplies its own buttons underneath.
@@ -179,12 +182,16 @@ export default function BookingSummary({
             Order Summary
           </p>
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 flex flex-col gap-2.5">
-            {orderLines.map((line) => (
-              <div key={line.label} className="flex items-center justify-between text-xs text-slate-900">
-                <span>{line.label}</span>
-                <span>${line.amount.toFixed(2)}</span>
-              </div>
-            ))}
+            {orderLines.map((line) =>
+              line.bookingFees ? (
+                <BookingFeesRow key={line.label} amount={line.amount} className="text-xs text-slate-900" />
+              ) : (
+                <div key={line.label} className="flex items-center justify-between text-xs text-slate-900">
+                  <span>{line.label}</span>
+                  <span>${line.amount.toFixed(2)}</span>
+                </div>
+              )
+            )}
             <div className="flex items-center justify-between text-xs font-bold text-slate-900">
               <span>Total</span>
               <span>${totalPrice.toFixed(2)}</span>
