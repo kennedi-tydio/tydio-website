@@ -50,3 +50,7 @@ next-env.d.ts
 
 # Live task-validator matrix output
 scripts/task-vagueness-matrix/.results.json
+
+# Playwright browser tests output
+/e2e/.results/
+/playwright-report/
