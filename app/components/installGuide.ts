@@ -63,6 +63,12 @@ const installGuideFlag = createDeviceFlag('tydio:install-guide-dismissed')
 export const dismissInstallGuide = installGuideFlag.set
 export const useInstallGuideDismissed = installGuideFlag.useFlag
 
+// Skip without "Don't show me this again": hidden for this visit only, so the
+// guide comes back the next time they open Tydio.
+const installGuideSnoozeFlag = createDeviceFlag('tydio:install-guide-snoozed', 'session')
+export const snoozeInstallGuide = installGuideSnoozeFlag.set
+export const useInstallGuideSnoozed = installGuideSnoozeFlag.useFlag
+
 // ---- Android/desktop Chromium one-tap install ----
 // The browser fires beforeinstallprompt once, early in page load, so this
 // module listens from import time (ServiceWorkerRegistration imports it from

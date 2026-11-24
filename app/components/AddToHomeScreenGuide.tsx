@@ -14,9 +14,13 @@ import {
 type Props = {
   titleId: string
   // added is true for "I've added it" (or an accepted install prompt), false for Skip.
-  onDone: (added: boolean) => void
+  // dontShowAgain is the "Don't show me this again" box, when it's offered.
+  onDone: (added: boolean, dontShowAgain: boolean) => void
   // null hides the skip link (the profile page, where there's nothing to skip).
   skipLabel?: string | null
+  // Shows a "Don't show me this again" checkbox above the skip link, for the
+  // automatic prompt (not when someone opened the guide themselves).
+  offerDontShowAgain?: boolean
   // 'page' renders the title as the page's h1 instead of a modal's h2.
   variant?: 'modal' | 'page'
 }
@@ -24,11 +28,12 @@ type Props = {
 // Step-by-step "add Tydio to your home screen" instructions. Uses the detected
 // phone and browser when it can, and lets the person pick their device when
 // it can't (a computer) or when the detection is wrong.
-export default function AddToHomeScreenGuide({ titleId, onDone, skipLabel = 'Skip', variant = 'modal' }: Props) {
+export default function AddToHomeScreenGuide({ titleId, onDone, skipLabel = 'Skip', variant = 'modal', offerDontShowAgain = false }: Props) {
   const detected = useDevice()
   const canPrompt = useCanPromptInstall()
   const [chosen, setChosen] = useState<Platform | null>(null)
   const [installing, setInstalling] = useState(false)
+  const [dontShowAgain, setDontShowAgain] = useState(false)
 
   // A manual pick assumes the platform's default browser and the latest OS.
   const device: Device | null = chosen
@@ -43,7 +48,7 @@ export default function AddToHomeScreenGuide({ titleId, onDone, skipLabel = 'Ski
     setInstalling(true)
     const accepted = await promptInstall()
     setInstalling(false)
-    if (accepted) onDone(true)
+    if (accepted) onDone(true, dontShowAgain)
   }
 
   const guide = device ? getInstallGuide(device) : null
@@ -123,16 +128,27 @@ export default function AddToHomeScreenGuide({ titleId, onDone, skipLabel = 'Ski
 
       <button
         type="button"
-        onClick={() => onDone(true)}
+        onClick={() => onDone(true, dontShowAgain)}
         className="w-full py-2.5 rounded-xl text-sm font-semibold text-white"
         style={{ backgroundColor: 'var(--color-brand)' }}
       >
         I&apos;ve added it to my home screen
       </button>
+      {offerDontShowAgain && (
+        <label className="flex items-center justify-center gap-2 mt-3 text-sm text-slate-600 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={dontShowAgain}
+            onChange={(e) => setDontShowAgain(e.target.checked)}
+            className="w-4 h-4"
+          />
+          Don&apos;t show me this again
+        </label>
+      )}
       {skipLabel !== null && (
         <button
           type="button"
-          onClick={() => onDone(false)}
+          onClick={() => onDone(false, dontShowAgain)}
           className="block mx-auto mt-3 text-sm text-slate-500 underline underline-offset-2"
         >
           {skipLabel}

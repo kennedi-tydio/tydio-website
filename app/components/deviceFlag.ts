@@ -3,14 +3,16 @@ import { useSyncExternalStore } from 'react'
 // A yes/no flag remembered by this browser only (localStorage), for choices
 // that belong to a device rather than the account. Falls back to memory when
 // storage is blocked, and reads as set on the server so nothing it gates
-// flashes in before hydration.
-export function createDeviceFlag(key: string) {
+// flashes in before hydration. 'session' scope (sessionStorage) forgets the
+// flag once this visit ends.
+export function createDeviceFlag(key: string, scope: 'device' | 'session' = 'device') {
   const listeners = new Set<() => void>()
   let fallback = false
+  const storage = () => (scope === 'session' ? sessionStorage : localStorage)
 
   function read(): boolean {
     try {
-      return localStorage.getItem(key) === '1' || fallback
+      return storage().getItem(key) === '1' || fallback
     } catch {
       return fallback
     }
@@ -19,7 +21,7 @@ export function createDeviceFlag(key: string) {
   function set() {
     fallback = true
     try {
-      localStorage.setItem(key, '1')
+      storage().setItem(key, '1')
     } catch {}
     listeners.forEach((l) => l())
   }

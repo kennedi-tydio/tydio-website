@@ -16,7 +16,7 @@ import SmsOptInPrompt from './SmsOptInPrompt'
 import SmsOptOutConfirm from './SmsOptOutConfirm'
 import { PUSH_REQUIRED } from '@/lib/pushRequirement'
 import AddToHomeScreenGuide from './AddToHomeScreenGuide'
-import { dismissInstallGuide, useInstallGuideDismissed } from './installGuide'
+import { dismissInstallGuide, snoozeInstallGuide, useInstallGuideDismissed, useInstallGuideSnoozed } from './installGuide'
 import { joinPhone, splitPhone } from '@/lib/phoneParts'
 
 type Props = {
@@ -31,6 +31,7 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
   const router = useRouter()
   const standalone = useIsStandalone()
   const installDismissed = useInstallGuideDismissed()
+  const installSnoozed = useInstallGuideSnoozed()
   const deviceSubscribed = useDevicePushSubscribed(standalone && pushConsent === 'opted_in')
   const devicePromptDismissed = useDevicePushPromptDismissed()
   const permission = useNotificationPermission()
@@ -67,7 +68,7 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
   const step: 'sms' | 'install' | 'push' | null =
     smsConsent === null
       ? 'sms'
-      : !standalone && !installDismissed
+      : !standalone && !installDismissed && !installSnoozed
         ? 'install'
         : ((standalone && pushConsent === null) || newDevice) && permission !== null && permission !== 'granted'
           ? 'push'
@@ -139,8 +140,11 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
     router.refresh()
   }
 
-  function handleInstallDone(added: boolean) {
-    dismissInstallGuide()
+  function handleInstallDone(added: boolean, dontShowAgain: boolean) {
+    // Added, or skipped with "Don't show me this again": never ask on this
+    // device again. A plain Skip only hides it until their next visit.
+    if (added || dontShowAgain) dismissInstallGuide()
+    else snoozeInstallGuide()
     if (added) setJustInstalled(true)
   }
 
@@ -189,7 +193,7 @@ export default function NotificationConsentModal({ initialPhone, smsConsent, pus
           onRespond={handleSmsResponse}
         />
       ) : step === 'install' ? (
-        <AddToHomeScreenGuide titleId="consent-title" onDone={handleInstallDone} />
+        <AddToHomeScreenGuide titleId="consent-title" onDone={handleInstallDone} offerDontShowAgain />
       ) : (
         <>
           <h2 id="consent-title" className="text-lg font-bold text-slate-900 mb-1">
