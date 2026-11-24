@@ -10,6 +10,7 @@ import { ON_THE_WAY_TOO_EARLY_MESSAGE } from '@/lib/bookingTime'
 import { bookedTaskName } from '@/lib/laundry'
 import LaundromatNotice from '@/app/components/LaundromatNotice'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
+import SuppliesNotice from '@/app/components/SuppliesNotice'
 import {
   acceptBookingRequestAction,
   cancelAcceptedBookingAction,
@@ -142,6 +143,7 @@ function BookingDetails({
   distanceMiles,
   addressLabel,
   addressLine,
+  homeSize,
   tasks,
   fullService,
   photoUrls,
@@ -154,6 +156,7 @@ function BookingDetails({
   distanceMiles: number | null
   addressLabel: string | null
   addressLine: string | null
+  homeSize: string | null
   tasks: TidyTask[]
   photoUrls: Record<string, string>
   suppliesProvided: boolean
@@ -174,6 +177,7 @@ function BookingDetails({
           <p className="text-xs text-slate-400">Address will be revealed when the booking is accepted</p>
         </>
       )}
+      {homeSize && <p className="text-sm text-slate-600">Home size: {homeSize}</p>}
 
       {fullService && (
         <FullServiceSummary selection={fullService.selection} lines={fullService.lines} showPrices={false} className="mt-3 bg-white" />
@@ -185,9 +189,7 @@ function BookingDetails({
           {task.overlapAnswer === 'different_room' && <span className="text-xs text-slate-400"> (a different room from the cleaning)</span>}
         </p>
       ))}
-      <p className="text-xs text-slate-400">
-        {suppliesProvided ? 'Customer will provide their own cleaning supplies' : 'Cleaning supplies will be provided'}
-      </p>
+      <SuppliesNotice provided={suppliesProvided} className="mt-1" />
       <PetTaskDetails tasks={tasks} photoUrls={photoUrls} className="mt-3" />
 
       {pets && (
@@ -229,6 +231,8 @@ type Props = {
   distanceMiles: number | null
   addressLabel: string | null
   addressLine: string | null
+  // The home's square footage bucket, e.g. "1,000-1,999 sqft".
+  homeSize: string | null
   tasks: TidyTask[]
   // Signed URLs for pet task photos, by storage path.
   photoUrls: Record<string, string>
@@ -266,6 +270,7 @@ export default function ProMessageThreadView({
   distanceMiles,
   addressLabel,
   addressLine,
+  homeSize,
   tasks,
   photoUrls,
   pets,
@@ -626,6 +631,7 @@ export default function ProMessageThreadView({
                 distanceMiles={distanceMiles}
                 addressLabel={addressLabel}
                 addressLine={addressLine}
+                homeSize={homeSize}
                 tasks={tasks}
                 fullService={fullService}
                 photoUrls={photoUrls}
@@ -710,6 +716,7 @@ export default function ProMessageThreadView({
             distanceMiles={distanceMiles}
             addressLabel={addressLabel}
             addressLine={addressLine}
+            homeSize={homeSize}
             tasks={tasks}
             fullService={fullService}
             photoUrls={photoUrls}
@@ -727,6 +734,9 @@ export default function ProMessageThreadView({
               ${payout}
             </span>
           </div>
+          <p className="text-xs text-slate-500 mt-1.5">
+            You&apos;ll receive your payment once the booking is successfully completed.
+          </p>
 
           {actionError && <p role="alert" className="text-xs text-red-600 mt-3">{actionError}</p>}
 

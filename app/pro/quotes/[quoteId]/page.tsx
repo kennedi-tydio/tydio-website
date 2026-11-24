@@ -11,6 +11,8 @@ import { scheduleForViewer } from '@/lib/bookingTime'
 import { bookableSelection } from '@/lib/fullServiceBooking'
 import { selectionLabel } from '@/lib/fullService'
 import { isRecurrenceFrequency } from '@/lib/recurrence'
+import { squareFootageLabel } from '@/lib/squareFootage'
+import { resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
 import ProQuoteView from './ProQuoteView'
 
 export const metadata: Metadata = { title: 'Quote Request — Tydio' }
@@ -65,6 +67,7 @@ export default async function ProQuotePage({ params }: { params: Promise<{ quote
       addressLabel={location?.type === 'address' ? location.label : null}
       addressLine={location?.type === 'address' ? location.line : null}
       distanceMiles={distanceMiles}
+      homeSize={squareFootageLabel(await resolveLocationSquareFootage(admin, row.user_id, location))}
       tasks={tasks}
       quotedPrices={quotedPrices}
       fullServiceLabel={fullService ? selectionLabel(fullService) : null}

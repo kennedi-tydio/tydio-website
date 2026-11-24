@@ -205,6 +205,7 @@ export default async function ProActiveBookingPage({
         entryInstructions={booking.entry_instructions}
         tasks={tasks.map((t) => ({ id: t.id, taskName: t.task_name }))}
         laundromatTasks={laundromatTasks}
+        suppliesProvided={booking.will_provide_supplies ?? false}
       />
     )
   }

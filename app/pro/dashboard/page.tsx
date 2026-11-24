@@ -10,7 +10,9 @@ import { notificationStatus } from '@/lib/pushRequirement'
 import { DEFAULT_BOOKING_TIME_ZONE, START_BOOKING_WINDOW_MINUTES, bookingStartInstant, scheduleForViewer, shiftDateISO, todayInZone } from '@/lib/bookingTime'
 import { NO_ACCEPTANCE_STATS, getAcceptanceStats } from '@/lib/acceptanceRate'
 import { isJobCompleted, showCompletedJob } from '@/lib/completedJobVisibility'
-import DashboardHome, { type TodayJob, type UpcomingJob } from './DashboardHome'
+import { readSnapshot } from '@/lib/fullServiceBooking'
+import { FULL_SERVICE_LABEL } from '@/lib/fullService'
+import DashboardHome, { type BookingRequest, type TodayJob, type UpcomingJob } from './DashboardHome'
 import PendingDashboardHome from './PendingDashboardHome'
 
 export const metadata: Metadata = { title: 'Dashboard — Tydio' }
@@ -82,8 +84,8 @@ export default async function ProDashboardPage() {
     .eq('tidy_pro_id', session.profileId)
     .not('cleaner_marked_complete_at', 'is', null)
 
-  // Pending requests aren't jobs yet — they live in Messages until the Tidy
-  // Pro accepts or declines them.
+  // Pending requests aren't jobs yet — they're listed separately below, and
+  // answered in Messages.
   // Fetched a day wider than needed, since a booking's date can shift once converted
   // into this cleaner's own time, then sorted by the date they'd actually see.
   const today = todayInZone(tidyPro.time_zone ?? DEFAULT_BOOKING_TIME_ZONE)
@@ -121,7 +123,30 @@ export default async function ProDashboardPage() {
   })
   const upcomingBookings = jobs.filter((b) => b.viewerDate != null && b.viewerDate > today).slice(0, 5)
 
-  const customerIds = [...new Set([...(todaysBookings ?? []).map((b) => b.user_id), ...(upcomingBookings ?? []).map((b) => b.user_id)])]
+  // Requests still waiting on this Tidy Pro's answer. Accepting or declining
+  // happens in the request's message thread; the dashboard just surfaces them.
+  // Ones whose date has already passed can't be accepted, so they're left out.
+  const { data: requestRows } = await admin
+    .from('bookings')
+    .select('id, user_id, scheduled_date, scheduled_time, estimated_duration_minutes, time_zone, cleaner_pay, full_service, task_list, created_at')
+    .eq('tidy_pro_id', session.profileId)
+    .eq('status', 'pending')
+    .eq('decision_status', 'pending')
+    .gte('scheduled_date', shiftDateISO(today, -1))
+    .order('created_at', { ascending: false })
+
+  const pendingRequests = (requestRows ?? [])
+    .map((b) => {
+      const schedule = scheduleForViewer(b.scheduled_date, b.scheduled_time, b.time_zone, tidyPro.time_zone)
+      return { ...b, viewerDate: schedule.date, viewerTime: schedule.time }
+    })
+    .filter((b) => b.viewerDate == null || b.viewerDate >= today)
+
+  const customerIds = [...new Set([
+    ...(todaysBookings ?? []).map((b) => b.user_id),
+    ...(upcomingBookings ?? []).map((b) => b.user_id),
+    ...pendingRequests.map((b) => b.user_id),
+  ])]
   const { data: customers } = customerIds.length
     ? await admin
         .from('profiles')
@@ -175,6 +200,23 @@ export default async function ProDashboardPage() {
     }
   })
 
+  const bookingRequests: BookingRequest[] = pendingRequests.map((b) => {
+    const customer = customerById.get(b.user_id)
+    const fullService = readSnapshot(b.full_service)
+    const taskCount = Array.isArray(b.task_list) ? b.task_list.length : 0
+    return {
+      id: b.id,
+      customerName: customer ? [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'Customer' : 'Customer',
+      date: b.viewerDate,
+      startTime: b.viewerTime,
+      durationMinutes: b.estimated_duration_minutes,
+      payout: b.cleaner_pay ?? 0,
+      serviceLabel: fullService
+        ? FULL_SERVICE_LABEL[fullService.selection.type]
+        : `${taskCount} task${taskCount === 1 ? '' : 's'}`,
+    }
+  })
+
   const acceptance = (await getAcceptanceStats(admin, [session.profileId])).get(session.profileId) ?? NO_ACCEPTANCE_STATS
 
   const visibleRating = await getRatingVisibleToTidyPro(admin, session.profileId, tidyPro.rating, tidyPro.review_count)
@@ -189,6 +231,7 @@ export default async function ProDashboardPage() {
       acceptance={acceptance}
       todaysJobs={todaysJobs}
       upcomingJobs={upcomingJobs}
+      bookingRequests={bookingRequests}
       unreadMessageCount={unreadMessageCount}
       onboardingSteps={onboardingSteps}
     />

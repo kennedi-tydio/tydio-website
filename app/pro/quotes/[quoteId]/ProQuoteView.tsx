@@ -9,6 +9,7 @@ import { laundryDetailLabel } from '@/lib/laundry'
 import { petDetailLabel } from '@/lib/petTasks'
 import { MAX_QUOTE_PRICE, MIN_QUOTE_PRICE, isValidQuotePrice, needsQuote } from '@/lib/taskQuotes'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
+import SuppliesNotice from '@/app/components/SuppliesNotice'
 import { declineQuoteRequestAction, previewQuoteAction, sendQuoteAction } from './actions'
 
 type Props = {
@@ -23,6 +24,8 @@ type Props = {
   addressLabel: string | null
   addressLine: string | null
   distanceMiles: number | null
+  // The home's square footage bucket, e.g. "1,000-1,999 sqft".
+  homeSize: string | null
   // As the customer asked for them.
   tasks: TidyTask[]
   // Prices already sent, by task id, so the quote can be revised before it's paid.
@@ -183,11 +186,12 @@ export default function ProQuoteView(props: Props) {
         </div>
 
         {(props.addressLabel || props.addressLine) && (
-          <p className="text-sm text-slate-600 mb-5">
+          <p className={`text-sm text-slate-600 ${props.homeSize ? '' : 'mb-5'}`}>
             {[props.addressLabel, props.addressLine].filter(Boolean).join(' · ')}
             {props.distanceMiles != null && <span className="text-slate-400"> · {props.distanceMiles} miles away</span>}
           </p>
         )}
+        {props.homeSize && <p className="text-sm text-slate-600 mb-5">Home size: {props.homeSize}</p>}
 
         {props.fullServiceLabel && (
           <>
@@ -264,9 +268,7 @@ export default function ProQuoteView(props: Props) {
             <p className="text-sm text-slate-500 whitespace-pre-line break-words">{props.notes}</p>
           </div>
         )}
-        <p className="text-sm text-slate-500 mb-5">
-          {props.suppliesProvided ? `${customerName} will provide the cleaning supplies.` : 'Bring your own cleaning supplies.'}
-        </p>
+        <SuppliesNotice provided={props.suppliesProvided} className="mb-5" />
 
         {editable && (
           <div className="mb-5">

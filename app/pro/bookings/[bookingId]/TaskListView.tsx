@@ -5,6 +5,7 @@ import EmergencyButton from '@/app/components/EmergencyButton'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
+import SuppliesNotice from '@/app/components/SuppliesNotice'
 import LaundromatNotice from '@/app/components/LaundromatNotice'
 import Link from 'next/link'
 import { markBookingDoneAction } from '@/app/pro/messages/[bookingId]/actions'
@@ -449,9 +450,7 @@ export default function TaskListView({
 
         <PetTaskDetails tasks={petTasks} photoUrls={photoUrls} className="mb-6" />
 
-        <p className="text-xs text-slate-400 text-center mb-8">
-          {suppliesProvided ? 'Customer will provide their own cleaning supplies' : 'Cleaning supplies will be provided'}
-        </p>
+        <SuppliesNotice provided={suppliesProvided} className="text-center mb-8" />
 
         {pets && (
           <>

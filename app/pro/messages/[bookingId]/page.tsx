@@ -14,6 +14,8 @@ import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 import { getPendingTaskAddition, listTaskAdditions } from '@/lib/bookingTaskAdditions'
 import { readSnapshot } from '@/lib/fullServiceBooking'
 import { isBlockedBetween } from '@/lib/userBlocks'
+import { bookedSquareFootage, squareFootageLabel } from '@/lib/squareFootage'
+import { resolveLocationSquareFootage } from '@/app/dashboard/taskPricing'
 
 export const metadata: Metadata = { title: 'Messages — Tydio' }
 
@@ -38,7 +40,7 @@ export default async function ProMessageThreadPage({
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, user_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, task_list, full_service, pets, notes, will_provide_supplies, cleaner_pay, status, decision_status, progress_status, tidy_pro_unread, cancelled_reason, time_zone, recurring_booking_id, payment_due_at'
+      'id, user_id, scheduled_date, scheduled_time, scheduled_location, estimated_duration_minutes, task_list, full_service, pets, notes, will_provide_supplies, cleaner_pay, status, decision_status, progress_status, tidy_pro_unread, cancelled_reason, time_zone, recurring_booking_id, payment_due_at, pricing_breakdown'
     )
     .eq('id', bookingId)
     .eq('tidy_pro_id', session.profileId)
@@ -90,6 +92,10 @@ export default async function ProMessageThreadPage({
   const addressLabel =
     location?.type === 'address' ? location.label : location?.type === 'current_location' ? 'Current Location' : null
   const addressLine = location?.type === 'address' ? location.line : null
+  // The home's size, so the Tidy Pro knows how big the place is before accepting.
+  const squareFootage =
+    bookedSquareFootage(booking.full_service, booking.pricing_breakdown) ??
+    (await resolveLocationSquareFootage(admin, booking.user_id, location))
 
   const customerName = [customerProfile?.first_name, customerProfile?.last_name].filter(Boolean).join(' ') || 'the customer'
 
@@ -150,6 +156,7 @@ export default async function ProMessageThreadPage({
       distanceMiles={distanceMiles}
       addressLabel={addressLabel}
       addressLine={addressLine}
+      homeSize={squareFootageLabel(squareFootage)}
       tasks={(booking.task_list as TidyTask[] | null) ?? []}
       fullService={proFullService(booking.full_service)}
       photoUrls={await signedTaskPhotoUrls(admin, (booking.task_list as TidyTask[] | null) ?? [])}

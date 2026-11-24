@@ -9,6 +9,7 @@ import { reportUnableToAccessAction } from '@/app/pro/messages/[bookingId]/actio
 import { formatVisitDuration } from '@/lib/laundry'
 import type { TidyTask } from '@/app/dashboard/types'
 import LaundromatNotice from '@/app/components/LaundromatNotice'
+import SuppliesNotice from '@/app/components/SuppliesNotice'
 import BeforePhotosPrompt from './BeforePhotosPrompt'
 import ReportCustomerButton from './ReportCustomerButton'
 
@@ -96,6 +97,8 @@ type Props = {
   laundromatTasks?: TidyTask[]
   // The booking includes a Standard / Deep Cleaning.
   fullService?: boolean
+  // The customer is supplying the cleaning products.
+  suppliesProvided?: boolean
 }
 
 export default function OnTheWayView({
@@ -111,6 +114,7 @@ export default function OnTheWayView({
   tasks,
   laundromatTasks = [],
   fullService = false,
+  suppliesProvided = false,
 }: Props) {
   const router = useRouter()
   const [showDirections, setShowDirections] = useState(false)
@@ -212,6 +216,8 @@ export default function OnTheWayView({
 
         {scheduledDate && <p className="text-sm font-semibold text-slate-900">{formatDateLabel(scheduledDate)}</p>}
         {scheduledTime && <p className="text-sm text-slate-500 mb-5">{formatTimeRange(scheduledTime, durationMinutes)} · Est. visit {formatVisitDuration(durationMinutes)}</p>}
+
+        <SuppliesNotice provided={suppliesProvided} className="mb-5" />
 
         <LaundromatNotice tasks={laundromatTasks} className="mb-5" />
 

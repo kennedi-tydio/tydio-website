@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import type { TidyTask } from '@/app/dashboard/types'
 import PetTaskDetails from '@/app/components/PetTaskDetails'
+import SuppliesNotice from '@/app/components/SuppliesNotice'
 import { cancelAcceptedBookingAction, cancelRecurringSeriesAction, markOnTheWayAction, proposeStartTimeAction } from '@/app/pro/messages/[bookingId]/actions'
 import CancelReasonSheet from '@/app/components/CancelReasonSheet'
 import CancelScopeSheet from '@/app/components/CancelScopeSheet'
@@ -196,15 +197,7 @@ export default function PastBookingDetailView({
           ))}
         </div>
         <PetTaskDetails tasks={petTasks} photoUrls={photoUrls} className="mb-4" />
-        <p className="text-xs text-slate-600 mb-5">
-          {isUpcoming
-            ? suppliesProvided
-              ? 'Customer will provide the cleaning supplies'
-              : 'Cleaning supplies will be provided'
-            : suppliesProvided
-              ? 'Customer provided the cleaning supplies'
-              : 'Cleaning supplies provided'}
-        </p>
+        <SuppliesNotice provided={suppliesProvided} past={!isUpcoming} className="mb-5" />
 
         {fullService && (
           <FullServiceSummary selection={fullService.selection} lines={fullService.lines} showPrices={false} className="mb-5" />
@@ -270,6 +263,11 @@ export default function PastBookingDetailView({
               <span>${(bookingEarnings + tipAmount).toFixed(2)}</span>
             </div>
           </div>
+          {isUpcoming && (
+            <p className="text-xs text-slate-500 mt-2">
+              You&apos;ll receive your payment once the booking is successfully completed.
+            </p>
+          )}
         </div>
 
         {isUpcoming && !canStartBooking && (

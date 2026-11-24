@@ -20,6 +20,18 @@ export type TodayJob = {
 
 export type UpcomingJob = TodayJob & { date: string | null }
 
+// A booking request still waiting on the Tidy Pro to accept or decline it.
+export type BookingRequest = {
+  id: string
+  customerName: string
+  date: string | null
+  startTime: string | null
+  durationMinutes: number | null
+  payout: number
+  // "Deep Cleaning", or "3 tasks" for a task-based booking.
+  serviceLabel: string
+}
+
 // ── icons ────────────────────────────────────────────────────────────────────
 
 function IconHome({ active }: { active?: boolean }) {
@@ -107,6 +119,27 @@ function formatDayLabel(dateISO: string): string {
   return `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`
 }
 
+const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+function requestWhenLabel(request: BookingRequest): string {
+  if (!request.date) return 'Date to be confirmed'
+  const d = new Date(`${request.date}T00:00:00`)
+  const day = `${WEEKDAYS_SHORT[d.getDay()]}, ${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`
+  return request.startTime ? `${day} · ${formatTimeLabel(request.startTime)}` : day
+}
+
+function formatDuration(minutes: number | null): string | null {
+  if (!minutes) return null
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (h === 0) return `${m} min`
+  return m === 0 ? `${h} hr` : `${h} hr ${m} min`
+}
+
+function formatPayout(dollars: number): string {
+  return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`
+}
+
 // ── component ────────────────────────────────────────────────────────────────
 
 export default function DashboardHome({
@@ -118,6 +151,7 @@ export default function DashboardHome({
   acceptance,
   todaysJobs,
   upcomingJobs,
+  bookingRequests = [],
   unreadMessageCount,
   onboardingSteps,
 }: {
@@ -129,6 +163,7 @@ export default function DashboardHome({
   acceptance: AcceptanceStats
   todaysJobs: TodayJob[]
   upcomingJobs: UpcomingJob[]
+  bookingRequests?: BookingRequest[]
   unreadMessageCount: number
   onboardingSteps: { label: string; href: string; fullServiceOnly?: boolean }[]
 }) {
@@ -161,6 +196,8 @@ export default function DashboardHome({
         )}
 
         <h1 className="text-3xl font-bold text-slate-900 mb-6">Dashboard</h1>
+
+        {bookingRequests.length > 0 && <BookingRequestsSection requests={bookingRequests} />}
 
         {/* Stat cards */}
         <div className="grid grid-cols-3 gap-3 mb-3">
@@ -203,7 +240,9 @@ export default function DashboardHome({
           {todaysJobs.length === 0 ? (
             <div className="rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
               <p className="text-sm text-slate-400 leading-relaxed">
-                You&apos;ll be notified when you receive your first booking request!
+                {bookingRequests.length > 0 || jobsCompleted > 0 || upcomingJobs.length > 0
+                  ? 'No jobs scheduled for today.'
+                  : 'You’ll be notified when you receive your first booking request!'}
               </p>
             </div>
           ) : (
@@ -268,6 +307,54 @@ export default function DashboardHome({
         </div>
       </nav>
     </main>
+  )
+}
+
+function BookingRequestsSection({ requests }: { requests: BookingRequest[] }) {
+  return (
+    <section aria-labelledby="booking-requests-heading" className="mb-8">
+      <div className="flex items-center justify-between mb-3">
+        <h2 id="booking-requests-heading" className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+          New Requests
+          <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center leading-none">
+            {requests.length}
+          </span>
+        </h2>
+        <Link href="/pro/messages" className="text-sm text-slate-400 underline">See all</Link>
+      </div>
+      <div className="flex flex-col gap-3">
+        {requests.map((request) => {
+          const duration = formatDuration(request.durationMinutes)
+          return (
+            <Link
+              key={request.id}
+              href={`/pro/messages/${request.id}`}
+              className="block rounded-2xl border-2 bg-white shadow-sm px-4 py-4 hover:bg-slate-50 transition-colors"
+              style={{ borderColor: 'var(--color-brand)' }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold mb-1" style={{ color: 'var(--color-brand)' }}>Awaiting your response</p>
+                  <p className="text-base font-bold text-slate-900 truncate">{request.customerName}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{request.serviceLabel}</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-lg font-bold text-slate-900">{formatPayout(request.payout)}</p>
+                  <p className="text-[11px] text-slate-400">Your payout</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 mt-3">
+                {requestWhenLabel(request)}
+                {duration && <> · {duration}</>}
+              </p>
+              <span className="mt-3 w-full rounded-xl bg-brand text-white text-sm font-semibold py-2.5 flex items-center justify-center">
+                Review request
+              </span>
+            </Link>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 

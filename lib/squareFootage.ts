@@ -13,6 +13,16 @@ export function isSquareFootage(value: unknown): value is SquareFootage {
   return SQUARE_FOOTAGE_OPTIONS.some((o) => o.value === value)
 }
 
+// The home size a booking was priced with: on its Standard / Deep Cleaning
+// snapshot, or on its task pricing breakdown. null for bookings that kept neither.
+export function bookedSquareFootage(fullService: unknown, pricingBreakdown: unknown): SquareFootage | null {
+  for (const raw of [fullService, pricingBreakdown]) {
+    const value = raw && typeof raw === 'object' ? (raw as { square_footage?: unknown }).square_footage : null
+    if (isSquareFootage(value)) return value
+  }
+  return null
+}
+
 export function squareFootageLabel(value: string | null | undefined): string | null {
   return SQUARE_FOOTAGE_OPTIONS.find((o) => o.value === value)?.label ?? null
 }
