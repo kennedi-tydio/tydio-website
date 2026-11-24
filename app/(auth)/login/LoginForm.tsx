@@ -132,7 +132,7 @@ export default function LoginForm({ next, googleEnabled = false }: { next?: stri
           name="remember"
           type="checkbox"
           aria-describedby="remember-hint"
-          className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-sky-500"
+          className="mt-0.5 h-4 w-4 shrink-0"
         />
         <div>
           <label htmlFor="remember" className="text-sm font-medium text-slate-700">
