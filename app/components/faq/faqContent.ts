@@ -304,6 +304,27 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           },
         ],
       },
+      {
+        // Matches the steps under Tidy Tasks on the Home page (app/dashboard/DashboardHome.tsx).
+        id: 'book-tidy-tasks',
+        question: 'How do I book just Tidy Tasks?',
+        keywords: 'tidy task only tasks select hire tidy pro book specific chores without full cleaning',
+        answer: [
+          {
+            type: 'steps',
+            items: [
+              'On the Home tab, under Tidy Tasks, tap + Add Task to add each task you need done.',
+              'Tap the tasks you want to book to select them.',
+              'Tap Hire Tidy Pro, then pick a date and browse the Tidy Pros available near you.',
+              'Choose a time, review your request, and tap Confirm Request.',
+            ],
+          },
+          {
+            type: 'p',
+            text: 'Only the tasks you select are booked. The rest stay on your list for next time.',
+          },
+        ],
+      },
       ...(FULL_SERVICE_CUSTOMER_ENABLED ? FULL_SERVICE_FAQ : [TASK_LIST_FULL_CLEANING_FAQ]),
       {
         id: 'pricing',

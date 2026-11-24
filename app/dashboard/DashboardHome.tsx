@@ -468,7 +468,12 @@ export default function DashboardHome({
         )}
 
         {/* ── Tidy Tasks ── */}
-        <h2 className="text-2xl font-bold text-slate-900 mb-3">Tidy Tasks</h2>
+        <h2 className="text-2xl font-bold text-slate-900 mb-1">Tidy Tasks</h2>
+        <ol className="text-sm text-slate-500 mb-3 list-decimal list-inside space-y-0.5">
+          <li>Tap <span className="font-semibold text-slate-700">+ Add Task</span> to add each task you need done.</li>
+          <li>Tap the tasks you want to book to select them.</li>
+          <li>Tap <span className="font-semibold text-slate-700">Hire Tidy Pro</span> to pick a time and book.</li>
+        </ol>
 
         <TidyTaskList tasks={tasks} onToggle={handleToggle} />
 
