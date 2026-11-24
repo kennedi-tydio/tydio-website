@@ -1,10 +1,10 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PORTFOLIO_CAPTION_MAX_LENGTH, PORTFOLIO_MAX_ITEMS, type PortfolioItem } from '@/lib/portfolioItems'
 import { prepareImage } from '@/lib/prepareImage'
 import PortfolioPhotos from '@/app/components/PortfolioPhotos'
-import { removePortfolioItemAction, uploadPortfolioPhotoAction } from '../portfolio/actions'
+import { removePortfolioItemsAction, uploadPortfolioPhotoAction } from '../portfolio/actions'
 
 // Server actions accept up to 11MB per request (next.config.ts). Photos are
 // shrunk first, so a pair is normally well under this.
@@ -82,7 +82,22 @@ function PhotoPicker({
   )
 }
 
-function UploadForm({ onAdded, atLimit }: { onAdded: (item: PortfolioItem) => void; atLimit: boolean }) {
+// Lets the Edit Profile page's Save button add a pair that's been picked but
+// not yet added. Resolves false when that pair couldn't be added (the reason
+// shows in the form), so the page can hold off on saving.
+export type SavePendingPhotos = { current: (() => Promise<boolean>) | null }
+
+function UploadForm({
+  onAdded,
+  atLimit,
+  hasItems,
+  saveRef,
+}: {
+  onAdded: (item: PortfolioItem) => void
+  atLimit: boolean
+  hasItems: boolean
+  saveRef?: SavePendingPhotos
+}) {
   const [open, setOpen] = useState(false)
   const [before, setBefore] = useState<File | null>(null)
   const [after, setAfter] = useState<File | null>(null)
@@ -103,10 +118,10 @@ function UploadForm({ onAdded, atLimit }: { onAdded: (item: PortfolioItem) => vo
   // Not a <form>: this sits inside the Edit Profile page, whose own Save
   // button saves the profile fields, and Enter in the caption shouldn't
   // trigger either one.
-  async function handleUpload() {
-    if (!before) return setError('Choose a before photo.')
-    if (!after) return setError('Choose an after photo of the finished work.')
-    if (!caption.trim()) return setError('Add a short caption, like “Kitchen deep clean”.')
+  async function handleUpload(): Promise<boolean> {
+    if (!before) return fail('Choose a before photo.')
+    if (!after) return fail('Choose an after photo of the finished work.')
+    if (!caption.trim()) return fail('Add a short caption, like “Kitchen deep clean”.')
 
     setUploading(true)
     setError(null)
@@ -114,7 +129,7 @@ function UploadForm({ onAdded, atLimit }: { onAdded: (item: PortfolioItem) => vo
     const [preparedBefore, preparedAfter] = await Promise.all([prepareImage(before), prepareImage(after)])
     if (preparedBefore.size + preparedAfter.size > MAX_REQUEST_BYTES) {
       setUploading(false)
-      return setError('These photos are too large to upload. Try smaller photos.')
+      return fail('These photos are too large to upload. Try smaller photos.')
     }
     body.append('before', preparedBefore)
     body.append('after', preparedAfter)
@@ -127,11 +142,38 @@ function UploadForm({ onAdded, atLimit }: { onAdded: (item: PortfolioItem) => vo
       result = { error: 'Upload failed — please try again.' }
     }
     setUploading(false)
-    if ('error' in result) return setError(result.error)
+    if ('error' in result) return fail(result.error)
     onAdded(result.item)
     reset()
     setOpen(false)
+    return true
   }
+
+  function fail(message: string): false {
+    setError(message)
+    return false
+  }
+
+  // The page's Save: add whatever pair is in progress. An untouched form just
+  // closes; a half-filled one stops the save so the photos aren't lost.
+  async function savePending(): Promise<boolean> {
+    if (!open) return true
+    if (uploading) return false
+    if (!before && !after && !caption.trim()) {
+      reset()
+      setOpen(false)
+      return true
+    }
+    return handleUpload()
+  }
+
+  useEffect(() => {
+    if (!saveRef) return
+    saveRef.current = savePending
+    return () => {
+      saveRef.current = null
+    }
+  })
 
   if (!open) {
     return (
@@ -140,7 +182,7 @@ function UploadForm({ onAdded, atLimit }: { onAdded: (item: PortfolioItem) => vo
         onClick={() => setOpen(true)}
         className="w-full py-3 rounded-xl border border-dashed border-slate-300 text-sm font-semibold text-brand mb-3"
       >
-        + Add before &amp; after photos
+        {hasItems ? '+ Add more before & after photos' : '+ Add before & after photos'}
       </button>
     )
   }
@@ -220,26 +262,64 @@ function UploadForm({ onAdded, atLimit }: { onAdded: (item: PortfolioItem) => vo
 }
 
 // The Tidy Pro's before/after pairs on the Edit Profile page: add a pair from
-// their device, or tap the X on a pair to take it off their profile. Pairs
+// their device, tap the X on a pair to take it off their profile, or use
+// "Select photos to remove" to tick several and remove them at once. Pairs
 // they add when finishing a booking land here too. Only the newest
 // PORTFOLIO_MAX_ITEMS are kept; the server drops the oldest past that.
-export default function CleaningPhotosSection({ initialItems }: { initialItems: PortfolioItem[] }) {
+export default function CleaningPhotosSection({
+  initialItems,
+  saveRef,
+}: {
+  initialItems: PortfolioItem[]
+  saveRef?: SavePendingPhotos
+}) {
   const [items, setItems] = useState(initialItems)
-  const [removingId, setRemovingId] = useState<string | null>(null)
+  const [removingIds, setRemovingIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Select mode: tick several pairs and remove them together.
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
+  const removing = removingIds.length > 0
 
-  async function handleRemove(item: PortfolioItem) {
-    if (!window.confirm(`Remove the “${item.taskName}” before & after photos from your profile?`)) return
-    setRemovingId(item.id)
+  async function remove(ids: string[], question: string) {
+    if (ids.length === 0 || !window.confirm(question)) return
+    setRemovingIds(ids)
     setError(null)
-    const result = await removePortfolioItemAction(item.id)
-    setRemovingId(null)
+    const result = await removePortfolioItemsAction(ids)
+    setRemovingIds([])
     if ('error' in result) {
       setError(result.error)
       return
     }
-    setItems((prev) => prev.filter((i) => i.id !== item.id))
+    setItems((prev) => prev.filter((i) => !ids.includes(i.id)))
+    setSelected([])
+    setSelecting(false)
   }
+
+  function handleRemove(item: PortfolioItem) {
+    return remove([item.id], `Remove the “${item.taskName}” before & after photos from your profile?`)
+  }
+
+  function handleRemoveSelected() {
+    const n = selected.length
+    return remove(
+      selected,
+      n === 1
+        ? 'Remove the selected before & after photos from your profile?'
+        : `Remove these ${n} before & after photo pairs from your profile?`
+    )
+  }
+
+  function toggle(id: string) {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
+  }
+
+  function stopSelecting() {
+    setSelecting(false)
+    setSelected([])
+  }
+
+  const allSelected = items.length > 0 && selected.length === items.length
 
   return (
     <section id="cleaning-photos" aria-labelledby="cleaning-photos-heading" className="mb-6 scroll-mt-6">
@@ -258,31 +338,96 @@ export default function CleaningPhotosSection({ initialItems }: { initialItems: 
       </p>
 
       <UploadForm
+        saveRef={saveRef}
+        hasItems={items.length > 0}
         atLimit={items.length >= PORTFOLIO_MAX_ITEMS}
         onAdded={(item) => setItems((prev) => [item, ...prev].slice(0, PORTFOLIO_MAX_ITEMS))}
       />
 
       {error && <p role="alert" className="text-xs text-red-600 mb-3">{error}</p>}
 
-      {items.length > 0 && (
-        <ul className="flex flex-col gap-3">
-          {items.map((item) => (
-            <li key={item.id} className={removingId === item.id ? 'opacity-50' : undefined}>
-              <div className="relative">
-                <PortfolioPhotos item={item} />
+      {items.length > 1 && (
+        <div className="flex items-center justify-between gap-3 mb-2">
+          {selecting ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setSelected(allSelected ? [] : items.map((i) => i.id))}
+                disabled={removing}
+                className="text-xs font-semibold text-brand"
+              >
+                {allSelected ? 'Deselect all' : 'Select all'}
+              </button>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={stopSelecting} disabled={removing} className="text-xs font-semibold text-slate-600">
+                  Cancel
+                </button>
                 <button
                   type="button"
-                  onClick={() => handleRemove(item)}
-                  disabled={removingId !== null}
-                  aria-label={`Remove ${item.taskName} photos from your profile`}
-                  className="absolute top-1.5 right-1.5 w-7 h-7 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-600 disabled:opacity-60"
+                  onClick={handleRemoveSelected}
+                  disabled={removing || selected.length === 0}
+                  className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold disabled:opacity-50"
                 >
-                  <IconX />
+                  {removing ? 'Removing…' : `Remove${selected.length > 0 ? ` (${selected.length})` : ''}`}
                 </button>
               </div>
-              <p className="text-xs text-slate-600 mt-1 truncate">{item.taskName}</p>
-            </li>
-          ))}
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSelecting(true)}
+              disabled={removing}
+              className="ml-auto text-xs font-semibold text-brand"
+            >
+              Select photos to remove
+            </button>
+          )}
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <ul className="flex flex-col gap-3">
+          {items.map((item) => {
+            const isSelected = selected.includes(item.id)
+            return (
+              <li key={item.id} className={removingIds.includes(item.id) ? 'opacity-50' : undefined}>
+                {selecting ? (
+                  <label className="block cursor-pointer">
+                    <div className={`relative rounded-xl ${isSelected ? 'ring-2 ring-brand ring-offset-2' : ''}`}>
+                      <PortfolioPhotos item={item} />
+                      <span className="absolute top-1.5 left-1.5 flex items-center justify-center w-7 h-7 rounded-full bg-white/90">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggle(item.id)}
+                          disabled={removing}
+                          aria-label={`Select ${item.taskName} photos`}
+                          className="w-5 h-5"
+                        />
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1 truncate">{item.taskName}</p>
+                  </label>
+                ) : (
+                  <>
+                    <div className="relative">
+                      <PortfolioPhotos item={item} />
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(item)}
+                        disabled={removing}
+                        aria-label={`Remove ${item.taskName} photos from your profile`}
+                        className="absolute top-1.5 right-1.5 w-7 h-7 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-600 disabled:opacity-60"
+                      >
+                        <IconX />
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1 truncate">{item.taskName}</p>
+                  </>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

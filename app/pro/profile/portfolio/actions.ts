@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { addUploadedPortfolioItem, removePortfolioItems, type UploadedPortfolioPhoto } from '@/lib/tidyProPortfolio'
-import { PORTFOLIO_CAPTION_MAX_LENGTH, type PortfolioItem } from '@/lib/portfolioItems'
+import { PORTFOLIO_CAPTION_MAX_LENGTH, PORTFOLIO_MAX_ITEMS, type PortfolioItem } from '@/lib/portfolioItems'
 
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 const MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024
@@ -53,23 +53,27 @@ export async function uploadPortfolioPhotoAction(formData: FormData): Promise<{ 
   return { item }
 }
 
-export async function removePortfolioItemAction(itemId: string): Promise<{ success: true } | { error: string }> {
+// Takes one pair or several off the Tidy Pro's profile. Only their own pairs
+// are touched; ids that aren't theirs are ignored.
+export async function removePortfolioItemsAction(itemIds: string[]): Promise<{ success: true } | { error: string }> {
   const session = await getSession()
   if (!session || session.role !== 'TIDYPRO') return { error: 'Not authorized' }
 
+  const ids = [...new Set(Array.isArray(itemIds) ? itemIds.filter((id) => typeof id === 'string') : [])]
+  if (ids.length === 0 || ids.length > PORTFOLIO_MAX_ITEMS) return { error: 'Choose the photos to remove.' }
+
   const admin = createAdminClient()
-  const { data: item } = await admin
+  const { data: items } = await admin
     .from('tidypro_portfolio_items')
     .select('id, before_photo_path, after_photo_path')
-    .eq('id', itemId)
+    .in('id', ids)
     .eq('tidypro_id', session.profileId)
-    .maybeSingle()
-  if (!item) return { error: 'Photo not found.' }
+  if (!items || items.length === 0) return { error: 'Photo not found.' }
 
   try {
-    await removePortfolioItems(admin, [item])
+    await removePortfolioItems(admin, items)
   } catch {
-    return { error: "We couldn't remove that photo. Please try again." }
+    return { error: items.length > 1 ? "We couldn't remove those photos. Please try again." : "We couldn't remove that photo. Please try again." }
   }
 
   revalidatePath('/pro/profile/edit')

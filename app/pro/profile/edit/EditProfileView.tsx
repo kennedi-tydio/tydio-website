@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from '@/app/components/NavigationSpinner'
 import { updateProfileAction, updateProfilePhotoAction } from '../actions'
 import type { PortfolioItem } from '@/lib/portfolioItems'
-import CleaningPhotosSection from './CleaningPhotosSection'
+import CleaningPhotosSection, { type SavePendingPhotos } from './CleaningPhotosSection'
 
 function IconHome() {
   return (
@@ -68,6 +68,7 @@ export default function EditProfileView({
 }: Props) {
   const router = useRouter()
   const photoInputRef = useRef<HTMLInputElement>(null)
+  const savePendingPhotos: SavePendingPhotos = useRef(null)
   const [firstName, setFirstName] = useState(initial.firstName)
   const [lastName, setLastName] = useState(initial.lastName)
   const [bio, setBio] = useState(initial.bio)
@@ -124,6 +125,14 @@ export default function EditProfileView({
     setSaving(true)
     setError(null)
     setJustSaved(false)
+    // Before & after photos picked but not yet added go up with the Save too.
+    // If they can't (say the caption is missing), stop here so the save
+    // doesn't refresh the page and drop them; the form says what's needed.
+    if (savePendingPhotos.current && !(await savePendingPhotos.current())) {
+      setSaving(false)
+      setError('Finish adding your cleaning photos above, or tap Cancel, then save again.')
+      return false
+    }
     // A typed allergy that wasn't explicitly added still counts — otherwise
     // Save would quietly drop what's sitting in the box.
     const nextAllergies = withDraftAllergy(allergies)
@@ -278,8 +287,9 @@ export default function EditProfileView({
           <input type="tel" autoComplete="tel-national" placeholder="(555) 000-0000" value={phone} onChange={(e) => setPhone(e.target.value)} className={INPUT_CLASS} />
         </label>
 
-        {/* Saved as soon as a pair is added or removed, not by the Save button. */}
-        <CleaningPhotosSection initialItems={cleaningPhotos} />
+        {/* Saved as soon as a pair is added or removed. The Save button also
+            adds a pair that's been picked but not yet added. */}
+        <CleaningPhotosSection initialItems={cleaningPhotos} saveRef={savePendingPhotos} />
 
         <h2 className="text-sm font-bold text-slate-900 mb-2">Special Needs</h2>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3.5">
