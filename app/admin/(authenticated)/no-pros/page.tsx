@@ -4,6 +4,7 @@ import { oneRowPerRequest, prosAskedByRow } from '@/lib/adminBookingRows'
 import { saveCancellationReviewAction } from '../../actions'
 import ReviewForm from '../ReviewForm'
 import ReviewTabs from '../ReviewTabs'
+import UnmetSearches, { type UnmetSearchRow } from './UnmetSearches'
 
 const TH = 'px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide'
 
@@ -27,7 +28,7 @@ function formatDateTime(iso: string): string {
 
 export default async function AdminNoProsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab: tabParam } = await searchParams
-  const tab = tabParam === 'resolved' ? 'resolved' : 'open'
+  const tab = tabParam === 'resolved' || tabParam === 'searches' ? tabParam : 'open'
   const admin = createAdminClient()
 
   const { data, error } = await admin
@@ -39,6 +40,16 @@ export default async function AdminNoProsPage({ searchParams }: { searchParams: 
     .in('cancelled_reason', Object.keys(REASON_LABELS))
     .order('updated_at', { ascending: false })
     .limit(1000)
+
+  // Searches that matched no Tidy Pros never become a booking, so they're kept apart.
+  const { data: searchData, error: searchError } = await admin
+    .from('unmet_booking_searches')
+    .select(
+      'id, customer_user_id, location_label, latitude, longitude, scheduled_date, scheduled_end_date, scheduled_time, scheduled_end_time, duration_minutes, required_services, task_names, estimated_price, search_count, closed_at, closed_reason, created_at'
+    )
+    .order('created_at', { ascending: false })
+    .limit(1000)
+  const searches: UnmetSearchRow[] = searchData ?? []
 
   const all = data ?? []
   const groupIds = [...new Set(all.map((b) => b.request_group_id).filter((id): id is string => !!id))]
@@ -52,7 +63,7 @@ export default async function AdminNoProsPage({ searchParams }: { searchParams: 
   const resolved = requests.filter((b) => b.cancellation_resolved_at)
   const rows = tab === 'open' ? open : resolved
 
-  const customerIds = [...new Set(rows.map((r) => r.user_id))]
+  const customerIds = [...new Set(tab === 'searches' ? searches.map((s) => s.customer_user_id) : rows.map((r) => r.user_id))]
   const { data: profiles } = customerIds.length
     ? await admin.from('profiles').select('id, first_name, last_name, email, phone, city, state').in('id', customerIds)
     : { data: [] }
@@ -64,12 +75,12 @@ export default async function AdminNoProsPage({ searchParams }: { searchParams: 
       <p className="text-sm text-slate-500 mb-6">
         Booking requests that closed without a Tidy Pro, newest first: either no Tidy Pro responded in time (no pros available) or every
         Tidy Pro asked turned it down (everyone declined). The customer was refunded automatically. Check one off once you&apos;ve followed
-        up, and keep notes for yourself.
+        up, and keep notes for yourself. No-match searches are customers whose search found no Tidy Pros at all, before they could book.
       </p>
 
-      {error && (
+      {(error || searchError) && (
         <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-4">
-          Couldn&apos;t load these bookings: {error.message}. If a column is missing, apply the latest database migrations.
+          Couldn&apos;t load {error ? 'these bookings' : 'the no-match searches'}: {(error ?? searchError)?.message}. If a column is missing, apply the latest database migrations.
         </p>
       )}
 
@@ -79,73 +90,79 @@ export default async function AdminNoProsPage({ searchParams }: { searchParams: 
         tabs={[
           { value: 'open', label: 'Open', count: open.length },
           { value: 'resolved', label: 'Resolved', count: resolved.length },
+          { value: 'searches', label: 'No-match searches', count: searches.length },
         ]}
       />
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-left">
-                <th className={TH}>Closed</th>
-                <th className={TH}>Reason</th>
-                <th className={TH}>Customer</th>
-                <th className={TH}>Booking</th>
-                <th className={TH}>Pros asked</th>
-                <th className={TH}>Refund</th>
-                <th className={TH}>Review</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {rows.map((r) => {
-                const customer = profileById.get(r.user_id)
-                const place = [customer?.city, customer?.state].filter(Boolean).join(', ')
-                return (
-                  <tr key={r.id} className="align-top">
-                    <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{formatDateTime(r.updated_at)}</td>
-                    <td className="px-4 py-3 text-xs font-medium text-slate-700 whitespace-nowrap">
-                      {REASON_LABELS[r.cancelled_reason ?? ''] ?? r.cancelled_reason}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      <div>{fullName(customer)}</div>
-                      <div className="text-xs text-slate-400">{customer?.email}</div>
-                      {customer?.phone && <div className="text-xs text-slate-400">{customer.phone}</div>}
-                      {place && <div className="text-xs text-slate-400">{place}</div>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                      <div>
-                        {r.scheduled_date ?? '—'} {r.scheduled_time ? r.scheduled_time.slice(0, 5) : ''}
-                      </div>
-                      <div className="text-[11px] font-mono text-slate-400">{r.id.slice(0, 8)}</div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{prosAsked.get(r.id) ?? 1}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                      <div>{refundLabel(r)}</div>
-                      {r.total_customer_charge != null && <div className="text-slate-400">of ${r.total_customer_charge.toFixed(2)}</div>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <ReviewForm
-                        key={`${r.id}-${r.cancellation_resolved_at ?? ''}`}
-                        action={saveCancellationReviewAction.bind(null, r.id)}
-                        label={`the request from ${fullName(customer)}`}
-                        resolved={!!r.cancellation_resolved_at}
-                        note={r.cancellation_admin_note ?? ''}
-                      />
+      {tab === 'searches' ? (
+        <UnmetSearches rows={searches} customers={profileById} />
+      ) : (
+
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                  <th className={TH}>Closed</th>
+                  <th className={TH}>Reason</th>
+                  <th className={TH}>Customer</th>
+                  <th className={TH}>Booking</th>
+                  <th className={TH}>Pros asked</th>
+                  <th className={TH}>Refund</th>
+                  <th className={TH}>Review</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {rows.map((r) => {
+                  const customer = profileById.get(r.user_id)
+                  const place = [customer?.city, customer?.state].filter(Boolean).join(', ')
+                  return (
+                    <tr key={r.id} className="align-top">
+                      <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{formatDateTime(r.updated_at)}</td>
+                      <td className="px-4 py-3 text-xs font-medium text-slate-700 whitespace-nowrap">
+                        {REASON_LABELS[r.cancelled_reason ?? ''] ?? r.cancelled_reason}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        <div>{fullName(customer)}</div>
+                        <div className="text-xs text-slate-400">{customer?.email}</div>
+                        {customer?.phone && <div className="text-xs text-slate-400">{customer.phone}</div>}
+                        {place && <div className="text-xs text-slate-400">{place}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                        <div>
+                          {r.scheduled_date ?? '—'} {r.scheduled_time ? r.scheduled_time.slice(0, 5) : ''}
+                        </div>
+                        <div className="text-[11px] font-mono text-slate-400">{r.id.slice(0, 8)}</div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500">{prosAsked.get(r.id) ?? 1}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                        <div>{refundLabel(r)}</div>
+                        {r.total_customer_charge != null && <div className="text-slate-400">of ${r.total_customer_charge.toFixed(2)}</div>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <ReviewForm
+                          key={`${r.id}-${r.cancellation_resolved_at ?? ''}`}
+                          action={saveCancellationReviewAction.bind(null, r.id)}
+                          label={`the request from ${fullName(customer)}`}
+                          resolved={!!r.cancellation_resolved_at}
+                          note={r.cancellation_admin_note ?? ''}
+                        />
+                      </td>
+                    </tr>
+                  )
+                })}
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
+                      {tab === 'open' ? 'No open requests.' : 'No resolved requests yet.'}
                     </td>
                   </tr>
-                )
-              })}
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
-                    {tab === 'open' ? 'No open requests.' : 'No resolved requests yet.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
