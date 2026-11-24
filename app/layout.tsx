@@ -3,6 +3,7 @@ import { Geist } from 'next/font/google'
 import NavigationSpinner from './components/NavigationSpinner'
 import PullToRefresh from './components/PullToRefresh'
 import ServiceWorkerRegistration from './components/ServiceWorkerRegistration'
+import SessionKeepAlive from './components/SessionKeepAlive'
 import { PHProvider } from './providers'
 import SuspendedPostHogPageView from './components/PostHogPageView'
 import { CONTRAST_INIT_SCRIPT } from './components/contrast'
@@ -58,6 +59,7 @@ export default function RootLayout({
         <NavigationSpinner />
         <PullToRefresh />
         <ServiceWorkerRegistration />
+        <SessionKeepAlive />
       </body>
     </html>
   )
