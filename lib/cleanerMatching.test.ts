@@ -67,8 +67,8 @@ describe('computeIsTopTidyPro', () => {
 })
 
 describe('MAX_TRAVEL_RADIUS_MILES', () => {
-  it('is 20 miles', () => {
-    expect(MAX_TRAVEL_RADIUS_MILES).toBe(20)
+  it('is 25 miles', () => {
+    expect(MAX_TRAVEL_RADIUS_MILES).toBe(25)
   })
 })
 

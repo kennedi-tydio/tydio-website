@@ -7,7 +7,7 @@ vi.mock('@/lib/email', () => ({
   escapeHtml: (value: string) => value.replace(/</g, '&lt;'),
   TYDIO_ADMIN_EMAIL: 'admin@example.com',
 }))
-vi.mock('@/lib/cleanerMatching', () => ({ findAvailableCleaners: vi.fn(), MAX_TRAVEL_RADIUS_MILES: 20 }))
+vi.mock('@/lib/cleanerMatching', () => ({ findAvailableCleaners: vi.fn(), MAX_TRAVEL_RADIUS_MILES: 25 }))
 vi.mock('@/lib/customerNotifications', () => ({ notifyCustomer: vi.fn() }))
 
 import { sendEmail } from '@/lib/email'

@@ -15,7 +15,7 @@ export type WeekdayKey = (typeof WEEKDAY_KEYS)[number]
 export type WeeklyAvailability = Partial<Record<WeekdayKey, { start: string; end: string }[]>>
 
 // The furthest a Tidy Pro can choose to travel. Each one sets their own radius up to this.
-export const MAX_TRAVEL_RADIUS_MILES = 20
+export const MAX_TRAVEL_RADIUS_MILES = 25
 
 export interface LatLng {
   latitude: number

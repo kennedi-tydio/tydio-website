@@ -341,11 +341,11 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           },
           {
             type: 'p',
-            text: 'Tidy Pros who live farther away also add a travel fee. Tidy Pros within 5 miles of you charge no travel fee, and those up to 20 miles away add $5 to $15:',
+            text: 'Tidy Pros who live farther away also add a travel fee. Tidy Pros within 5 miles of you charge no travel fee, and those up to 25 miles away add $5 to $20:',
           },
           {
             type: 'list',
-            items: ['5 miles or less: free', '5 to 10 miles: $5', '10 to 15 miles: $10', '15 to 20 miles: $15'],
+            items: ['5 miles or less: free', '5 to 10 miles: $5', '10 to 15 miles: $10', '15 to 20 miles: $15', '20 to 25 miles: $20'],
           },
           {
             type: 'p',
