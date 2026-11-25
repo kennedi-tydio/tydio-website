@@ -9,6 +9,10 @@ export const REMEMBERED_MAX_AGE = 60 * 60 * 24 * 30
 // home-screen app especially, drop session cookies as soon as the app leaves
 // the screen. SessionKeepAlive restarts the 30 minutes while they're active.
 export const IDLE_MAX_AGE = 60 * 30
+// While they have a booking under way (lib/auth/activeBooking), the session
+// lasts this long instead, so it outlasts a long cleaning with the phone put
+// away. The next refresh after the booking ends goes back to 30 minutes.
+export const ACTIVE_BOOKING_MAX_AGE = 60 * 60 * 12
 // Don't re-sign more than once a minute; that's plenty to stay inside 30.
 export const IDLE_REFRESH_AFTER = 60
 
@@ -28,20 +32,27 @@ export type SessionClaims = {
   rm: boolean
 }
 
-export async function signSessionToken(claims: SessionClaims): Promise<string> {
+// How long a session lasts: 30 days with "Stay signed in", otherwise 30
+// minutes, or 12 hours while they have a booking under way.
+export function sessionMaxAge(remember: boolean, activeBooking = false): number {
+  if (remember) return REMEMBERED_MAX_AGE
+  return activeBooking ? ACTIVE_BOOKING_MAX_AGE : IDLE_MAX_AGE
+}
+
+export async function signSessionToken(claims: SessionClaims, maxAge = sessionMaxAge(claims.rm)): Promise<string> {
   return new SignJWT({ ...claims })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime(`${claims.rm ? REMEMBERED_MAX_AGE : IDLE_MAX_AGE}s`)
+    .setExpirationTime(`${maxAge}s`)
     .sign(sessionSecret())
 }
 
-export function sessionCookieOptions(remember: boolean) {
+export function sessionCookieOptions(remember: boolean, maxAge = sessionMaxAge(remember)) {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax' as const,
-    maxAge: remember ? REMEMBERED_MAX_AGE : IDLE_MAX_AGE,
+    maxAge,
     path: '/',
   }
 }

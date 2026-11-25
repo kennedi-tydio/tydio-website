@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { acceptSeriesForBooking, dropSeriesForTidyPro } from '@/lib/recurringBookings'
 import { cancelBookingForTidyPro, declineRequestForTidyPro, upcomingSeriesVisits } from '@/lib/tidyProCancellation'
-import { getSession } from '@/lib/auth/session'
+import { getSession, refreshIdleSession } from '@/lib/auth/session'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { startMaskedCall } from '@/lib/maskedCalls'
 import { completeBookingPayout, sendBookingMessage } from '@/lib/bookings'
@@ -228,6 +228,8 @@ export async function markOnTheWayAction(bookingId: string): Promise<{ success: 
 
   const { error } = await admin.from('bookings').update({ progress_status: 'on_the_way' }).eq('id', bookingId)
   if (error) return { error: userFacingError(error) }
+  // The booking is now under way: keep them signed in while they work.
+  await refreshIdleSession({ force: true })
 
   const { data: proProfile } = await admin.from('profiles').select('first_name').eq('id', session.profileId).maybeSingle()
   await notifyCustomer(admin, booking.user_id, notifyOnTheWay(proProfile?.first_name ?? 'Your Tidy Pro', bookingId))
@@ -265,6 +267,8 @@ export async function markArrivedAction(bookingId: string): Promise<{ success: t
 
   const { error } = await admin.from('bookings').update({ progress_status: 'arrived', arrived_at: new Date().toISOString() }).eq('id', bookingId)
   if (error) return { error: userFacingError(error) }
+  // The booking is now under way: keep them signed in while they work.
+  await refreshIdleSession({ force: true })
 
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/dashboard')
@@ -307,6 +311,8 @@ export async function startCleaningAction(bookingId: string): Promise<{ success:
 
   const { error } = await admin.from('bookings').update({ progress_status: 'cleaning' }).eq('id', bookingId)
   if (error) return { error: userFacingError(error) }
+  // The booking is now under way: keep them signed in while they work.
+  await refreshIdleSession({ force: true })
 
   revalidatePath(`/pro/messages/${bookingId}`)
   revalidatePath('/dashboard')
