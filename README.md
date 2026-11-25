@@ -97,6 +97,7 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 - [x] Apply `supabase/migrations/098_portfolio_pair_sources.sql` (`tidypro_portfolio_items.source_key`). Adding before/after pairs to a Tidy Pro's profile fails without it
 - [x] Apply `supabase/migrations/099_replacement_chain.sql` (`booking_request_groups.chain`, `bookings.charged_price`, `booking_upcharges.replacement_difference`). Placing any booking fails without it
 - [x] Apply `supabase/migrations/100_travel_radius_25.sql` (raises the `travel_radius_miles` check to 1–25). Tidy Pros saving a travel distance over 20 miles fail without it
+- [x] Apply `supabase/migrations/101_pricing_quote_details.sql` (`pricing_quotes.details`: the full booking on each abandoned cart). Without it no new abandoned carts are recorded
 - [ ] Masked calling: in the Twilio console, make sure `TWILIO_PHONE_NUMBER` has Voice enabled and set its **Voice → A call comes in** webhook to `https://<domain>/api/webhooks/twilio/voice` (HTTP POST). Calls need `NEXT_PUBLIC_SITE_URL` set, since Twilio calls back on it and signs requests with it
 
 ## Deploy on Vercel

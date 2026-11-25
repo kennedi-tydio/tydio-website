@@ -1132,6 +1132,7 @@ export interface Database {
           booked_at: string | null
           booking_id: string | null
           abandoned_at: string | null
+          details: Json | null
           admin_notified_at: string | null
           created_at: string
           updated_at: string
@@ -1158,6 +1159,7 @@ export interface Database {
           booked_at?: string | null
           booking_id?: string | null
           abandoned_at?: string | null
+          details?: Json | null
           admin_notified_at?: string | null
           created_at?: string
           updated_at?: string

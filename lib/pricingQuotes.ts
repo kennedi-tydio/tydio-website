@@ -1,6 +1,7 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import { TYDIO_ADMIN_EMAIL, emailShell, escapeHtml, sendEmail } from '@/lib/email'
 import { formatDuration, formatSearchDate, formatSearchTime } from '@/lib/unmetBookingSearches'
+import { quoteDetailRows, readQuoteDetails, refreshFromDraft, type QuoteDetails } from '@/lib/quoteDetails'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -28,6 +29,8 @@ export interface PricingView {
   cleanerPrices?: number[]
   // The review page.
   review?: { tidyProId: string; servicePrice: number; totalPrice: number }
+  // The whole request as they'd set it up (lib/quoteDetails).
+  details?: QuoteDetails
 }
 
 function siteUrl(): string {
@@ -53,6 +56,7 @@ export async function recordPricingView(admin: Admin, view: PricingView, now: Da
       scheduled_date: view.date,
       scheduled_time: view.time,
       location_label: view.locationLabel,
+      ...(view.details ? { details: view.details as never } : {}),
       last_viewed_at: now.toISOString(),
       updated_at: now.toISOString(),
       ...(view.stage === 'cleaners' && prices.length > 0
@@ -134,10 +138,11 @@ export type QuoteRow = {
   last_viewed_at: string
   booked_at: string | null
   abandoned_at: string | null
+  details?: unknown
 }
 
-const QUOTE_COLUMNS =
-  'id, customer_user_id, draft_id, stage, task_names, duration_minutes, scheduled_date, scheduled_time, location_label, cleaner_count, lowest_price, highest_price, selected_tidy_pro_id, review_service_price, review_total_price, view_count, first_viewed_at, last_viewed_at, booked_at, abandoned_at'
+export const QUOTE_COLUMNS =
+  'id, customer_user_id, draft_id, stage, task_names, duration_minutes, scheduled_date, scheduled_time, location_label, cleaner_count, lowest_price, highest_price, selected_tidy_pro_id, review_service_price, review_total_price, view_count, first_viewed_at, last_viewed_at, booked_at, abandoned_at, details'
 
 // The price that counts for a quote: the final total if they reached review, otherwise
 // the cheapest Tidy Pro they were offered.
@@ -195,11 +200,16 @@ export function abandonedQuoteEmailHtml(quote: QuoteRow, customer: Customer | nu
     const count = quote.cleaner_count ?? 0
     rows.push(['Tidy Pro prices', `${escapeHtml(priceRange(quote))}${count > 0 ? ` across ${count} Tidy Pro${count === 1 ? '' : 's'}` : ''}`])
   }
+  const details = readQuoteDetails(quote.details)
   rows.push(
-    ['Requested', escapeHtml(when)],
+    // The details carry the dates and times (with any range and repeat) themselves.
+    ...(details ? [] : [['Requested', escapeHtml(when)] as [string, string]]),
     ['Est. length', quote.duration_minutes ? escapeHtml(formatDuration(quote.duration_minutes)) : '—'],
     ['Location', quote.location_label ? escapeHtml(quote.location_label) : '—'],
-    ['Tasks', quote.task_names.length > 0 ? quote.task_names.map(escapeHtml).join('<br/>') : '—'],
+    // Quotes saved before the full details were kept have just the task names.
+    ...(details
+      ? quoteDetailRows(details).map(([label, lines]): [string, string] => [escapeHtml(label), lines.map(escapeHtml).join('<br/>')])
+      : [['Tasks', quote.task_names.length > 0 ? quote.task_names.map(escapeHtml).join('<br/>') : '—'] as [string, string]]),
     ['Pricing views', String(quote.view_count)],
     ['First saw prices', escapeHtml(formatEastern(quote.first_viewed_at))],
     ['Last saw prices', escapeHtml(formatEastern(quote.last_viewed_at))]
@@ -231,6 +241,17 @@ async function emailAdminAbandonedQuote(admin: Admin, quote: QuoteRow): Promise<
     subject: `Abandoned cart: ${name} left at ${money(quotedPrice(quote))} (${taskCount} task${taskCount === 1 ? '' : 's'})`,
     htmlContent: abandonedQuoteEmailHtml(quote, customer, tidyProName),
   })
+}
+
+async function refreshDetailsFromDraft(admin: Admin, quote: QuoteRow): Promise<QuoteDetails | null> {
+  const details = readQuoteDetails(quote.details)
+  if (!details || !quote.draft_id) return null
+  const { data: draft } = await admin
+    .from('booking_drafts')
+    .select('task_list, notes, entry_instructions, supplies_provided, gift_code')
+    .eq('id', quote.draft_id)
+    .maybeSingle()
+  return draft ? refreshFromDraft(details, draft) : null
 }
 
 // Run on a schedule. Quotes idle past the cutoff are marked abandoned and emailed, once.
@@ -265,6 +286,14 @@ export async function checkAbandonedQuotes(
         .select('id')
       if (!claimed || claimed.length === 0) continue
       result.abandoned++
+
+      // Notes, entry instructions and the like are typed on the review page after the
+      // price was shown, so the draft's latest copy is laid over what was saved.
+      const refreshed = await refreshDetailsFromDraft(admin, quote)
+      if (refreshed) {
+        quote.details = refreshed
+        await admin.from('pricing_quotes').update({ details: refreshed as never }).eq('id', quote.id)
+      }
 
       await emailAdminAbandonedQuote(admin, quote)
       await admin.from('pricing_quotes').update({ admin_notified_at: new Date().toISOString() }).eq('id', quote.id)

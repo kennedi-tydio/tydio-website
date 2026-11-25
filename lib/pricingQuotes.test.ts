@@ -22,11 +22,12 @@ import {
   type PricingView,
   type QuoteRow,
 } from './pricingQuotes'
+import { buildQuoteDetails } from './quoteDetails'
 
 const email = vi.mocked(sendEmail)
 
 // Records every write; reads return what each table was given.
-function fakeAdmin(opts: { existing?: any; insertError?: any; quotes?: any[]; claimed?: boolean; customer?: any; pro?: any }) {
+function fakeAdmin(opts: { existing?: any; insertError?: any; quotes?: any[]; claimed?: boolean; customer?: any; pro?: any; draft?: any }) {
   const writes: { table: string; op: string; values: any; filters: [string, string, any][] }[] = []
   const admin = {
     from: (table: string) => {
@@ -54,6 +55,7 @@ function fakeAdmin(opts: { existing?: any; insertError?: any; quotes?: any[]; cl
         limit: () => chain,
         maybeSingle: async () => {
           if (table === 'pricing_quotes') return { data: opts.existing ?? null, error: null }
+          if (table === 'booking_drafts') return { data: opts.draft ?? null, error: null }
           if (table === 'profiles') {
             const id = filters.find((f) => f[1] === 'id')?.[2]
             return { data: id === 'pro1' ? opts.pro ?? null : opts.customer ?? null, error: null }
@@ -183,6 +185,37 @@ describe('checkAbandonedQuotes', () => {
     expect(sent.subject).toBe('Abandoned cart: Ana Lee left at $134.00 (2 tasks)')
     expect(sent.htmlContent).toContain('Vacuum floors')
     expect(sent.htmlContent).toContain('Sam Pro')
+  })
+
+  it('emails the full booking details, with the draft’s latest notes', async () => {
+    const details = buildQuoteDetails({
+      tasks: [{ id: 't1', name: 'Vacuum floors', notes: '', room: 'Living room', dirtLevel: 'heavy', unusual: [], completed: true }],
+      fullService: { version: 1, type: 'deep', scope: 'entire_home', rooms: {}, addOns: { inside_oven: 2 }, priorities: ['floors'], step: 'notes' },
+      squareFootage: '2000_2999',
+      date: '2026-11-20',
+      time: '09:00',
+    })
+    const { admin, writes } = fakeAdmin({
+      quotes: [quote({ details })],
+      draft: {
+        task_list: [{ id: 't1', name: 'Vacuum floors', notes: 'Under the couch too', room: 'Living room', completed: true }],
+        notes: 'Gate code 1234',
+        entry_instructions: null,
+        supplies_provided: true,
+        gift_code: null,
+      },
+    })
+    await checkAbandonedQuotes(admin, now)
+    const html = email.mock.calls[0][0].htmlContent
+    expect(html).toContain('2,000-2,999 sqft')
+    expect(html).toContain('Deep Cleaning · Entire home')
+    expect(html).toContain('Inside oven (2 ovens)')
+    expect(html).toContain('Prioritize floors.')
+    expect(html).toContain('Under the couch too')
+    expect(html).toContain('Mess level: Heavy cleaning')
+    expect(html).toContain('Gate code 1234')
+    expect(html).toContain('Customer provides the supplies')
+    expect(writes.some((w) => w.op === 'update' && w.values.details?.notes === 'Gate code 1234')).toBe(true)
   })
 
   it('does not email a quote another run already claimed', async () => {

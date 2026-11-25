@@ -5,7 +5,8 @@ import type { TidyTask } from '@/app/dashboard/types'
 import type { PricingBreakdown } from '@/lib/pricingRules'
 import { serviceAddressText } from '@/lib/bookingIncidentEmail'
 import { bookingStartInstant } from '@/lib/bookingTime'
-import { LAUNDRY_SERVICE_LABEL, LAUNDROMAT_LABEL, bookedTaskName } from '@/lib/laundry'
+import { bookedTaskName } from '@/lib/laundry'
+import { taskSpecifics } from '@/lib/taskSpecifics'
 import { readSnapshot } from '@/lib/fullServiceBooking'
 import { FULL_SERVICE_LABEL, priorityLabel, scopeLabel } from '@/lib/fullService'
 
@@ -86,12 +87,6 @@ export type DetailAddition = {
   created_at: string
 }
 
-const DIRT_LEVEL_LABELS: Record<string, string> = {
-  light: 'Light touch-up',
-  standard: 'Standard cleaning',
-  heavy: 'Heavy cleaning',
-}
-
 function money(value: number | null | undefined): string | null {
   return value == null ? null : `$${Number(value).toFixed(2)}`
 }
@@ -130,29 +125,6 @@ function stripeLink(id: string | null, path: string): ReactNode {
       {id}
     </a>
   )
-}
-
-// The specifics of one task as the customer set it up, one short line each.
-function taskSpecifics(task: TidyTask): string[] {
-  const lines: string[] = []
-  if (task.room) lines.push(`Room: ${task.room}`)
-  if (task.dirtLevel) lines.push(`Mess level: ${DIRT_LEVEL_LABELS[task.dirtLevel] ?? task.dirtLevel}`)
-  if (task.laundryService) lines.push(`Laundry: ${LAUNDRY_SERVICE_LABEL[task.laundryService] ?? task.laundryService}`)
-  if (task.laundryBaskets != null) lines.push(`Baskets: ${task.laundryBaskets}`)
-  if (task.machineLoads != null) lines.push(`Machine loads: ${task.machineLoads}`)
-  if (task.laundryLoads) {
-    const loads = Object.entries(task.laundryLoads)
-      .filter(([, n]) => typeof n === 'number' && n > 0)
-      .map(([k, n]) => `${k} ${n}`)
-    if (loads.length) lines.push(`Loads: ${loads.join(', ')}`)
-  }
-  if (task.ironItems != null) lines.push(`Items to iron: ${task.ironItems}`)
-  if (task.hasWasherDryer === false) lines.push(LAUNDROMAT_LABEL)
-  if (task.hasDishwasher != null) lines.push(task.hasDishwasher ? 'Has a dishwasher' : 'No dishwasher')
-  if (task.unusual?.length) lines.push(`Additional issues: ${task.unusual.join(', ')}`)
-  if (task.tier) lines.push(`Tier: ${task.tier}`)
-  if (task.estimatedMinutes != null) lines.push(`Estimate: ${duration(task.estimatedMinutes)}`)
-  return lines
 }
 
 function tasksOf(value: unknown): TidyTask[] {

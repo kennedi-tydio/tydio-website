@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   ABANDON_AFTER_MINUTES,
+  QUOTE_COLUMNS,
   STAGE_LABELS,
   money,
   priceRange,
@@ -12,6 +13,7 @@ import {
   type QuoteRow,
   type QuoteStats,
 } from '@/lib/pricingQuotes'
+import { quoteDetailRows, readQuoteDetails } from '@/lib/quoteDetails'
 import ReviewTabs from '../ReviewTabs'
 
 const TH = 'px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide'
@@ -98,9 +100,7 @@ export default async function AdminAbandonedCartsPage({ searchParams }: { search
 
   let query = admin
     .from('pricing_quotes')
-    .select(
-      'id, customer_user_id, draft_id, stage, task_names, duration_minutes, scheduled_date, scheduled_time, location_label, cleaner_count, lowest_price, highest_price, selected_tidy_pro_id, review_service_price, review_total_price, view_count, first_viewed_at, last_viewed_at, booked_at, abandoned_at'
-    )
+    .select(QUOTE_COLUMNS)
     .order('last_viewed_at', { ascending: false })
     .limit(2000)
   if (period !== 'all') {
@@ -136,7 +136,7 @@ export default async function AdminAbandonedCartsPage({ searchParams }: { search
     <div>
       <h1 className="text-2xl font-bold text-slate-900 mb-2">Abandoned Carts</h1>
       <p className="text-sm text-slate-500 mb-6">
-        Every time a customer sees prices (the Tidy Pro list or the booking review total), we save what they were quoted. If they
+        Every time a customer sees prices (the Tidy Pro list or the booking review total), we save what they were quoted and everything about the booking (home size, cleaning and add-ons, tasks, schedule, notes). If they
         don&apos;t book within {ABANDON_AFTER_MINUTES} minutes of the last price they saw, it&apos;s marked abandoned and you get an
         email. The price used below is the review total if they got that far, otherwise the cheapest Tidy Pro they were offered.
       </p>
@@ -244,7 +244,7 @@ export default async function AdminAbandonedCartsPage({ searchParams }: { search
                 <th className={TH}>Outcome</th>
                 <th className={TH}>Price</th>
                 <th className={TH}>Left at</th>
-                <th className={TH}>Tasks</th>
+                <th className={TH}>Booking details</th>
                 <th className={TH}>Requested</th>
               </tr>
             </thead>
@@ -253,6 +253,7 @@ export default async function AdminAbandonedCartsPage({ searchParams }: { search
                 const customer = profileById.get(r.customer_user_id)
                 const pro = r.selected_tidy_pro_id ? profileById.get(r.selected_tidy_pro_id) : undefined
                 const place = [customer?.city, customer?.state].filter(Boolean).join(', ')
+                const details = readQuoteDetails(r.details)
                 return (
                   <tr key={r.id} className="align-top">
                     <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
@@ -285,8 +286,21 @@ export default async function AdminAbandonedCartsPage({ searchParams }: { search
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{STAGE_LABELS[r.stage]}</td>
-                    <td className="px-4 py-3 text-xs text-slate-600 min-w-48">
-                      {r.task_names.length > 0 ? (
+                    <td className="px-4 py-3 text-xs text-slate-600 min-w-72">
+                      {details ? (
+                        <dl className="space-y-1.5">
+                          {quoteDetailRows(details).map(([label, lines]) => (
+                            <div key={label}>
+                              <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+                              {lines.map((line, i) => (
+                                <dd key={i} className="whitespace-pre-wrap break-words">
+                                  {line}
+                                </dd>
+                              ))}
+                            </div>
+                          ))}
+                        </dl>
+                      ) : r.task_names.length > 0 ? (
                         <ul className="space-y-0.5">
                           {r.task_names.map((t, i) => (
                             <li key={i}>{t}</li>

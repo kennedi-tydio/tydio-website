@@ -18,6 +18,7 @@ import { signedTaskPhotoUrls } from '@/lib/customerTaskPhotos'
 import { getReplacementOptions } from '@/lib/bookingRequestGroups'
 import { savedEntryInstructionsForLocation } from '@/lib/entryInstructionsData'
 import { recordPricingView, taskLabel } from '@/lib/pricingQuotes'
+import { buildQuoteDetails } from '@/lib/quoteDetails'
 import { PROMO_UNFUNDED_MESSAGE, describePromoDiscount, promoDiscountAmount } from '@/lib/promoCodes'
 import { ensurePromoFunded } from '@/lib/promoFunding'
 import { findPromoForCustomer } from '@/lib/promoCodesData'
@@ -162,6 +163,8 @@ export default async function ReviewPage() {
   const totalPrice = bookingChargeTotal(discountedPrice, cardPercentage)
   const processingFee = Math.round((totalPrice - discountedPrice) * 100) / 100
 
+  const pets = await customerPetsSummary(admin, session.profileId)
+
   // For abandoned-cart tracking: the final price they were just shown.
   await recordPricingView(admin, {
     customerId: session.profileId,
@@ -173,6 +176,33 @@ export default async function ReviewPage() {
     time: draft.scheduled_time,
     locationLabel: location?.type === 'address' ? `${location.label} · ${location.line}` : null,
     review: { tidyProId: draft.selected_tidy_pro_id, servicePrice, totalPrice },
+    details: buildQuoteDetails({
+      tasks,
+      fullService,
+      fullServiceQuote,
+      squareFootage,
+      date: draft.scheduled_date,
+      time: draft.scheduled_time,
+      recurrence: draft.recurrence_frequency,
+      pets,
+      breakdown,
+      chosen: {
+        name: [tidyProIdentity?.first_name, tidyProIdentity?.last_name].filter(Boolean).join(' ') || 'Tidy Pro',
+        isTopTidyPro,
+        distanceMiles,
+        servicePrice,
+        promoDiscount,
+        ...(cardPercentage != null ? { cardPercentage } : {}),
+        processingFee,
+        totalPrice,
+      },
+      draft: {
+        notes: draft.notes,
+        entry_instructions: draft.entry_instructions ?? savedEntryInstructions,
+        supplies_provided: draft.supplies_provided,
+        gift_code: promo && 'promo' in promo ? promo.promo.code : null,
+      },
+    }),
   })
 
   // Others free at the same time who can do everything, offered as optional extras.
@@ -223,7 +253,7 @@ export default async function ReviewPage() {
       cleanerName={cleanerName}
       selectedCleaner={selectedCleaner}
       extraCleanerOptions={extraCleanerOptions}
-      pets={(await customerPetsSummary(admin, session.profileId)) ?? ''}
+      pets={pets ?? ''}
       notes={draft.notes ?? ''}
       entryInstructions={draft.entry_instructions ?? savedEntryInstructions ?? ''}
       savedEntryInstructions={savedEntryInstructions}

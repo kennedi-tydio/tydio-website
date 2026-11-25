@@ -12,6 +12,8 @@ import { bookableSelection, quotesForTidyPros } from '@/lib/fullServiceBooking'
 import { servicePriceForCleaner } from '@/lib/pricingRules'
 import { closeUnmetSearch, recordUnmetSearch } from '@/lib/unmetBookingSearches'
 import { recordPricingView, taskLabel } from '@/lib/pricingQuotes'
+import { buildQuoteDetails } from '@/lib/quoteDetails'
+import { customerPetsSummary } from '@/lib/customerPetsData'
 import { normalizeScheduleRange } from '@/lib/bookingSlots'
 import { serviceTimeZone } from '@/lib/serviceTimeZone'
 import { DEFAULT_BOOKING_TIME_ZONE } from '@/lib/bookingTime'
@@ -127,7 +129,7 @@ export async function searchAvailableCleaners(
 
   const { data: draft } = await admin
     .from('booking_drafts')
-    .select('task_list, full_service')
+    .select('task_list, full_service, notes, entry_instructions, supplies_provided, gift_code')
     .eq('id', draftId)
     .eq('customer_user_id', session.profileId)
     .maybeSingle()
@@ -250,6 +252,32 @@ export async function searchAvailableCleaners(
     time: schedule.time,
     locationLabel: schedule.location.type === 'address' ? `${schedule.location.label} · ${schedule.location.line}` : null,
     cleanerPrices: pricedCleaners.map((c) => c.price),
+    details: buildQuoteDetails({
+      tasks,
+      fullService,
+      squareFootage,
+      date: schedule.date,
+      endDate: schedule.endDate,
+      time: schedule.time,
+      endTime: schedule.endTime,
+      recurrence: schedule.date && !schedule.endDate ? schedule.recurrence : null,
+      breakdown: taskPart,
+      offers: pricedCleaners.map((c) => ({
+        name: c.name,
+        isTopTidyPro: c.isTopTidyPro,
+        distanceMiles: c.distanceMiles,
+        price: c.price,
+        ...(c.fullServicePrice != null ? { fullServicePrice: c.fullServicePrice } : {}),
+        ...(c.quotePending ? { quotePending: true } : {}),
+      })),
+      pets: await customerPetsSummary(admin, session.profileId).catch(() => null),
+      draft: {
+        notes: draft?.notes,
+        entry_instructions: draft?.entry_instructions,
+        supplies_provided: draft?.supplies_provided,
+        gift_code: draft?.gift_code,
+      },
+    }),
   })
 
   return { cleaners: pricedCleaners }
