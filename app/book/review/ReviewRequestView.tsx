@@ -147,7 +147,11 @@ function CleanerSummary({ cleaner }: { cleaner: CleanerMatch }) {
           {cleaner.isVerified && <VerifiedCheck size={14} />}
         </p>
         <p className="text-xs text-slate-500">
-          <span className="text-amber-500">★</span> {cleaner.rating.toFixed(1)} · {cleaner.distanceMiles} miles
+          {cleaner.reviewCount > 0 ? (
+            <><span className="text-amber-500">★</span> {cleaner.rating.toFixed(1)}</>
+          ) : (
+            'No reviews yet'
+          )}{' · '}{cleaner.distanceMiles} miles
           {cleaner.isTopTidyPro && (
             <span className="font-semibold" style={{ color: 'var(--color-brand)' }}> · Top Tidy Pro</span>
           )}

@@ -106,8 +106,14 @@ export default function ChooseRecurringTidyProView({
                       {cleaner.isVerified && <VerifiedCheck size={14} />}
                     </p>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <IconStar />
-                      <span className="text-xs text-slate-600">{cleaner.rating.toFixed(1)}</span>
+                      {cleaner.reviewCount > 0 ? (
+                        <>
+                          <IconStar />
+                          <span className="text-xs text-slate-600">{cleaner.rating.toFixed(1)}</span>
+                        </>
+                      ) : (
+                        <span className="text-xs text-slate-400">No reviews yet</span>
+                      )}
                       <span className="text-xs text-slate-400">· {cleaner.distanceMiles} miles</span>
                     </div>
                     {cleaner.isTopTidyPro && (

@@ -146,9 +146,15 @@ export default function TidyProPickList({
                   )}
                 </div>
                 <div className="flex items-center gap-1 mt-0.5">
-                  <IconStar />
-                  <span className="text-xs text-slate-600">{cleaner.rating.toFixed(1)}</span>
-                  <span className="text-xs text-slate-400">{cleaner.reviewCount}+ reviews</span>
+                  {cleaner.reviewCount > 0 ? (
+                    <>
+                      <IconStar />
+                      <span className="text-xs text-slate-600">{cleaner.rating.toFixed(1)}</span>
+                      <span className="text-xs text-slate-400">{cleaner.reviewCount} review{cleaner.reviewCount === 1 ? '' : 's'}</span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-slate-400">No reviews yet</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 mt-0.5">
                   <IconPin />
