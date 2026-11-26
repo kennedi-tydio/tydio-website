@@ -11,6 +11,7 @@ import { BulkAccountActions, RowAccountActions, RowSelectCheckbox, SelectAllAcco
 import { UserNote } from './UserNote'
 import { FavoriteStar } from './FavoriteStar'
 import { zipLocation } from '@/lib/zipLocation'
+import { prosNearZip, type ProLocation, type ProNearby } from '@/lib/prosNearZip'
 import { isSamePhone } from '@/lib/smsPhone'
 import { IconLeaf } from '@/app/components/IconLeaf'
 import { IconMoon } from '@/app/components/IconMoon'
@@ -96,6 +97,63 @@ async function bookableTidyProIds(admin: ReturnType<typeof createAdminClient>): 
     .eq('is_away', false)
   if (prosError) throw new Error(`Failed to load Tidy Pro availability: ${prosError.message}`)
   return (await withPushStatus(admin, pros ?? [])).filter(isAvailableForBooking).map((p) => p.id)
+}
+
+// Tidy Pros who can accept bookings right now (the same rules as bookableTidyProIds
+// and customer search), with their location, radius and name, for the "Tidy Pros
+// nearby" list under each customer.
+async function bookableTidyProLocations(admin: ReturnType<typeof createAdminClient>): Promise<ProLocation[]> {
+  const { data: pros, error: prosError } = await admin
+    .from('tidypro_profiles')
+    .select('id, active_for_booking, cleaner_status, is_away, profile_photo_url, bio, availability, stripe_onboarding_completed, travel_radius_miles, services_provided, latitude, longitude')
+    .eq('active_for_booking', true)
+    .eq('cleaner_status', 'approved')
+    .eq('is_away', false)
+  if (prosError) throw new Error(`Failed to load Tidy Pro locations: ${prosError.message}`)
+  const bookable = (await withPushStatus(admin, pros ?? [])).filter(isAvailableForBooking)
+  if (!bookable.length) return []
+  const { data: names, error: namesError } = await admin
+    .from('profiles')
+    .select('id, first_name, last_name')
+    .in('id', bookable.map((p) => p.id))
+  if (namesError) throw new Error(`Failed to load Tidy Pro names: ${namesError.message}`)
+  const nameById = new Map((names ?? []).map((n) => [n.id, [n.first_name, n.last_name].filter(Boolean).join(' ') || 'Tidy Pro']))
+  return bookable.map((p) => ({
+    id: p.id,
+    name: nameById.get(p.id) ?? 'Tidy Pro',
+    latitude: p.latitude,
+    longitude: p.longitude,
+    travel_radius_miles: p.travel_radius_miles,
+  }))
+}
+
+// Under a customer's name: the bookable Tidy Pros whose travel radius reaches their
+// ZIP, nearest first, each linking to their admin page.
+function ProsNearby({ zip, nearby }: { zip: string | null; nearby: ProNearby[] | null }) {
+  const base = 'mt-1 text-[11px] font-semibold whitespace-nowrap'
+  if (!nearby) return <div className={`${base} text-slate-400`}>No ZIP · can&apos;t check Tidy Pros</div>
+  if (nearby.length === 0) return <div className={`${base} text-red-600`}>✗ No Tidy Pros near {zip}</div>
+  return (
+    <div className="mt-1">
+      <div className={`${base} text-green-700`}>
+        ✓ {nearby.length} Tidy {nearby.length === 1 ? 'Pro' : 'Pros'} near {zip}
+      </div>
+      <ul className="mt-0.5 space-y-0.5">
+        {nearby.map((p) => (
+          <li key={p.id} className="text-[11px] font-normal text-slate-500 whitespace-nowrap">
+            <Link href={`/admin/tidy-pros/${p.id}`} className="underline hover:text-slate-800">{p.name}</Link>
+            {' · '}
+            {/* Straight-line miles from the ZIP's center, the same measure customer search
+                checks against travel radius; driving distance is usually a few miles more. */}
+            <span title={`Straight-line distance from the center of ZIP ${zip}. Driving distance is usually longer.`}>
+              {p.distanceMiles.toFixed(1)} mi straight-line from {zip}
+            </span>{' '}
+            <span className="text-slate-400">(travels {p.radiusMiles} mi)</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 export default async function UsersPage({
@@ -256,6 +314,8 @@ export default async function UsersPage({
 
   const addressByUserId = new Map<string, NonNullable<typeof savedAddresses>[number]>()
   for (const a of savedAddresses ?? []) if (!addressByUserId.has(a.user_id)) addressByUserId.set(a.user_id, a)
+  // For the "Tidy Pros nearby" list: every bookable Tidy Pro's location and radius.
+  const proLocations = customerIds.length ? await bookableTidyProLocations(admin) : []
 
   const { data: backgroundChecks } = cleanerIds.length
     ? await admin
@@ -547,6 +607,11 @@ export default async function UsersPage({
                         {proProfile?.is_away && <IconMoon size={14} title="Away — not taking bookings" />}
                         {proProfile?.uses_organic_products && <IconLeaf size={14} title="Uses organic cleaning products" />}
                       </span>
+                      {user.role === 'USER' && (() => {
+                        // Their signup ZIP, else their saved address's.
+                        const zip = user.zip_code || saved?.zip_code || null
+                        return <ProsNearby zip={zip} nearby={prosNearZip(zip, user.id, proLocations)} />
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.city ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{location?.state ?? '—'}</td>
