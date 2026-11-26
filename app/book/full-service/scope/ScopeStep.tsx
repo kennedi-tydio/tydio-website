@@ -13,6 +13,7 @@ import {
 } from '@/lib/fullService'
 import WizardFrame, { Stepper } from '../WizardFrame'
 import { saveFullServiceStepAction } from '../actions'
+import { actionErrorMessage } from '@/lib/networkError'
 
 export default function ScopeStep({ selection }: { selection: FullServiceSelection }) {
   const router = useRouter()
@@ -31,9 +32,13 @@ export default function ScopeStep({ selection }: { selection: FullServiceSelecti
       return
     }
     startTransition(async () => {
-      const result = await saveFullServiceStepAction({ scope, rooms }, 'priorities')
-      if (result.error) setError(result.error)
-      else router.push('/book/full-service/priorities')
+      try {
+        const result = await saveFullServiceStepAction({ scope, rooms }, 'priorities')
+        if (result.error) setError(result.error)
+        else router.push('/book/full-service/priorities')
+      } catch (err) {
+        setError(actionErrorMessage(err))
+      }
     })
   }
 

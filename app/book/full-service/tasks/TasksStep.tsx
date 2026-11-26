@@ -11,6 +11,7 @@ import { ADD_TASKS_COPY, FULL_SERVICE_LABEL, type AddOnKey, type FullServiceSele
 import { canAddWithCleaning, decideOverlap, type OverlapDecision } from '@/lib/fullServiceScope'
 import WizardFrame from '../WizardFrame'
 import { saveFullServiceStepAction } from '../actions'
+import { actionErrorMessage } from '@/lib/networkError'
 
 type Pending =
   | { mode: 'add'; task: TidyTask; decision: Exclude<OverlapDecision, { kind: 'none' }> }
@@ -47,12 +48,21 @@ export default function TasksStep({
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, startTransition] = useTransition()
-  // The latest save, so Continue waits for it.
+  // The latest save, so Continue waits for it, and how to send it again if the
+  // connection dropped while it was saving.
   const lastSave = useRef<Promise<unknown>>(Promise.resolve())
+  const redoLastSave = useRef<() => Promise<unknown>>(() => Promise.resolve())
+
+  function startSave(run: () => Promise<unknown>) {
+    redoLastSave.current = run
+    const save = run()
+    save.catch(() => {}) // Continue handles a failed save; don't report it twice.
+    lastSave.current = save
+  }
 
   function persist(updated: TidyTask[]) {
     setTasks(updated)
-    lastSave.current = saveTasks(updated, draftId)
+    startSave(() => saveTasks(updated, draftId))
   }
 
   function addTask(task: TidyTask, differentRoom: boolean) {
@@ -99,7 +109,7 @@ export default function TasksStep({
     setSelection((s) => ({ ...s, addOns }))
     setPending(null)
     setNotice('Added to your cleaning’s add-ons. You can change how many on the Add-ons step.')
-    lastSave.current = saveFullServiceStepAction({ addOns }, 'tasks')
+    startSave(() => saveFullServiceStepAction({ addOns }, 'tasks'))
   }
 
   function handleRemoveTask(taskId: string) {
@@ -111,10 +121,20 @@ export default function TasksStep({
   function handleContinue() {
     setError(null)
     startTransition(async () => {
-      await lastSave.current
-      const result = await saveFullServiceStepAction({}, 'notes')
-      if (result.error) setError(result.error)
-      else router.push('/book/full-service/notes')
+      try {
+        try {
+          await lastSave.current
+        } catch {
+          // The last change didn't save (dropped connection): send it again first.
+          startSave(redoLastSave.current)
+          await lastSave.current
+        }
+        const result = await saveFullServiceStepAction({}, 'notes')
+        if (result.error) setError(result.error)
+        else router.push('/book/full-service/notes')
+      } catch (err) {
+        setError(actionErrorMessage(err))
+      }
     })
   }
 

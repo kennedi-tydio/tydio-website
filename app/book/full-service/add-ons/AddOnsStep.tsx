@@ -5,6 +5,7 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import { addOnsFor, type AddOnKey, type FullServiceSelection } from '@/lib/fullService'
 import WizardFrame, { Stepper } from '../WizardFrame'
 import { saveFullServiceStepAction } from '../actions'
+import { actionErrorMessage } from '@/lib/networkError'
 
 // Each Tidy Pro sets their own add-on prices, so none are shown here; the
 // customer sees each Tidy Pro's exact total when they choose one.
@@ -20,9 +21,13 @@ export default function AddOnsStep({ selection }: { selection: FullServiceSelect
   function handleContinue() {
     setError(null)
     startTransition(async () => {
-      const result = await saveFullServiceStepAction({ addOns: quantities }, 'tasks')
-      if (result.error) setError(result.error)
-      else router.push('/book/full-service/tasks')
+      try {
+        const result = await saveFullServiceStepAction({ addOns: quantities }, 'tasks')
+        if (result.error) setError(result.error)
+        else router.push('/book/full-service/tasks')
+      } catch (err) {
+        setError(actionErrorMessage(err))
+      }
     })
   }
 

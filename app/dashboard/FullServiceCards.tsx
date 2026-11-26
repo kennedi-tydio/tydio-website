@@ -10,6 +10,7 @@ import {
   type FullServiceType,
 } from '@/lib/fullService'
 import { clearFullServiceAction, startFullServiceAction } from '@/app/book/full-service/actions'
+import { actionErrorMessage } from '@/lib/networkError'
 
 const BLURB: Record<FullServiceType, string> = {
   standard: 'Routine cleaning of your whole home or chosen rooms.',
@@ -51,9 +52,13 @@ export default function FullServiceCards({ selection }: { selection: FullService
   function start(type: FullServiceType) {
     setError(null)
     startTransition(async () => {
-      const result = await startFullServiceAction(type)
-      if (result.error) setError(result.error)
-      else router.push('/book/full-service/scope')
+      try {
+        const result = await startFullServiceAction(type)
+        if (result.error) setError(result.error)
+        else router.push('/book/full-service/scope')
+      } catch (err) {
+        setError(actionErrorMessage(err))
+      }
     })
   }
 

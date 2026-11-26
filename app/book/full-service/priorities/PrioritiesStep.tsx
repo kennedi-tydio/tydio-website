@@ -5,6 +5,7 @@ import { useRouter } from '@/app/components/NavigationSpinner'
 import { PRIORITIES, PRIORITIES_COPY, type FullServiceSelection, type PriorityKey } from '@/lib/fullService'
 import WizardFrame from '../WizardFrame'
 import { saveFullServiceStepAction } from '../actions'
+import { actionErrorMessage } from '@/lib/networkError'
 
 export default function PrioritiesStep({ selection }: { selection: FullServiceSelection }) {
   const router = useRouter()
@@ -24,9 +25,13 @@ export default function PrioritiesStep({ selection }: { selection: FullServiceSe
   function handleContinue() {
     setError(null)
     startTransition(async () => {
-      const result = await saveFullServiceStepAction({ priorities: Array.from(chosen) }, 'add-ons')
-      if (result.error) setError(result.error)
-      else router.push('/book/full-service/add-ons')
+      try {
+        const result = await saveFullServiceStepAction({ priorities: Array.from(chosen) }, 'add-ons')
+        if (result.error) setError(result.error)
+        else router.push('/book/full-service/add-ons')
+      } catch (err) {
+        setError(actionErrorMessage(err))
+      }
     })
   }
 

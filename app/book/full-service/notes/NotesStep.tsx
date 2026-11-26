@@ -6,6 +6,7 @@ import { NOTES_COPY, type FullServiceSelection } from '@/lib/fullService'
 import { updateDraftDetailsAction } from '@/app/book/review/actions'
 import WizardFrame from '../WizardFrame'
 import { saveFullServiceStepAction } from '../actions'
+import { actionErrorMessage } from '@/lib/networkError'
 
 // The booking's one notes field: the same one the review page shows, which the
 // Tidy Pro sees on the request and on arrival.
@@ -28,10 +29,15 @@ export default function NotesStep({
   function handleContinue() {
     setError(null)
     startTransition(async () => {
-      await updateDraftDetailsAction(draftId, { notes: notes.trim() })
-      const result = await saveFullServiceStepAction({}, 'notes')
-      if (result.error) setError(result.error)
-      else router.push('/book')
+      try {
+        await updateDraftDetailsAction(draftId, { notes: notes.trim() })
+        const result = await saveFullServiceStepAction({}, 'notes')
+        if (result.error) setError(result.error)
+        else router.push('/book')
+      } catch (err) {
+        // A dropped request stays on this step with a message, instead of the error page.
+        setError(actionErrorMessage(err))
+      }
     })
   }
 
